@@ -1,153 +1,158 @@
 # IIMC Conversational Algo-Trading Platform
 
-Local-first conversational trading research workspace for professor demos,
-resume evidence, and interview defense.
+An AI-assisted algorithmic trading research platform that lets users interact
+with market data, strategy backtests, broker readiness, and paper-trading
+workflows through a conversational interface.
 
-This is not a cloud deployment, HFT system, autonomous live-trading bot, or
-profitability claim. It is a local product that shows how a natural-language
-interface can route to governed backend tools for data, research, risk, order
-evidence, OpenAlgo readiness, RAG, and reporting.
+The system combines **Groq LLM orchestration**, **retrieval-augmented generation
+(RAG)**, **FastAPI**, **DuckDB**, and **OpenAlgo/Dhan broker APIs** to route
+natural-language requests into governed backend tools. It is built as a
+local-first research and execution-control workspace, with live trading disabled
+by default.
 
-## What Is Implemented
+## Core Capabilities
 
-- FastAPI backend with typed tool contracts
-- local DuckDB evidence store
-- governed NIFTY options data catalog with 66,080 real rows
-- deterministic strategy engine: EMA, SMA, RSI, momentum
-- persisted signal, risk, order, fill, and performance workflow
-- Professor Dashboard and Markdown report generation
-- OpenAlgo monitor/readiness layer with safe unavailable/credential states
-- analyzer/sandbox submission boundary with human approval
-- generic symbol/asset-class readiness checks
-- governed document retrieval and retrieval evaluation
-- provider-backed market-news interface when configured
-- frontend workspace for chat, runs, data, OpenAlgo, operations, and evidence
+- Conversational chatbot for market research, instrument discovery, backtesting,
+  broker-state queries, and performance summaries.
+- LLM tool orchestration with typed contracts, response grounding, and audit
+  evidence for every tool-backed answer.
+- RAG over project, architecture, policy, and trading workflow documents.
+- Strategy backtesting with stored signals, risk decisions, order events, fills,
+  and performance summaries.
+- OpenAlgo/Dhan integration for quote, history, analyzer-mode status, funds,
+  orderbook, tradebook, and positionbook checks.
+- Broker-backed instrument discovery for NSE equities, NFO derivatives, and MCX
+  commodities.
+- Provider-backed market/news ingestion with raw response archival,
+  normalization, deduplication, and DuckDB persistence.
+- Web dashboard for chat, strategy runs, data catalog, OpenAlgo monitor,
+  sandbox intents, reports, evaluations, and operational status.
 
-## What Is Not Claimed
+## Architecture
 
-- no autonomous live trading
-- no guaranteed profitable strategy
-- no fake market data, fake news, fake P&L, or fake broker responses
-- no claim that all symbols/assets are verified
-- no claim that IIMC historical backtests appear inside OpenAlgo
-- no real OpenAI/OpenAlgo/news provider calls unless keys are configured
-- no production cloud deployment claim
+```mermaid
+flowchart LR
+    User["User / Chatbot Dashboard"] --> API["FastAPI API Layer"]
+    API --> Orchestrator["Groq LLM Orchestrator"]
+    Orchestrator --> Tools["Governed Tool Registry"]
+    Tools --> RAG["RAG / Knowledge Search"]
+    Tools --> Backtest["Backtest + Strategy Engine"]
+    Tools --> Risk["Risk + Approval Layer"]
+    Tools --> Broker["OpenAlgo / Dhan Adapter"]
+    Tools --> News["Market News Provider"]
+    Tools --> Store["DuckDB Evidence Store"]
+    Store --> Dashboard["Professor / Operator Dashboard"]
+```
 
-## Setup
+The backend separates orchestration, services, repositories, and infrastructure:
+
+- `iimc_trading_platform/api.py` exposes REST and dashboard routes.
+- `iimc_trading_platform/orchestration.py` handles LLM tool selection and
+  grounded response composition.
+- `iimc_trading_platform/tools/registry.py` defines governed tool contracts.
+- `iimc_trading_platform/services/` contains domain services for research,
+  backtesting, risk, news, retrieval, OpenAlgo readiness, portfolio state,
+  alerts, and evidence.
+- `iimc_trading_platform/infrastructure/` contains DuckDB and OpenAlgo
+  integration code.
+- `iimc_trading_platform/frontend/` contains the browser dashboard.
+
+## Safety Model
+
+The project is designed for controlled research and paper-trading workflows:
+
+- Live trading is disabled unless explicitly enabled through configuration.
+- Paper orders route through OpenAlgo analyzer mode and approval gates.
+- Tool calls, approval decisions, broker snapshots, signals, risk decisions, and
+  execution events are persisted for traceability.
+- Missing providers fail safely; the platform does not fabricate market data,
+  news, broker state, P&L, or backtest results.
+- Secrets are loaded from local environment variables or ignored `.env` files,
+  never from committed source.
+
+## Quick Start
 
 ```powershell
 python -m pip install -e .
 python -m iimc_trading_platform.cli init-db
+python -m iimc_trading_platform.cli verify-foundation
+python -m uvicorn iimc_trading_platform.asgi:app --reload --host 127.0.0.1 --port 8001
+```
+
+Open the dashboard:
+
+```text
+http://127.0.0.1:8001/
+```
+
+## Configuration
+
+Copy `.env.example` to `.env` and fill only the providers you want to validate
+locally.
+
+Key settings:
+
+```env
+IIMC_LLM_PROVIDER=groq
+GROQ_API_KEY=
+IIMC_REQUIRE_REAL_LLM=true
+
+OPENALGO_BASE_URL=http://127.0.0.1:5000
+OPENALGO_API_KEY=
+
+MARKET_NEWS_PROVIDER=eventregistry
+MARKET_NEWS_API_URL=https://eventregistry.org/api/v1/article/getArticles
+MARKET_NEWS_API_KEY=
+
+IIMC_ALLOW_LIVE_TRADING=false
+IIMC_REQUIRE_PAPER_APPROVAL=true
+```
+
+## Useful Commands
+
+Run health and schema checks:
+
+```powershell
 python -m iimc_trading_platform.cli doctor
 python -m iimc_trading_platform.cli verify-foundation
 ```
 
-Run the local app:
+Check OpenAlgo readiness:
 
 ```powershell
-uvicorn iimc_trading_platform.asgi:app --reload
-```
-
-Open:
-
-```text
-http://127.0.0.1:8000/
-```
-
-Run stateful DuckDB commands sequentially. DuckDB is used as the local evidence
-store and should not be written by multiple processes at the same time.
-
-## Professor Demo
-
-```powershell
-python scripts\verify_real_workflow.py
-python scripts\professor_demo.py --create-report
-python scripts\smoke_real_api.py
-```
-
-The canonical current demo run is:
-
-- run: `run_9f83c1c9ab65`
-- strategy: EMA crossover 9/21
-- dataset: `NIFTY_MONTH_E1_5m_options`
-- signals: 56
-- risk decisions: 56
-- orders: 56
-- fills: 56
-- closed trades: 28
-- net P&L: 475.22
-- max drawdown: 342.45
-- return: 0.0475%
-
-This is an IIMC historical backtest from local real data. It is not OpenAlgo
-broker activity and is not a prediction.
-
-## OpenAlgo
-
-Configure only when you want real OpenAlgo checks:
-
-```powershell
-$env:OPENALGO_BASE_URL="http://127.0.0.1:5000"
-$env:OPENALGO_API_KEY="..."
-```
-
-Then run:
-
-```powershell
-python -m iimc_trading_platform.cli openalgo-check
 python -m iimc_trading_platform.cli openalgo-monitor
 python -m iimc_trading_platform.cli openalgo-readiness `
   --symbol RELIANCE --exchange NSE --asset-class equity `
-  --interval 5m --start-date 2026-04-23 --end-date 2026-05-23
+  --interval 5m --start-date 2026-06-24 --end-date 2026-06-26
 ```
 
-Without credentials, the platform returns `credential_required` safely. If
-OpenAlgo is down, it returns `unavailable`. Neither state is treated as success.
-
-## Symbol Readiness
+Run tests:
 
 ```powershell
-python -m iimc_trading_platform.cli platform-status `
-  --symbol RELIANCE --exchange NSE --asset-class equity `
-  --interval 5m --start-date 2026-04-23 --end-date 2026-05-23
+python -m pytest
 ```
 
-The readiness layer supports multi-asset validation by request. It checks local
-catalog data, provider configuration, OpenAlgo status, analyzer path, paper/live
-boundaries, and `no_synthetic_fallback`.
-
-## Market News
-
-Configure only for a real provider:
+Run a focused platform/API test subset:
 
 ```powershell
-$env:MARKET_NEWS_PROVIDER="your_provider"
-$env:MARKET_NEWS_API_URL="https://provider.example/news"
-$env:MARKET_NEWS_API_KEY="..."
+python -m pytest tests/test_api_chat.py tests/test_platform_api_routes.py tests/test_readiness_and_news.py -q
 ```
 
-If not configured, news APIs return `news_provider_not_configured` and no fake
-articles. If configured, raw provider responses are stored under
-`artifacts/market_news` and normalized articles are deduplicated in DuckDB.
+## Repository Structure
 
-## Validation
-
-```powershell
-python -m compileall -q iimc_trading_platform scripts
-python -m unittest discover -s tests -v
-node --check iimc_trading_platform\frontend\app.js
-python -m iimc_trading_platform.cli doctor
-python -m iimc_trading_platform.cli verify-foundation
-python scripts\verify_real_workflow.py
-python scripts\professor_demo.py --create-report
-python scripts\smoke_real_api.py
+```text
+iimc_trading_platform/     Core backend, services, tools, frontend, adapters
+tests/                     Unit and integration-style tests
+docs/                      Architecture, operations, security, and demo docs
+scripts/                   Local verification and demo scripts
+deploy/                    Docker/Kubernetes deployment references
+.github/workflows/         CI workflow
 ```
 
-See:
+## Scope and Limitations
 
-- `docs/PROFESSOR_DEMO_RUNBOOK.md`
-- `docs/RESUME_EVIDENCE_TRACKER.md`
-- `docs/OPERATOR_WORKSPACE.md`
-- `docs/PHASE_FINAL_TEST_MATRIX.md`
-- `docs/RESUME_BULLETS.md`
-- `docs/INTERVIEW_DEFENSE.md`
+This repository demonstrates an AI-orchestrated trading research and controlled
+execution platform. It does not claim guaranteed profitability, autonomous live
+trading, or verified support for every broker instrument. Real provider behavior
+depends on configured credentials, broker availability, market hours, and the
+instrument coverage exposed by OpenAlgo/Dhan.
