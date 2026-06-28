@@ -1,0 +1,22 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - uses: azure/setup-kubectl@v4
+      - run: python -m pip install -e .
+      - run: python -m compileall -q iimc_trading_platform tests scripts
+      - run: python -m unittest discover -s tests -v
+      - run: python scripts/verify_real_workflow.py --database /tmp/ci.duckdb
+      - run: IIMC_DATABASE_PATH=/tmp/ci.duckdb python -m iimc_trading_platform.cli storage-plan
+      - run: kubectl kustomize deploy/kubernetes/overlays/production > /tmp/iimc-kubernetes.yaml

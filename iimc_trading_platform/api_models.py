@@ -1,0 +1,125 @@
+from __future__ import annotations
+
+from typing import Any, Literal
+
+from pydantic import BaseModel, Field
+
+
+class ChatRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=4000)
+    session_id: str | None = None
+
+
+class ToolEvidenceResponse(BaseModel):
+    tool_call_id: str
+    tool_name: str
+    status: str
+
+
+class ChatResponse(BaseModel):
+    session_id: str
+    intent: str
+    answer: str
+    tool_calls: list[ToolEvidenceResponse]
+    data: dict[str, Any]
+    orchestration_mode: str
+    evaluation: dict[str, Any]
+
+
+class AiEvaluationRequest(BaseModel):
+    mode: Literal["offline", "configured"] = "offline"
+
+
+class RetentionPreviewRequest(BaseModel):
+    policy_names: list[str] | None = Field(
+        default=None,
+        max_length=20,
+    )
+
+
+class RetentionExecuteRequest(RetentionPreviewRequest):
+    confirmation: str = Field(min_length=1, max_length=100)
+
+
+class AlertAcknowledgementRequest(BaseModel):
+    reason: str = Field(min_length=3, max_length=500)
+
+
+class ApprovalDecisionRequest(BaseModel):
+    approved: bool
+    decided_by: str = Field(min_length=1, max_length=200)
+    reason: str = Field(min_length=3, max_length=1000)
+
+
+class SandboxActionRequest(BaseModel):
+    actor: str = Field(min_length=1, max_length=200)
+
+
+class DashboardPreferencesRequest(BaseModel):
+    widgets: list[str] = Field(max_length=12)
+    auto_refresh: bool = False
+
+
+class ResearchBriefRequest(BaseModel):
+    symbol: str = Field(min_length=1, max_length=80)
+    exchange: str = Field(min_length=1, max_length=20)
+    asset_class: Literal[
+        "equity",
+        "index",
+        "futures",
+        "options",
+        "commodity",
+        "crypto",
+    ]
+    interval: str = Field(min_length=1, max_length=20)
+    start_date: str = Field(min_length=4, max_length=20)
+    end_date: str = Field(min_length=4, max_length=20)
+
+
+class LoginRequest(BaseModel):
+    username: str = Field(min_length=3, max_length=64)
+    password: str = Field(min_length=1, max_length=256)
+
+
+class RunComparisonRequest(BaseModel):
+    run_ids: list[str] = Field(min_length=2, max_length=10)
+
+
+class RobustnessExperimentRequest(BaseModel):
+    strategy_name: str = Field(min_length=1, max_length=100)
+    dataset_id: str = Field(min_length=1, max_length=200)
+    parameter_grid: list[dict[str, int | float]] = Field(
+        min_length=1,
+        max_length=12,
+    )
+    split_ratio: float = Field(default=0.7, ge=0.5, le=0.85)
+    requested_quantity: int = Field(default=1, ge=1, le=100_000)
+    starting_equity: float = Field(default=1_000_000.0, gt=0)
+    fee_bps: float = Field(default=1.0, ge=0, le=1_000)
+    slippage_bps: float = Field(default=0.0, ge=0, le=1_000)
+    persist_selected_runs: bool = True
+
+
+class CreatePortfolioRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    starting_cash: float = Field(gt=0)
+    base_currency: str = Field(default="INR", min_length=3, max_length=3)
+
+
+class PortfolioRiskCheckRequest(BaseModel):
+    symbol: str = Field(min_length=1, max_length=100)
+    side: str = Field(pattern="^(BUY|SELL)$")
+    quantity: int = Field(ge=1, le=10_000_000)
+    price: float = Field(gt=0)
+
+
+class PortfolioFillRequest(BaseModel):
+    reservation_id: str = Field(min_length=1)
+    reference_id: str = Field(min_length=1, max_length=200)
+    price: float = Field(gt=0)
+    fees: float = Field(default=0.0, ge=0)
+
+
+class PortfolioControlRequest(BaseModel):
+    enabled: bool
+    reason: str = Field(min_length=3, max_length=500)

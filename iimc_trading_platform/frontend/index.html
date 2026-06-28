@@ -1,0 +1,604 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>IIMC Algo Trading Platform</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">IA</div>
+        <div>
+          <strong>IIMC Algo</strong>
+          <span>Trading Platform</span>
+        </div>
+      </div>
+      <nav aria-label="Workspace sections">
+        <button class="nav-item active" data-view="workspace">
+          <span aria-hidden="true">⌂</span> Workspace
+        </button>
+        <button class="nav-item" data-view="professor">
+          <span aria-hidden="true">PD</span> Professor
+        </button>
+        <button class="nav-item" data-view="runs">
+          <span aria-hidden="true">▥</span> Strategy Runs
+        </button>
+        <button class="nav-item" data-view="experiments">
+          <span aria-hidden="true">E</span> Experiments
+        </button>
+        <button class="nav-item" data-view="portfolios">
+          <span aria-hidden="true">P</span> Portfolios
+        </button>
+        <button class="nav-item" data-view="approvals">
+          <span aria-hidden="true">✓</span> Controls
+          <span class="nav-count" id="approval-count">0</span>
+        </button>
+        <button class="nav-item" data-view="data">
+          <span aria-hidden="true">◫</span> Data Catalog
+        </button>
+        <button class="nav-item" data-view="openalgo">
+          <span aria-hidden="true">OA</span> OpenAlgo
+        </button>
+        <button class="nav-item" data-view="operations">
+          <span aria-hidden="true">O</span> Operations
+        </button>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="connection-row">
+          <span class="status-dot" id="api-dot"></span>
+          <span id="api-label">Connecting</span>
+        </div>
+        <a href="/docs" target="_blank" rel="noreferrer">OpenAPI documentation ↗</a>
+      </div>
+    </aside>
+
+    <main>
+      <header class="topbar">
+        <div>
+          <h1 id="view-title">Trading Research Workspace</h1>
+          <p id="view-subtitle">Grounded analysis, audited tools, controlled execution.</p>
+        </div>
+        <div class="environment-badges">
+          <span class="badge" id="user-badge">Local development</span>
+          <span class="badge" id="orchestrator-badge">Loading orchestration</span>
+          <span class="badge safe">Live disabled</span>
+          <button class="secondary-button hidden" id="logout-button">Log out</button>
+        </div>
+      </header>
+
+      <section class="status-strip" aria-label="System status">
+        <div><span>Database</span><strong id="database-status">Checking</strong></div>
+        <div><span>LLM</span><strong id="llm-status">Checking</strong></div>
+        <div><span>OpenAlgo</span><strong id="openalgo-status">Checking</strong></div>
+        <div><span>Verification</span><strong id="verification-status">Checking</strong></div>
+      </section>
+
+      <section class="view active" id="view-workspace">
+        <div class="workspace-grid">
+          <section class="chat-panel">
+            <div class="panel-heading">
+              <div>
+                <h2>Trading Assistant</h2>
+                <p>Ask in natural language; the backend chooses governed tools.</p>
+              </div>
+              <button class="icon-button" id="new-session" title="Start new session" aria-label="Start new session">＋</button>
+            </div>
+            <div class="messages" id="messages" aria-live="polite">
+              <article class="message assistant">
+                <div class="message-role">Assistant</div>
+                <p>Ask for research, backtests, data coverage, OpenAlgo status, risk checks, order timelines, or performance summaries.</p>
+              </article>
+            </div>
+            <form class="composer" id="chat-form">
+              <label class="sr-only" for="chat-input">Message</label>
+              <textarea id="chat-input" rows="2" maxlength="4000" placeholder="Ask for a market check, backtest, risk review, or OpenAlgo status..." required></textarea>
+              <button type="submit" class="primary-button" id="send-button">Send</button>
+            </form>
+          </section>
+
+          <aside class="evidence-panel">
+            <div class="panel-heading">
+              <div>
+                <h2>Evidence</h2>
+                <p>Latest tool-backed result.</p>
+              </div>
+            </div>
+            <div id="evidence-empty" class="empty-state">
+              Evidence appears after a tool-backed response.
+            </div>
+            <div id="evidence-content" class="evidence-content hidden"></div>
+          </aside>
+        </div>
+
+        <section class="command-center">
+          <div class="command-hero">
+            <div>
+              <h2>Conversational Trading Command Center</h2>
+              <p>Research, strategy testing, dashboard monitoring, paper trading, and live-trading readiness from one controlled interface.</p>
+            </div>
+            <div class="command-controls">
+              <div class="command-safety" id="command-safety">Loading controls</div>
+              <button class="secondary-button" id="toggle-live-dashboard" type="button">Auto refresh off</button>
+            </div>
+          </div>
+          <div class="command-grid">
+            <section class="command-panel">
+              <div class="panel-heading compact-heading">
+                <div>
+                  <h2>Capabilities</h2>
+                  <p>Ready, gated, or waiting for credentials.</p>
+                </div>
+              </div>
+              <div class="capability-list" id="capability-list"></div>
+            </section>
+            <section class="command-panel">
+              <div class="panel-heading compact-heading">
+                <div>
+                  <h2>Asset Readiness</h2>
+                  <p>Check support before research or execution.</p>
+                </div>
+              </div>
+              <form class="readiness-form" id="readiness-form">
+                <label><span>Symbol</span><input id="readiness-symbol" value="RELIANCE" required></label>
+                <label><span>Exchange</span><input id="readiness-exchange" value="NSE" required></label>
+                <label><span>Asset</span><select id="readiness-asset"><option>equity</option><option>options</option><option>futures</option><option>commodity</option><option>crypto</option></select></label>
+                <label><span>Interval</span><input id="readiness-interval" value="5m" required></label>
+                <label><span>Start</span><input id="readiness-start" value="2026-04-23" required></label>
+                <label><span>End</span><input id="readiness-end" value="2026-05-23" required></label>
+                <button type="submit" class="primary-button" id="run-readiness">Check</button>
+              </form>
+              <div class="readiness-result" id="readiness-result">Run a readiness check to see local data, provider status, and OpenAlgo path.</div>
+            </section>
+            <section class="command-panel">
+              <div class="panel-heading compact-heading">
+                <div>
+                  <h2>Custom Dashboard</h2>
+                  <p>Choose the live workspace widgets shown below.</p>
+                </div>
+              </div>
+              <div class="widget-picker" id="widget-picker"></div>
+              <div class="dashboard-widgets" id="dashboard-widgets"></div>
+            </section>
+            <section class="command-panel">
+              <div class="panel-heading compact-heading">
+                <div>
+                  <h2>Strategy Personas</h2>
+                  <p>Governed profiles for strategy bias, risk, and dashboard focus.</p>
+                </div>
+              </div>
+              <div class="persona-list" id="persona-list"></div>
+            </section>
+          </div>
+          <section class="command-panel market-news-panel">
+            <div class="panel-heading compact-heading">
+              <div>
+                <h2>Market Research Feed</h2>
+                <p>Provider-backed headlines with stored provenance.</p>
+              </div>
+            </div>
+            <form class="market-news-form" id="market-news-form">
+              <label><span>Query</span><input id="market-news-query" value="NIFTY" required></label>
+              <label><span>Symbol</span><input id="market-news-symbol" value="NIFTY"></label>
+              <button type="submit" class="primary-button" id="fetch-market-news">Fetch</button>
+              <button type="button" class="secondary-button" id="create-research-brief">Create brief</button>
+            </form>
+            <div class="market-news-status" id="market-news-status">Loading news status...</div>
+            <div class="market-news-list" id="market-news-list"></div>
+            <div class="research-brief-list" id="research-brief-list"></div>
+          </section>
+          <div class="quick-actions" id="quick-actions"></div>
+        </section>
+
+        <section class="overview-band">
+          <div class="section-heading">
+            <div>
+              <h2>Operational Overview</h2>
+              <p>Current governed state from the platform database.</p>
+            </div>
+            <button class="secondary-button" id="refresh-overview">Refresh</button>
+          </div>
+          <div class="metric-grid">
+            <div class="metric">
+              <span>Governed rows</span>
+              <strong id="metric-rows">—</strong>
+              <small id="metric-quality">No dataset loaded</small>
+            </div>
+            <div class="metric">
+              <span>Recent runs</span>
+              <strong id="metric-runs">—</strong>
+              <small>Persisted strategy executions</small>
+            </div>
+            <div class="metric">
+              <span>Pending approvals</span>
+              <strong id="metric-approvals">—</strong>
+              <small>Human decision required</small>
+            </div>
+            <div class="metric">
+              <span>Knowledge corpus</span>
+              <strong id="metric-documents">—</strong>
+              <small>Governed project documents</small>
+            </div>
+          </div>
+        </section>
+      </section>
+
+      <section class="view" id="view-professor">
+        <div class="section-heading">
+          <div>
+            <h2>Professor Dashboard</h2>
+            <p>One-place view of the EMA demo workflow, storage evidence, and safety gates.</p>
+          </div>
+          <button class="secondary-button" id="refresh-professor">Refresh</button>
+        </div>
+        <div class="professor-grid">
+          <section class="professor-panel">
+            <div class="panel-heading">
+              <div><h2>Demo Status</h2><p id="professor-demo-goal">Loading persisted evidence.</p></div>
+            </div>
+            <div class="metric-grid professor-metrics">
+              <div class="metric"><span>Latest run</span><strong id="prof-run-id">-</strong><small id="prof-run-status">No completed run loaded</small></div>
+              <div class="metric"><span>Net P&amp;L</span><strong id="prof-net-pnl">-</strong><small>Historical simulation only</small></div>
+              <div class="metric"><span>Trades</span><strong id="prof-trades">-</strong><small>Closed simulated trades</small></div>
+              <div class="metric"><span>Drawdown</span><strong id="prof-drawdown">-</strong><small>Maximum drawdown</small></div>
+            </div>
+            <div class="professor-actions" id="professor-actions"></div>
+          </section>
+          <section class="professor-panel">
+            <div class="panel-heading">
+              <div><h2>Storage Evidence</h2><p>Run-scoped counts from the platform database.</p></div>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Table</th><th>Rows</th></tr></thead>
+                <tbody id="prof-storage-table"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+        <section class="professor-panel workflow-panel">
+          <div class="panel-heading">
+            <div><h2>Backend Workflow</h2><p>What the professor can ask about end to end.</p></div>
+          </div>
+          <div class="workflow-step-list" id="prof-workflow"></div>
+        </section>
+      </section>
+
+      <section class="view" id="view-runs">
+        <div class="section-heading">
+          <div>
+            <h2>Strategy Runs</h2>
+            <p>Stored research executions with deterministic performance evidence.</p>
+          </div>
+          <div class="section-actions">
+            <button class="secondary-button" id="compare-runs" disabled>Compare selected</button>
+            <button class="secondary-button" id="refresh-runs">Refresh</button>
+          </div>
+        </div>
+        <form class="backtest-form" id="backtest-form">
+          <label>
+            <span>Dataset</span>
+            <select id="backtest-dataset" required></select>
+          </label>
+          <label>
+            <span>Strategy</span>
+            <select id="backtest-strategy" required></select>
+          </label>
+          <label>
+            <span>Mode</span>
+            <select id="backtest-mode" required>
+              <option value="research">Research</option>
+              <option value="semi_auto">Semi-auto paper prep</option>
+            </select>
+          </label>
+          <div class="strategy-parameter-grid" id="backtest-parameters"></div>
+          <label>
+            <span>Slippage bps</span>
+            <input id="backtest-slippage" type="number" min="0" max="1000" step="0.1" value="0.5">
+          </label>
+          <button type="submit" class="primary-button" id="run-backtest">Run IIMC backtest</button>
+        </form>
+        <pre class="json-view hidden" id="backtest-result-json"></pre>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th aria-label="Select"></th><th>Run</th><th>Strategy</th><th>Status</th><th>Trades</th>
+                <th>Net P&amp;L</th><th>Drawdown</th><th>Return</th>
+              </tr>
+            </thead>
+            <tbody id="runs-table"></tbody>
+          </table>
+        </div>
+        <div class="run-detail hidden" id="run-detail"></div>
+      </section>
+
+      <section class="view" id="view-experiments">
+        <div class="section-heading">
+          <div>
+            <h2>Strategy Experiments</h2>
+            <p>Chronological validation, parameter sensitivity, and benchmarks.</p>
+          </div>
+          <button class="secondary-button" id="refresh-experiments">Refresh</button>
+        </div>
+        <form class="experiment-form" id="experiment-form">
+          <label>
+            <span>Strategy</span>
+            <select id="experiment-strategy" required></select>
+          </label>
+          <label>
+            <span>Dataset</span>
+            <select id="experiment-dataset" required></select>
+          </label>
+          <label>
+            <span>Train split</span>
+            <input id="experiment-split" type="number" min="0.5" max="0.85" step="0.05" value="0.7" required>
+          </label>
+          <label>
+            <span>Fee (bps)</span>
+            <input id="experiment-fee" type="number" min="0" max="1000" step="0.1" value="1">
+          </label>
+          <label>
+            <span>Slippage (bps)</span>
+            <input id="experiment-slippage" type="number" min="0" max="1000" step="0.1" value="0.5">
+          </label>
+          <label class="experiment-grid-input">
+            <span>Parameter candidates (JSON array)</span>
+            <textarea id="experiment-grid" rows="7" required>[
+  {"fast_period": 7, "slow_period": 18, "stop_loss_pct": 0.02},
+  {"fast_period": 9, "slow_period": 21, "stop_loss_pct": 0.02},
+  {"fast_period": 12, "slow_period": 26, "stop_loss_pct": 0.02}
+]</textarea>
+          </label>
+          <button type="submit" class="primary-button" id="run-experiment">Run experiment</button>
+        </form>
+        <div class="table-wrap experiment-table">
+          <table>
+            <thead>
+              <tr><th>Experiment</th><th>Strategy</th><th>Status</th><th>Candidates</th><th>Verdict</th><th>Started</th></tr>
+            </thead>
+            <tbody id="experiments-table"></tbody>
+          </table>
+        </div>
+        <div class="run-detail hidden" id="experiment-detail"></div>
+      </section>
+
+      <section class="view" id="view-portfolios">
+        <div class="section-heading">
+          <div>
+            <h2>Portfolio Risk</h2>
+            <p>Cash, positions, exposure reservations, and trading controls.</p>
+          </div>
+          <button class="secondary-button" id="refresh-portfolios">Refresh</button>
+        </div>
+        <form class="portfolio-create-form" id="portfolio-create-form">
+          <label>
+            <span>Name</span>
+            <input id="portfolio-name" maxlength="120" required>
+          </label>
+          <label>
+            <span>Starting cash</span>
+            <input id="portfolio-cash" type="number" min="1" step="1000" value="1000000" required>
+          </label>
+          <button type="submit" class="primary-button">Create portfolio</button>
+        </form>
+        <div class="table-wrap portfolio-table">
+          <table>
+            <thead>
+              <tr><th>Portfolio</th><th>Name</th><th>Cash</th><th>Status</th><th>Updated</th></tr>
+            </thead>
+            <tbody id="portfolios-table"></tbody>
+          </table>
+        </div>
+        <div class="run-detail hidden" id="portfolio-detail"></div>
+      </section>
+
+      <section class="view" id="view-approvals">
+        <div class="section-heading">
+          <div>
+            <h2>Execution Controls</h2>
+            <p>Paper trading uses OpenAlgo analyzer mode; live trading stays disabled.</p>
+          </div>
+          <button class="secondary-button" id="refresh-approvals">Refresh</button>
+        </div>
+        <div class="notice">
+          The chatbot can prepare paper intents, but live trading remains disabled. OpenAlgo submission requires analyzer mode.
+        </div>
+        <section class="paper-trading-panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Paper Trading / OpenAlgo Sandbox</h2>
+              <p>Create an OpenAlgo analyzer intent from a semi-auto risk decision.</p>
+            </div>
+          </div>
+          <form class="paper-intent-form" id="paper-intent-form">
+            <label><span>Run</span><select id="paper-run" required></select></label>
+            <label><span>Risk decision</span><select id="paper-decision" required></select></label>
+            <label><span>Exchange</span><select id="paper-exchange"><option>NSE</option><option>NFO</option><option>BSE</option><option>MCX</option></select></label>
+            <label><span>Product</span><select id="paper-product"><option>MIS</option><option>CNC</option><option>NRML</option></select></label>
+            <label><span>Order type</span><select id="paper-order-type"><option>MARKET</option><option>LIMIT</option><option>SL</option><option>SL-M</option></select></label>
+            <label><span>Limit price</span><input id="paper-limit-price" type="number" min="0" step="0.05"></label>
+            <label><span>Trigger price</span><input id="paper-trigger-price" type="number" min="0" step="0.05"></label>
+            <button type="submit" class="primary-button" id="prepare-paper-intent">Prepare intent</button>
+          </form>
+          <div class="paper-helper" id="paper-helper">Run a semi-auto backtest, then select an approved risk decision here.</div>
+          <div class="table-wrap paper-intents-table">
+            <table>
+              <thead><tr><th>Intent</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Status</th><th>Broker order</th><th>Action</th></tr></thead>
+              <tbody id="paper-intents-table"></tbody>
+            </table>
+          </div>
+        </section>
+        <div class="approval-list" id="approval-list"></div>
+      </section>
+
+      <section class="view" id="view-data">
+        <div class="section-heading">
+          <div>
+            <h2>Data Catalog</h2>
+            <p>Coverage, quality, provenance, and purpose-aware freshness.</p>
+          </div>
+          <button class="secondary-button" id="refresh-data">Refresh</button>
+        </div>
+        <div class="dataset-list" id="dataset-list"></div>
+        <section class="rag-panel">
+          <div class="section-heading">
+            <div>
+              <h2>Governed Document Search</h2>
+              <p>Search indexed project/RAG documents with chunk provenance.</p>
+            </div>
+          </div>
+          <form class="knowledge-search-form" id="knowledge-search-form">
+            <label>
+              <span>Query</span>
+              <input id="knowledge-query" value="OpenAlgo workflow and risk management" required>
+            </label>
+            <button type="submit" class="primary-button" id="run-knowledge-search">Search docs</button>
+          </form>
+          <pre class="json-view" id="knowledge-search-result">Search results will appear here.</pre>
+        </section>
+      </section>
+
+      <section class="view" id="view-openalgo">
+        <div class="section-heading">
+          <div>
+            <h2>OpenAlgo Monitor</h2>
+            <p>Read-only analyzer and account state captured with persisted provenance.</p>
+          </div>
+          <button class="secondary-button" id="refresh-openalgo">Refresh history</button>
+        </div>
+        <div class="notice" id="openalgo-notice"></div>
+        <div class="openalgo-status-grid" id="openalgo-monitor"></div>
+        <div class="snapshot-actions" id="snapshot-actions">
+          <button class="secondary-button snapshot-button" data-snapshot-type="analyzer">Analyzer mode</button>
+          <button class="secondary-button snapshot-button" data-snapshot-type="funds">Funds</button>
+          <button class="secondary-button snapshot-button" data-snapshot-type="positionbook">Positions</button>
+          <button class="secondary-button snapshot-button" data-snapshot-type="orderbook">Orders</button>
+          <button class="secondary-button snapshot-button" data-snapshot-type="tradebook">Trades</button>
+        </div>
+        <div class="openalgo-grid">
+          <section class="snapshot-current">
+            <div class="panel-heading">
+              <div><h2>Latest Capture</h2><p id="snapshot-current-label">Select a snapshot type.</p></div>
+            </div>
+            <pre class="json-view" id="snapshot-current-data">No snapshot selected.</pre>
+          </section>
+          <section class="snapshot-history">
+            <div class="panel-heading">
+              <div><h2>Persisted History</h2><p>Sanitized responses stored in the platform database.</p></div>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Captured</th><th>Type</th><th>Snapshot ID</th></tr></thead>
+                <tbody id="openalgo-snapshots-table"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="view-operations">
+        <div class="section-heading">
+          <div>
+            <h2>Platform Operations</h2>
+            <p>Readiness, scheduled maintenance, and failure visibility.</p>
+          </div>
+          <div class="section-actions">
+            <button class="secondary-button hidden" id="export-analytical">Export analytical data</button>
+            <button class="secondary-button hidden" id="generate-storage-plan">Generate storage plan</button>
+            <button class="secondary-button hidden" id="evaluate-alerts">Evaluate alerts</button>
+            <button class="secondary-button hidden" id="preview-retention">Preview retention</button>
+            <button class="secondary-button hidden" id="run-retrieval-eval">Run retrieval evaluation</button>
+            <button class="secondary-button hidden" id="run-ai-eval">Run AI evaluation</button>
+            <button class="secondary-button hidden" id="create-backup">Create backup</button>
+            <button class="secondary-button" id="refresh-operations">Refresh</button>
+          </div>
+        </div>
+        <div class="metric-grid operations-metrics">
+          <div class="metric"><span>Enabled jobs</span><strong id="ops-enabled">-</strong><small>Persistent schedules</small></div>
+          <div class="metric"><span>Failed runs</span><strong id="ops-failed">-</strong><small>Recent job failures</small></div>
+          <div class="metric"><span>Stale assessments</span><strong id="ops-stale">-</strong><small>Data freshness findings</small></div>
+          <div class="metric"><span>Uncertain submissions</span><strong id="ops-uncertain">-</strong><small>Broker reconciliation required</small></div>
+          <div class="metric"><span>Active tasks</span><strong id="ops-active-tasks">-</strong><small>Queued, retrying, or running</small></div>
+          <div class="metric"><span>Failed tasks</span><strong id="ops-failed-tasks">-</strong><small>Terminal work failures</small></div>
+          <div class="metric"><span>Critical alerts</span><strong id="ops-critical-alerts">-</strong><small>Active or acknowledged</small></div>
+          <div class="metric"><span>Warning alerts</span><strong id="ops-warning-alerts">-</strong><small>Active or acknowledged</small></div>
+        </div>
+        <div class="table-wrap operations-table">
+          <table>
+            <thead>
+              <tr><th>Severity</th><th>Rule</th><th>State</th><th>Message</th><th>Runbook</th><th>Action</th></tr>
+            </thead>
+            <tbody id="alerts-table"></tbody>
+          </table>
+        </div>
+        <div class="table-wrap operations-table">
+          <table>
+            <thead>
+              <tr><th>Job</th><th>Type</th><th>State</th><th>Next run</th><th>Last result</th></tr>
+            </thead>
+            <tbody id="jobs-table"></tbody>
+          </table>
+        </div>
+        <div class="table-wrap operations-table">
+          <table>
+            <thead>
+              <tr><th>Task</th><th>Type</th><th>State</th><th>Attempts</th><th>Result / error</th></tr>
+            </thead>
+            <tbody id="tasks-table"></tbody>
+          </table>
+        </div>
+        <div class="table-wrap operations-table">
+          <table>
+            <thead>
+              <tr><th>Backup</th><th>Created</th><th>Bytes</th><th>Tables</th><th>State</th></tr>
+            </thead>
+            <tbody id="backups-table"></tbody>
+          </table>
+        </div>
+        <div class="table-wrap operations-table">
+          <table>
+            <thead>
+              <tr><th>Evaluation</th><th>Mode</th><th>Passed</th><th>Score</th><th>State</th></tr>
+            </thead>
+            <tbody id="evaluations-table"></tbody>
+          </table>
+        </div>
+        <div class="table-wrap operations-table">
+          <table>
+            <thead>
+              <tr><th>Retrieval evaluation</th><th>Method</th><th>Recall@K</th><th>MRR</th><th>nDCG@K</th><th>State</th></tr>
+            </thead>
+            <tbody id="retrieval-evaluations-table"></tbody>
+          </table>
+        </div>
+        <div class="table-wrap operations-table">
+          <table>
+            <thead>
+              <tr><th>Retention policy</th><th>Days</th><th>State</th><th>Execution</th><th>Latest candidates</th></tr>
+            </thead>
+            <tbody id="retention-table"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+  <div class="auth-overlay hidden" id="auth-overlay">
+    <form class="auth-dialog" id="login-form">
+      <div class="brand-mark" aria-hidden="true">IA</div>
+      <h2>Sign in to IIMC Algo</h2>
+      <p>Use an assigned platform account. Approval privileges are role-controlled.</p>
+      <label for="login-username">Username</label>
+      <input id="login-username" name="username" autocomplete="username" required>
+      <label for="login-password">Password</label>
+      <input id="login-password" name="password" type="password" autocomplete="current-password" required>
+      <button type="submit" class="primary-button">Sign in</button>
+      <div class="auth-error" id="auth-error"></div>
+    </form>
+  </div>
+  <div class="toast" id="toast" role="status"></div>
+  <script src="/static/app.js" defer></script>
+</body>
+</html>

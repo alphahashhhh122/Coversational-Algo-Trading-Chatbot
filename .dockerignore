@@ -1,0 +1,11 @@
+.git
+.venv
+__pycache__
+*.pyc
+.env
+data
+artifacts
+.handoff_review
+.runtime
+*.docx
+*.pptx

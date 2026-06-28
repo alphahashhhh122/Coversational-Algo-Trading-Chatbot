@@ -1,0 +1,744 @@
+from __future__ import annotations
+
+import json
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Protocol
+
+from ..db import connect
+from ..domain import ExecutionMode, OrderStatus
+from ..infrastructure.openalgo import OpenAlgoClient
+from .audit_service import AuditService
+from .order_service import OrderService
+
+
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+class SandboxBroker(Protocol):
+    def analyzer_status(self) -> dict[str, Any]: ...
+
+    def place_sandbox_order(self, **kwargs) -> dict[str, Any]: ...
+
+    def order_status(
+        self,
+        *,
+        order_id: str,
+        strategy: str,
+    ) -> dict[str, Any]: ...
+
+
+class SandboxExecutionService:
+    def __init__(
+        self,
+        db_path: Path,
+        audit_service: AuditService,
+        broker: SandboxBroker | None,
+        *,
+        require_approval: bool = False,
+    ) -> None:
+        self.db_path = db_path
+        self.audit = audit_service
+        self.broker = broker
+        self.require_approval = require_approval
+        self.orders = OrderService(db_path)
+
+    def prepare_intent(
+        self,
+        *,
+        decision_id: str,
+        symbol: str,
+        exchange: str,
+        side: str,
+        product: str,
+        order_type: str,
+        quantity: int,
+        strategy_name: str,
+        limit_price: float | None = None,
+        trigger_price: float | None = None,
+        requested_by: str = "user",
+    ) -> dict[str, Any]:
+        side = side.upper()
+        order_type = order_type.upper()
+        product = product.upper()
+        exchange = exchange.upper()
+        if side not in {"BUY", "SELL"}:
+            raise ValueError("side must be BUY or SELL")
+        if order_type not in {"MARKET", "LIMIT", "SL", "SL-M"}:
+            raise ValueError("Unsupported order type")
+        if product not in {"MIS", "CNC", "NRML"}:
+            raise ValueError("Unsupported product")
+        if quantity <= 0:
+            raise ValueError("quantity must be positive")
+        if order_type in {"LIMIT", "SL"} and not limit_price:
+            raise ValueError(f"{order_type} requires limit_price")
+        if order_type in {"SL", "SL-M"} and not trigger_price:
+            raise ValueError(f"{order_type} requires trigger_price")
+
+        risk = self._approved_risk_decision(decision_id)
+        if quantity > int(risk["approved_quantity"]):
+            raise ValueError(
+                "Intent quantity exceeds the risk-approved quantity"
+            )
+        idempotency_key = (
+            f"{decision_id}:{symbol}:{exchange}:{side}:{product}:"
+            f"{order_type}:{quantity}:{limit_price}:{trigger_price}"
+        )
+        existing = self._find_intent_by_key(idempotency_key)
+        if existing is not None:
+            return existing
+
+        intent_id = f"intent_{uuid.uuid4().hex[:12]}"
+        approval_id = (
+            f"approval_{uuid.uuid4().hex[:12]}"
+            if self.require_approval
+            else None
+        )
+        now = utc_now()
+        payload = {
+            "risk_policy_version": risk["risk_policy_version"],
+            "risk_checks": risk["checks"],
+        }
+        con = connect(self.db_path)
+        try:
+            con.execute("BEGIN TRANSACTION")
+            con.execute(
+                """
+                INSERT INTO order_intents (
+                    intent_id, run_id, signal_id, symbol, exchange, side,
+                    product, order_type, quantity, limit_price,
+                    execution_mode, status, payload_json, created_at,
+                    updated_at, decision_id, approval_id, order_id,
+                    broker_order_id, idempotency_key, rejection_reason,
+                    strategy_name, trigger_price
+                )
+                VALUES (
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?, ?
+                )
+                """,
+                [
+                    intent_id,
+                    risk["run_id"],
+                    risk["signal_id"],
+                    symbol,
+                    exchange,
+                    side,
+                    product,
+                    order_type,
+                    quantity,
+                    limit_price,
+                    ExecutionMode.SEMI_AUTO.value,
+                    "pending_approval" if self.require_approval else "approved",
+                    json.dumps(payload, sort_keys=True, default=str),
+                    now,
+                    now,
+                    decision_id,
+                    approval_id,
+                    None,
+                    None,
+                    idempotency_key,
+                    None,
+                    strategy_name,
+                    trigger_price,
+                ],
+            )
+            if self.require_approval:
+                con.execute(
+                    """
+                    INSERT INTO approval_requests (
+                        approval_id, entity_type, entity_id, requested_action,
+                        status, requested_by, decided_by, reason, created_at,
+                        decided_at, metadata_json
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        approval_id,
+                        "order_intent",
+                        intent_id,
+                        "submit_openalgo_sandbox_order",
+                        "pending",
+                        requested_by,
+                        None,
+                        None,
+                        now,
+                        None,
+                        json.dumps(
+                            {
+                                "decision_id": decision_id,
+                                "quantity": quantity,
+                                "symbol": symbol,
+                            },
+                            sort_keys=True,
+                        ),
+                    ],
+                )
+            con.execute("COMMIT")
+        except Exception:
+            con.execute("ROLLBACK")
+            raise
+        finally:
+            con.close()
+        self.audit.record(
+            entity_type="order_intent",
+            entity_id=intent_id,
+            action=(
+                "approval_requested"
+                if self.require_approval
+                else "paper_intent_preapproved"
+            ),
+            actor=requested_by,
+            payload={"approval_id": approval_id},
+        )
+        return self.get_intent(intent_id)
+
+    def decide(
+        self,
+        approval_id: str,
+        *,
+        approved: bool,
+        decided_by: str,
+        reason: str,
+    ) -> dict[str, Any]:
+        if not decided_by.strip():
+            raise ValueError("decided_by is required")
+        if not reason.strip():
+            raise ValueError("A decision reason is required")
+        con = connect(self.db_path)
+        try:
+            row = con.execute(
+                """
+                SELECT entity_id, status
+                FROM approval_requests
+                WHERE approval_id = ?
+                """,
+                [approval_id],
+            ).fetchone()
+            if row is None:
+                raise ValueError(f"Approval not found: {approval_id}")
+            if row[1] != "pending":
+                raise ValueError(f"Approval is already {row[1]}")
+            intent_id = row[0]
+            decision_status = "approved" if approved else "rejected"
+            intent_status = "approved" if approved else "rejected"
+            now = utc_now()
+            con.execute("BEGIN TRANSACTION")
+            con.execute(
+                """
+                UPDATE approval_requests
+                SET status = ?, decided_by = ?, reason = ?, decided_at = ?
+                WHERE approval_id = ? AND status = 'pending'
+                """,
+                [
+                    decision_status,
+                    decided_by,
+                    reason,
+                    now,
+                    approval_id,
+                ],
+            )
+            con.execute(
+                """
+                UPDATE order_intents
+                SET status = ?, rejection_reason = ?, updated_at = ?
+                WHERE intent_id = ? AND status = 'pending_approval'
+                """,
+                [
+                    intent_status,
+                    None if approved else reason,
+                    now,
+                    intent_id,
+                ],
+            )
+            con.execute("COMMIT")
+        except Exception:
+            try:
+                con.execute("ROLLBACK")
+            except Exception:
+                pass
+            raise
+        finally:
+            con.close()
+        self.audit.record(
+            entity_type="approval_request",
+            entity_id=approval_id,
+            action=decision_status,
+            actor=decided_by,
+            payload={"reason": reason, "intent_id": intent_id},
+        )
+        return self.get_intent(intent_id)
+
+    def submit(self, intent_id: str, *, actor: str) -> dict[str, Any]:
+        if self.broker is None:
+            raise ValueError(
+                "OpenAlgo credentials are required for sandbox submission"
+            )
+        intent = self.get_intent(intent_id)
+        if intent["status"] != "approved":
+            raise ValueError(
+                f"Intent must be approved before submission; "
+                f"current status is {intent['status']}"
+            )
+
+        analyzer = self.broker.analyzer_status()
+        if (
+            analyzer.get("analyze_mode") is not True
+            or analyzer.get("mode") != "analyze"
+        ):
+            raise ValueError(
+                "OpenAlgo analyzer mode is not active; submission refused"
+            )
+
+        order = self.orders.create_order(
+            run_id=intent["run_id"],
+            decision_id=intent["decision_id"],
+            symbol=intent["symbol"],
+            side=intent["side"],
+            order_type=intent["order_type"],
+            quantity=intent["quantity"],
+            execution_mode=ExecutionMode.SANDBOX,
+            price=float(intent["limit_price"] or 0.0),
+        )
+        self._set_intent_status(
+            intent_id,
+            "submitting",
+            order_id=order.order_id,
+        )
+        self.audit.record(
+            entity_type="order_intent",
+            entity_id=intent_id,
+            action="submission_started",
+            actor=actor,
+            payload={"order_id": order.order_id},
+        )
+
+        try:
+            response = self.broker.place_sandbox_order(
+                strategy=intent["strategy_name"],
+                symbol=intent["symbol"],
+                action=intent["side"],
+                exchange=intent["exchange"],
+                price_type=intent["order_type"],
+                product=intent["product"],
+                quantity=intent["quantity"],
+                price=float(intent["limit_price"] or 0.0),
+                trigger_price=float(intent["trigger_price"] or 0.0),
+            )
+        except Exception as exc:
+            self._set_intent_status(
+                intent_id,
+                "submission_uncertain",
+                rejection_reason=str(exc),
+            )
+            self.orders.transition(
+                order.order_id,
+                OrderStatus.FAILED,
+                reason=(
+                    "OpenAlgo submission outcome is uncertain; "
+                    "automatic retry is disabled"
+                ),
+            )
+            self.audit.record(
+                entity_type="order_intent",
+                entity_id=intent_id,
+                action="submission_uncertain",
+                actor=actor,
+                payload={"error_type": type(exc).__name__},
+            )
+            raise
+
+        broker_order_id = str(response["orderid"])
+        self.orders.transition(
+            order.order_id,
+            OrderStatus.SUBMITTED,
+            reason="OpenAlgo analyzer order accepted",
+            broker_order_id=broker_order_id,
+        )
+        self._set_intent_status(
+            intent_id,
+            "submitted",
+            order_id=order.order_id,
+            broker_order_id=broker_order_id,
+        )
+        self.audit.record(
+            entity_type="order_intent",
+            entity_id=intent_id,
+            action="submitted",
+            actor=actor,
+            payload={
+                "order_id": order.order_id,
+                "broker_order_id": broker_order_id,
+                "mode": response.get("mode"),
+            },
+        )
+        return self.get_intent(intent_id)
+
+    def reconcile(self, intent_id: str, *, actor: str = "system") -> dict[str, Any]:
+        if self.broker is None:
+            raise ValueError(
+                "OpenAlgo credentials are required for reconciliation"
+            )
+        intent = self.get_intent(intent_id)
+        if intent["status"] not in {"submitted", "open", "pending"}:
+            raise ValueError(
+                f"Intent cannot be reconciled from status {intent['status']}"
+            )
+        if not intent["broker_order_id"] or not intent["order_id"]:
+            raise ValueError("Intent has no submitted OpenAlgo order")
+
+        broker = self.broker.order_status(
+            order_id=intent["broker_order_id"],
+            strategy=intent["strategy_name"],
+        )
+        broker_status = str(broker.get("order_status", "")).lower()
+        mapping = {
+            "complete": ("filled", OrderStatus.FILLED),
+            "open": ("open", None),
+            "pending": ("pending", None),
+            "rejected": ("rejected", OrderStatus.REJECTED),
+            "cancelled": ("cancelled", OrderStatus.CANCELLED),
+        }
+        if broker_status not in mapping:
+            raise ValueError(
+                f"Unsupported OpenAlgo order status: {broker_status!r}"
+            )
+        intent_status, order_status = mapping[broker_status]
+        if order_status is not None:
+            current = self.orders.get(intent["order_id"])
+            if current and current.status != order_status:
+                if order_status == OrderStatus.FILLED:
+                    self.orders.record_simulated_fill(
+                        current,
+                        fill_price=_broker_float(
+                            broker,
+                            "average_price",
+                            "avg_price",
+                            "price",
+                            "fill_price",
+                        ),
+                        fees=_broker_float(
+                            broker,
+                            "fees",
+                            "charges",
+                            "brokerage",
+                            default=0.0,
+                        ),
+                        realized_pnl=_broker_float(
+                            broker,
+                            "realized_pnl",
+                            "pnl",
+                            default=0.0,
+                        ),
+                        filled_at=utc_now(),
+                    )
+                else:
+                    self.orders.transition(
+                        current.order_id,
+                        order_status,
+                        reason=f"Reconciled from OpenAlgo: {broker_status}",
+                    )
+        self._set_intent_status(intent_id, intent_status)
+        snapshot_id = self._store_reconciliation_snapshot(
+            intent_id,
+            broker,
+        )
+        self.audit.record(
+            entity_type="order_intent",
+            entity_id=intent_id,
+            action="reconciled",
+            actor=actor,
+            payload={
+                "broker_status": broker_status,
+                "snapshot_id": snapshot_id,
+            },
+        )
+        result = self.get_intent(intent_id)
+        result["reconciliation_snapshot_id"] = snapshot_id
+        result["broker_state"] = broker
+        return result
+
+    def cancel(self, intent_id: str, *, actor: str) -> dict[str, Any]:
+        if self.broker is None:
+            raise ValueError("OpenAlgo credentials are required for cancellation")
+        intent = self.get_intent(intent_id)
+        if intent["status"] not in {"submitted", "open", "pending"}:
+            raise ValueError(
+                f"Intent cannot be cancelled from status {intent['status']}"
+            )
+        if not intent["broker_order_id"] or not intent["order_id"]:
+            raise ValueError("Intent has no submitted OpenAlgo order")
+
+        response = self.broker.cancel_order(
+            order_id=intent["broker_order_id"],
+            strategy=intent["strategy_name"],
+        )
+        self.orders.transition(
+            intent["order_id"],
+            OrderStatus.CANCELLED,
+            reason="OpenAlgo analyzer order cancelled",
+            broker_order_id=intent["broker_order_id"],
+        )
+        self._set_intent_status(intent_id, "cancelled")
+        self.audit.record(
+            entity_type="order_intent",
+            entity_id=intent_id,
+            action="cancelled",
+            actor=actor,
+            payload={
+                "broker_order_id": intent["broker_order_id"],
+                "mode": response.get("mode"),
+                "message": response.get("message"),
+            },
+        )
+        result = self.get_intent(intent_id)
+        result["broker_cancel_state"] = response
+        return result
+
+    def get_intent(self, intent_id: str) -> dict[str, Any]:
+        con = connect(self.db_path)
+        try:
+            row = con.execute(
+                """
+                SELECT intent_id, run_id, signal_id, decision_id, approval_id,
+                       order_id, broker_order_id, symbol, exchange, side,
+                       product, order_type, quantity, limit_price,
+                       trigger_price, execution_mode, status, strategy_name,
+                       rejection_reason, payload_json, created_at, updated_at
+                FROM order_intents
+                WHERE intent_id = ?
+                """,
+                [intent_id],
+            ).fetchone()
+        finally:
+            con.close()
+        if row is None:
+            raise ValueError(f"Order intent not found: {intent_id}")
+        return {
+            "intent_id": row[0],
+            "run_id": row[1],
+            "signal_id": row[2],
+            "decision_id": row[3],
+            "approval_id": row[4],
+            "order_id": row[5],
+            "broker_order_id": row[6],
+            "symbol": row[7],
+            "exchange": row[8],
+            "side": row[9],
+            "product": row[10],
+            "order_type": row[11],
+            "quantity": row[12],
+            "limit_price": row[13],
+            "trigger_price": row[14],
+            "execution_mode": row[15],
+            "status": row[16],
+            "strategy_name": row[17],
+            "rejection_reason": row[18],
+            "payload": json.loads(row[19]),
+            "created_at": row[20],
+            "updated_at": row[21],
+        }
+
+    def list_intents(self, limit: int = 50) -> dict[str, Any]:
+        limit = max(1, min(int(limit), 200))
+        con = connect(self.db_path)
+        try:
+            rows = con.execute(
+                """
+                SELECT intent_id, run_id, signal_id, decision_id, approval_id,
+                       order_id, broker_order_id, symbol, exchange, side,
+                       product, order_type, quantity, limit_price,
+                       trigger_price, execution_mode, status, strategy_name,
+                       rejection_reason, created_at, updated_at
+                FROM order_intents
+                ORDER BY updated_at DESC, created_at DESC
+                LIMIT ?
+                """,
+                [limit],
+            ).fetchall()
+        finally:
+            con.close()
+        return {
+            "intents": [
+                {
+                    "intent_id": row[0],
+                    "run_id": row[1],
+                    "signal_id": row[2],
+                    "decision_id": row[3],
+                    "approval_id": row[4],
+                    "order_id": row[5],
+                    "broker_order_id": row[6],
+                    "symbol": row[7],
+                    "exchange": row[8],
+                    "side": row[9],
+                    "product": row[10],
+                    "order_type": row[11],
+                    "quantity": row[12],
+                    "limit_price": row[13],
+                    "trigger_price": row[14],
+                    "execution_mode": row[15],
+                    "status": row[16],
+                    "strategy_name": row[17],
+                    "rejection_reason": row[18],
+                    "created_at": row[19],
+                    "updated_at": row[20],
+                }
+                for row in rows
+            ]
+        }
+
+    def list_pending_approvals(self) -> dict[str, Any]:
+        con = connect(self.db_path)
+        try:
+            rows = con.execute(
+                """
+                SELECT approval_id, entity_id, requested_action, requested_by,
+                       created_at
+                FROM approval_requests
+                WHERE status = 'pending'
+                ORDER BY created_at
+                """
+            ).fetchall()
+        finally:
+            con.close()
+        return {
+            "approvals": [
+                {
+                    "approval_id": row[0],
+                    "intent_id": row[1],
+                    "requested_action": row[2],
+                    "requested_by": row[3],
+                    "created_at": row[4],
+                }
+                for row in rows
+            ]
+        }
+
+    def _approved_risk_decision(self, decision_id: str) -> dict[str, Any]:
+        con = connect(self.db_path)
+        try:
+            row = con.execute(
+                """
+                SELECT run_id, signal_id, approved, approved_quantity,
+                       checks_json, risk_policy_version
+                FROM risk_decisions
+                WHERE decision_id = ?
+                """,
+                [decision_id],
+            ).fetchone()
+        finally:
+            con.close()
+        if row is None:
+            raise ValueError(f"Risk decision not found: {decision_id}")
+        if row[2] is not True:
+            raise ValueError("Risk decision was rejected")
+        checks = json.loads(row[4])
+        evaluated_mode = (
+            checks.get("execution_mode_check", {}).get("mode")
+        )
+        if evaluated_mode != ExecutionMode.SEMI_AUTO.value:
+            raise ValueError(
+                "Sandbox order intents require a risk decision evaluated "
+                "in semi_auto mode"
+            )
+        return {
+            "run_id": row[0],
+            "signal_id": row[1],
+            "approved_quantity": row[3],
+            "checks": checks,
+            "risk_policy_version": row[5],
+        }
+
+    def _find_intent_by_key(self, key: str) -> dict[str, Any] | None:
+        con = connect(self.db_path)
+        try:
+            row = con.execute(
+                """
+                SELECT intent_id
+                FROM order_intents
+                WHERE idempotency_key = ?
+                """,
+                [key],
+            ).fetchone()
+        finally:
+            con.close()
+        return self.get_intent(row[0]) if row else None
+
+    def _set_intent_status(
+        self,
+        intent_id: str,
+        status: str,
+        *,
+        order_id: str | None = None,
+        broker_order_id: str | None = None,
+        rejection_reason: str | None = None,
+    ) -> None:
+        con = connect(self.db_path)
+        try:
+            con.execute(
+                """
+                UPDATE order_intents
+                SET status = ?,
+                    order_id = COALESCE(?, order_id),
+                    broker_order_id = COALESCE(?, broker_order_id),
+                    rejection_reason = ?,
+                    updated_at = ?
+                WHERE intent_id = ?
+                """,
+                [
+                    status,
+                    order_id,
+                    broker_order_id,
+                    rejection_reason,
+                    utc_now(),
+                    intent_id,
+                ],
+            )
+        finally:
+            con.close()
+
+    def _store_reconciliation_snapshot(
+        self,
+        intent_id: str,
+        broker_state: dict[str, Any],
+    ) -> str:
+        snapshot_id = f"oas_{uuid.uuid4().hex[:12]}"
+        con = connect(self.db_path)
+        try:
+            con.execute(
+                """
+                INSERT INTO openalgo_snapshots VALUES (?, ?, ?, ?, ?)
+                """,
+                [
+                    snapshot_id,
+                    "order_status",
+                    f"openalgo_api:orderstatus:{intent_id}",
+                    json.dumps(broker_state, sort_keys=True, default=str),
+                    utc_now(),
+                ],
+            )
+        finally:
+            con.close()
+        return snapshot_id
+
+
+def _broker_float(
+    payload: dict[str, Any],
+    *names: str,
+    default: float | None = None,
+) -> float:
+    for name in names:
+        value = payload.get(name)
+        if value is None or value == "":
+            continue
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            continue
+    if default is not None:
+        return default
+    raise ValueError(
+        f"OpenAlgo fill response omitted numeric field: {'/'.join(names)}"
+    )

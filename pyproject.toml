@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "iimc-conversational-trading-platform"
+version = "0.1.0"
+description = "Production-minded conversational algorithmic-trading platform."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "duckdb>=1.5,<2",
+    "fastapi>=0.115,<1",
+    "openai>=2,<3",
+    "opentelemetry-api>=1.40,<1.41",
+    "opentelemetry-sdk>=1.40,<1.41",
+    "opentelemetry-exporter-otlp-proto-http>=1.40,<1.41",
+    "opentelemetry-instrumentation-fastapi>=0.61b0,<0.62",
+    "pydantic>=2,<3",
+    "uvicorn>=0.30,<1",
+]
+
+[project.optional-dependencies]
+dev = []
+
+[project.scripts]
+iimc-platform = "iimc_trading_platform.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["iimc_trading_platform*"]
+
+[tool.setuptools.package-data]
+iimc_trading_platform = [
+    "frontend/*.html",
+    "frontend/*.css",
+    "frontend/*.js",
+    "evals/*.jsonl",
+]

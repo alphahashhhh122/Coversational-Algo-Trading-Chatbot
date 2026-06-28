@@ -1,0 +1,270 @@
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+from ..config import AppConfig
+from ..db import connect
+from ..infrastructure.openalgo import OpenAlgoClient
+from .backup_service import BackupService
+from .alert_service import AlertService
+from .freshness_service import FreshnessService
+from .job_service import JobService
+from .knowledge_service import KnowledgeService
+from .openalgo_service import OpenAlgoSnapshotService
+from .robustness_service import RobustnessService
+from .retrieval_evaluation_service import RetrievalEvaluationService
+from .retention_service import RetentionService
+from .task_service import TaskService
+
+
+CURATED_DOCUMENTS = [
+    Path("docs/AI_FIRST_TARGET_ARCHITECTURE.md"),
+    Path("docs/DATA_DOMAINS.md"),
+    Path("docs/SECURITY_AND_SECRETS.md"),
+    Path("docs/CLAUDE_HANDOFF_AUDIT.md"),
+    Path("docs/OPENALGO_SANDBOX_BRIDGE.md"),
+    Path("docs/OPERATOR_WORKSPACE.md"),
+    Path("docs/OPERATIONS_FAILURE_RUNBOOK.md"),
+    Path("PROJECT_PLAN.md"),
+]
+
+
+def build_job_service(config: AppConfig) -> JobService:
+    freshness = FreshnessService(config.database_path)
+    knowledge = KnowledgeService(config.database_path)
+    backups = BackupService(
+        config.database_path,
+        config.artifacts_dir / "backups",
+    )
+    retrieval_evaluations = RetrievalEvaluationService(
+        config.database_path,
+        config.artifacts_dir,
+        Path(__file__).parent.parent
+        / "evals"
+        / "retrieval_eval_cases.jsonl",
+    )
+    retention = RetentionService(config.database_path)
+    alerts = AlertService(config.database_path, config.artifacts_dir)
+
+    def freshness_sweep(payload: dict[str, Any]) -> dict[str, Any]:
+        con = connect(config.database_path)
+        try:
+            dataset_ids = [
+                row[0]
+                for row in con.execute(
+                    "SELECT dataset_id FROM data_catalog ORDER BY dataset_id"
+                ).fetchall()
+            ]
+        finally:
+            con.close()
+        assessments = []
+        for dataset_id in dataset_ids:
+            assessments.append(
+                freshness.assess(dataset_id, "historical_research")
+            )
+            assessments.append(
+                freshness.assess(dataset_id, "current_market")
+            )
+        return {
+            "dataset_count": len(dataset_ids),
+            "assessment_count": len(assessments),
+            "stale_count": sum(
+                1 for item in assessments if item["status"] == "stale"
+            ),
+        }
+
+    def knowledge_sync(payload: dict[str, Any]) -> dict[str, Any]:
+        indexed = 0
+        for path in CURATED_DOCUMENTS:
+            if path.exists():
+                knowledge.index_text(
+                    title=path.stem.replace("_", " "),
+                    source_uri=str(path.resolve()),
+                    text=path.read_text(encoding="utf-8"),
+                    document_type=path.suffix.removeprefix(".") or "text",
+                    metadata={"corpus": "curated_project_docs"},
+                )
+                indexed += 1
+        return {"indexed_documents": indexed}
+
+    def backup_restore_verification(
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        available = [
+            item
+            for item in backups.list()["backups"]
+            if item.get("status") == "available"
+        ]
+        if not available:
+            return {
+                "status": "no_backup",
+                "verified": False,
+            }
+        return backups.verify(
+            available[0]["backup_id"],
+            verified_by="scheduled_job",
+        )
+
+    def governed_retrieval_evaluation(
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        knowledge_sync({})
+        return retrieval_evaluations.run(
+            created_by="scheduled_job",
+        )
+
+    def retention_preview(payload: dict[str, Any]) -> dict[str, Any]:
+        return retention.preview(actor="scheduled_job")
+
+    def alert_evaluation(payload: dict[str, Any]) -> dict[str, Any]:
+        return alerts.evaluate(actor="scheduled_job")
+
+    handlers = {
+        "freshness_sweep": freshness_sweep,
+        "knowledge_sync": knowledge_sync,
+        "backup_restore_verification": backup_restore_verification,
+        "governed_retrieval_evaluation": (
+            governed_retrieval_evaluation
+        ),
+        "retention_preview": retention_preview,
+        "alert_evaluation": alert_evaluation,
+    }
+    if config.openalgo_api_key:
+        snapshots = OpenAlgoSnapshotService(
+            config.database_path,
+            OpenAlgoClient(
+                config.openalgo_base_url,
+                config.openalgo_api_key,
+            ),
+        )
+
+        def openalgo_snapshot(payload: dict[str, Any]) -> dict[str, Any]:
+            captured = []
+            for snapshot_type in payload.get(
+                "types",
+                ["funds", "positionbook", "orderbook", "tradebook"],
+            ):
+                captured.append(snapshots.capture(snapshot_type))
+            return {
+                "snapshot_ids": [
+                    item["snapshot_id"] for item in captured
+                ]
+            }
+
+        handlers["openalgo_snapshot"] = openalgo_snapshot
+    return JobService(config.database_path, handlers)
+
+
+def build_task_service(db_path: Path) -> TaskService:
+    robustness = RobustnessService(db_path)
+
+    def robustness_experiment(
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        request = dict(payload)
+        requested_by = str(request.pop("requested_by", "task_worker"))
+        return robustness.run(
+            **request,
+            requested_by=requested_by,
+        )
+
+    return TaskService(
+        db_path,
+        {"robustness_experiment": robustness_experiment},
+    )
+
+
+def register_default_jobs(
+    service: JobService,
+    *,
+    include_openalgo: bool,
+) -> list[str]:
+    job_ids = [
+        service.register(
+            name="dataset_freshness_sweep",
+            job_type="freshness_sweep",
+            schedule_seconds=900,
+        ),
+        service.register(
+            name="governed_knowledge_sync",
+            job_type="knowledge_sync",
+            schedule_seconds=3600,
+        ),
+        service.register(
+            name="daily_backup_restore_verification",
+            job_type="backup_restore_verification",
+            schedule_seconds=86400,
+        ),
+        service.register(
+            name="daily_governed_retrieval_evaluation",
+            job_type="governed_retrieval_evaluation",
+            schedule_seconds=86400,
+        ),
+        service.register(
+            name="daily_retention_preview",
+            job_type="retention_preview",
+            schedule_seconds=86400,
+        ),
+        service.register(
+            name="operational_alert_evaluation",
+            job_type="alert_evaluation",
+            schedule_seconds=60,
+        ),
+    ]
+    if include_openalgo:
+        job_ids.append(
+            service.register(
+                name="openalgo_account_snapshot",
+                job_type="openalgo_snapshot",
+                schedule_seconds=30,
+                payload={
+                    "types": [
+                        "funds",
+                        "positionbook",
+                        "orderbook",
+                        "tradebook",
+                    ]
+                },
+                max_retries=5,
+            )
+        )
+    return job_ids
+
+
+def operational_summary(config: AppConfig) -> dict[str, Any]:
+    con = connect(config.database_path)
+    try:
+        values = con.execute(
+            """
+            SELECT
+              (SELECT COUNT(*) FROM scheduled_jobs WHERE enabled = TRUE),
+              (SELECT COUNT(*) FROM job_runs WHERE status = 'failed'),
+              (SELECT COUNT(*) FROM freshness_assessments WHERE status = 'stale'),
+              (SELECT COUNT(*) FROM approval_requests WHERE status = 'pending'),
+              (SELECT COUNT(*) FROM order_intents
+               WHERE status = 'submission_uncertain'),
+              (SELECT COUNT(*) FROM work_tasks
+               WHERE status IN ('queued', 'retry', 'running')),
+              (SELECT COUNT(*) FROM work_tasks WHERE status = 'failed'),
+              (SELECT COUNT(*) FROM operational_alerts
+               WHERE status IN ('active', 'acknowledged')
+                 AND severity = 'critical'),
+              (SELECT COUNT(*) FROM operational_alerts
+               WHERE status IN ('active', 'acknowledged')
+                 AND severity = 'warning')
+            """
+        ).fetchone()
+    finally:
+        con.close()
+    return {
+        "enabled_jobs": values[0],
+        "failed_job_runs": values[1],
+        "stale_assessments": values[2],
+        "pending_approvals": values[3],
+        "uncertain_submissions": values[4],
+        "active_tasks": values[5],
+        "failed_tasks": values[6],
+        "active_critical_alerts": values[7],
+        "active_warning_alerts": values[8],
+    }

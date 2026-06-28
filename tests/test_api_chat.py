@@ -1,0 +1,314 @@
+from __future__ import annotations
+
+import json
+import tempfile
+import unittest
+from datetime import datetime
+from pathlib import Path
+
+from fastapi.testclient import TestClient
+
+from iimc_trading_platform.api import create_app
+from iimc_trading_platform.config import AppConfig
+from iimc_trading_platform.db import connect
+from iimc_trading_platform.infrastructure import initialize_database
+
+
+class ApiChatTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        root = Path(self.temp_dir.name)
+        self.db_path = root / "test.duckdb"
+        self.artifacts_dir = root / "artifacts"
+        self.artifacts_dir.mkdir()
+        initialize_database(self.db_path)
+        self._insert_dataset()
+
+        self.client = TestClient(
+            create_app(
+                AppConfig(
+                    database_path=self.db_path,
+                    artifacts_dir=self.artifacts_dir,
+                    openalgo_root=root,
+                )
+            )
+        )
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def test_chat_dataset_question_calls_catalog_tool_and_returns_evidence(self) -> None:
+        response = self.client.post(
+            "/chat",
+            json={
+                "session_id": "session_test",
+                "message": "What NIFTY datasets are available?",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["intent"], "list_datasets")
+        self.assertIn("nifty_options", payload["answer"])
+        self.assertEqual(len(payload["tool_calls"]), 1)
+
+        tool_call_id = payload["tool_calls"][0]["tool_call_id"]
+        con = connect(self.db_path)
+        try:
+            stored = con.execute(
+                """
+                SELECT tool_name, status, session_id
+                FROM tool_calls
+                WHERE tool_call_id = ?
+                """,
+                [tool_call_id],
+            ).fetchone()
+            audit_actions = [
+                row[0]
+                for row in con.execute(
+                    """
+                    SELECT action
+                    FROM audit_events
+                    WHERE entity_type = 'tool_call'
+                      AND entity_id = ?
+                    ORDER BY created_at, audit_id
+                    """,
+                    [tool_call_id],
+                ).fetchall()
+            ]
+        finally:
+            con.close()
+
+        self.assertEqual(stored, ("list_datasets", "succeeded", "session_test"))
+        self.assertEqual(audit_actions, ["started", "succeeded"])
+
+    def test_chat_unsupported_request_does_not_call_tool(self) -> None:
+        response = self.client.post(
+            "/chat",
+            json={"message": "Can you place a live order immediately?"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["intent"], "unsupported")
+        self.assertEqual(payload["tool_calls"], [])
+        self.assertIn("run research backtests", payload["answer"])
+        self.assertEqual(payload["orchestration_mode"], "offline_fallback")
+        self.assertTrue(payload["evaluation"]["passed"])
+
+    def test_chat_can_inspect_paper_trading_intents(self) -> None:
+        response = self.client.post(
+            "/chat",
+            json={"message": "Show paper trading OpenAlgo intents"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["intent"], "list_sandbox_intents")
+        self.assertIn("No OpenAlgo sandbox", payload["answer"])
+        self.assertEqual(payload["data"], {"intents": []})
+
+    def test_chat_can_return_combined_research_context(self) -> None:
+        response = self.client.post(
+            "/chat",
+            json={
+                "message": (
+                    "Give market research context for NIFTY NFO options 5m"
+                ),
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["intent"], "get_research_context")
+        self.assertTrue(payload["data"]["readiness"]["local_dataset_exists"])
+        self.assertEqual(payload["data"]["news"]["articles"], [])
+        self.assertIn("No synthetic fallback", payload["answer"])
+
+    def test_chat_can_return_platform_summary(self) -> None:
+        response = self.client.post(
+            "/chat",
+            json={"message": "Give me the platform summary and capabilities"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["intent"], "get_platform_summary")
+        self.assertIn("asset_coverage", payload["data"])
+        self.assertIn("execution_paths", payload["data"])
+        self.assertIn("No synthetic fallback", payload["answer"])
+
+    def test_chat_can_return_execution_readiness(self) -> None:
+        response = self.client.post(
+            "/chat",
+            json={"message": "Can we paper trade NIFTY options, what is blocked?"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["intent"], "get_execution_readiness")
+        stages = {item["stage"]: item for item in payload["data"]["stages"]}
+        self.assertTrue(stages["backtest"]["can_start"])
+        self.assertFalse(stages["paper_trading"]["can_start"])
+        self.assertIn("Next blocker", payload["answer"])
+
+    def test_chat_can_prepare_analyzer_ready_paper_order_intent(self) -> None:
+        self._insert_approved_semi_auto_risk_decision()
+        client = TestClient(
+            create_app(
+                AppConfig(
+                    database_path=self.db_path,
+                    artifacts_dir=self.artifacts_dir,
+                    openalgo_root=Path(self.temp_dir.name),
+                    openalgo_api_key="configured",
+                )
+            )
+        )
+
+        response = client.post(
+            "/chat",
+            json={
+                "message": (
+                    "Prepare paper order for risk_chat BUY 2 NIFTY NFO "
+                    "MIS market strategy ema_demo"
+                ),
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["intent"], "prepare_sandbox_order_intent")
+        self.assertEqual(payload["data"]["decision_id"], "risk_chat")
+        self.assertEqual(payload["data"]["status"], "approved")
+        self.assertIn("Prepared sandbox order intent", payload["answer"])
+
+        con = connect(self.db_path)
+        try:
+            stored = con.execute(
+                """
+                SELECT i.status, i.approval_id,
+                       COUNT(a.approval_id) AS approval_count
+                FROM order_intents AS i
+                LEFT JOIN approval_requests AS a
+                  ON a.approval_id = i.approval_id
+                WHERE i.decision_id = 'risk_chat'
+                GROUP BY i.status, i.approval_id
+                """
+            ).fetchone()
+        finally:
+            con.close()
+        self.assertEqual(
+            stored,
+            (
+                "approved",
+                None,
+                0,
+            ),
+        )
+
+    def test_chat_can_create_persisted_research_brief(self) -> None:
+        response = self.client.post(
+            "/chat",
+            json={"message": "Create a research brief for NIFTY NFO options 5m"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["intent"], "create_research_brief")
+        self.assertTrue(payload["data"]["brief_id"].startswith("brief_"))
+        self.assertTrue(payload["data"]["guards"]["no_synthetic_fallback"])
+
+        con = connect(self.db_path)
+        try:
+            stored = con.execute(
+                """
+                SELECT COUNT(*)
+                FROM research_briefs
+                WHERE brief_id = ?
+                """,
+                [payload["data"]["brief_id"]],
+            ).fetchone()[0]
+        finally:
+            con.close()
+        self.assertEqual(stored, 1)
+
+    def test_datasets_endpoint_returns_tool_evidence(self) -> None:
+        response = self.client.get("/datasets")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertIn("tool_call_id", payload)
+        self.assertEqual(payload["datasets"][0]["dataset_id"], "nifty_options")
+
+    def test_workspace_and_runs_endpoint_are_available(self) -> None:
+        workspace = self.client.get("/")
+        self.assertEqual(workspace.status_code, 200)
+        self.assertIn("Trading Research Workspace", workspace.text)
+
+        runs = self.client.get("/runs")
+        self.assertEqual(runs.status_code, 200)
+        self.assertEqual(runs.json(), {"runs": []})
+
+        snapshots = self.client.get("/openalgo/snapshots")
+        self.assertEqual(snapshots.status_code, 200)
+        self.assertEqual(
+            snapshots.json(),
+            {"configured": False, "snapshots": []},
+        )
+
+    def _insert_dataset(self) -> None:
+        con = connect(self.db_path)
+        try:
+            con.execute(
+                """
+                INSERT INTO data_catalog VALUES (
+                    'nifty_options', 'market_data', 'options_ohlcv',
+                    'NIFTY', 'NFO', '5m', ?, ?, 66080,
+                    'options_ohlcv', 'source_1',
+                    'clean_with_warnings', 'quality.json', CURRENT_TIMESTAMP
+                )
+                """,
+                [
+                    datetime(2026, 4, 23, 9, 15),
+                    datetime(2026, 5, 22, 15, 25),
+                ],
+            )
+            con.execute(
+                """
+                INSERT INTO data_quality_reports VALUES (
+                    'run_1', 'source_1', 'nifty_options', 'quality.json',
+                    69262, 66080, 66080, 3182, 0, 90,
+                    'clean_with_warnings', CURRENT_TIMESTAMP
+                )
+                """
+            )
+        finally:
+            con.close()
+
+    def _insert_approved_semi_auto_risk_decision(self) -> None:
+        con = connect(self.db_path)
+        try:
+            con.execute(
+                """
+                INSERT INTO risk_decisions VALUES (
+                    'risk_chat', 'run_chat', 'sig_chat', TRUE, 5, 5,
+                    'approved for paper workflow', ?, CURRENT_TIMESTAMP,
+                    'risk_policy_v1'
+                )
+                """,
+                [
+                    json.dumps(
+                        {
+                            "execution_mode_check": {"mode": "semi_auto"},
+                            "quantity_check": {"approved_quantity": 5},
+                        },
+                        sort_keys=True,
+                    )
+                ],
+            )
+        finally:
+            con.close()
+
+
+if __name__ == "__main__":
+    unittest.main()

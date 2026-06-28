@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: iimc-platform-config
+data:
+  IIMC_ALLOWED_HOSTS: algo.example.edu
+  IIMC_CORS_ORIGINS: https://algo.example.edu
