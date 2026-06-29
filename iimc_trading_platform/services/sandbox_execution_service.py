@@ -22,6 +22,8 @@ class SandboxBroker(Protocol):
 
     def place_sandbox_order(self, **kwargs) -> dict[str, Any]: ...
 
+    def place_live_order(self, **kwargs) -> dict[str, Any]: ...
+
     def order_status(
         self,
         *,
@@ -38,11 +40,13 @@ class SandboxExecutionService:
         broker: SandboxBroker | None,
         *,
         require_approval: bool = False,
+        allow_live_trading: bool = False,
     ) -> None:
         self.db_path = db_path
         self.audit = audit_service
         self.broker = broker
         self.require_approval = require_approval
+        self.allow_live_trading = allow_live_trading
         self.orders = OrderService(db_path)
 
     def prepare_intent(
@@ -59,11 +63,17 @@ class SandboxExecutionService:
         limit_price: float | None = None,
         trigger_price: float | None = None,
         requested_by: str = "user",
+        execution_mode: ExecutionMode = ExecutionMode.SEMI_AUTO,
     ) -> dict[str, Any]:
         side = side.upper()
         order_type = order_type.upper()
         product = product.upper()
         exchange = exchange.upper()
+        if execution_mode not in {ExecutionMode.SEMI_AUTO, ExecutionMode.LIVE}:
+            raise ValueError("Order intents support semi_auto or live mode")
+        is_live = execution_mode == ExecutionMode.LIVE
+        if is_live and not self.allow_live_trading:
+            raise PermissionError("Live trading is disabled by configuration")
         if side not in {"BUY", "SELL"}:
             raise ValueError("side must be BUY or SELL")
         if order_type not in {"MARKET", "LIMIT", "SL", "SL-M"}:
@@ -77,7 +87,7 @@ class SandboxExecutionService:
         if order_type in {"SL", "SL-M"} and not trigger_price:
             raise ValueError(f"{order_type} requires trigger_price")
 
-        risk = self._approved_risk_decision(decision_id)
+        risk = self._approved_risk_decision(decision_id, execution_mode)
         if quantity > int(risk["approved_quantity"]):
             raise ValueError(
                 "Intent quantity exceeds the risk-approved quantity"
@@ -93,7 +103,7 @@ class SandboxExecutionService:
         intent_id = f"intent_{uuid.uuid4().hex[:12]}"
         approval_id = (
             f"approval_{uuid.uuid4().hex[:12]}"
-            if self.require_approval
+            if self.require_approval or is_live
             else None
         )
         now = utc_now()
@@ -130,8 +140,8 @@ class SandboxExecutionService:
                     order_type,
                     quantity,
                     limit_price,
-                    ExecutionMode.SEMI_AUTO.value,
-                    "pending_approval" if self.require_approval else "approved",
+                    execution_mode.value,
+                    "pending_approval" if approval_id else "approved",
                     json.dumps(payload, sort_keys=True, default=str),
                     now,
                     now,
@@ -145,7 +155,7 @@ class SandboxExecutionService:
                     trigger_price,
                 ],
             )
-            if self.require_approval:
+            if approval_id:
                 con.execute(
                     """
                     INSERT INTO approval_requests (
@@ -159,7 +169,11 @@ class SandboxExecutionService:
                         approval_id,
                         "order_intent",
                         intent_id,
-                        "submit_openalgo_sandbox_order",
+                        (
+                            "submit_openalgo_live_order"
+                            if is_live
+                            else "submit_openalgo_sandbox_order"
+                        ),
                         "pending",
                         requested_by,
                         None,
@@ -187,13 +201,19 @@ class SandboxExecutionService:
             entity_id=intent_id,
             action=(
                 "approval_requested"
-                if self.require_approval
+                if approval_id
                 else "paper_intent_preapproved"
             ),
             actor=requested_by,
             payload={"approval_id": approval_id},
         )
         return self.get_intent(intent_id)
+
+    def prepare_live_intent(self, **kwargs: Any) -> dict[str, Any]:
+        return self.prepare_intent(
+            **kwargs,
+            execution_mode=ExecutionMode.LIVE,
+        )
 
     def decide(
         self,
@@ -283,14 +303,19 @@ class SandboxExecutionService:
                 f"current status is {intent['status']}"
             )
 
-        analyzer = self.broker.analyzer_status()
-        if (
-            analyzer.get("analyze_mode") is not True
-            or analyzer.get("mode") != "analyze"
-        ):
-            raise ValueError(
-                "OpenAlgo analyzer mode is not active; submission refused"
-            )
+        execution_mode = ExecutionMode(intent["execution_mode"])
+        is_live = execution_mode == ExecutionMode.LIVE
+        if is_live and not self.allow_live_trading:
+            raise PermissionError("Live trading is disabled by configuration")
+        if not is_live:
+            analyzer = self.broker.analyzer_status()
+            if (
+                analyzer.get("analyze_mode") is not True
+                or analyzer.get("mode") != "analyze"
+            ):
+                raise ValueError(
+                    "OpenAlgo analyzer mode is not active; submission refused"
+                )
 
         order = self.orders.create_order(
             run_id=intent["run_id"],
@@ -299,7 +324,9 @@ class SandboxExecutionService:
             side=intent["side"],
             order_type=intent["order_type"],
             quantity=intent["quantity"],
-            execution_mode=ExecutionMode.SANDBOX,
+            execution_mode=(
+                ExecutionMode.LIVE if is_live else ExecutionMode.SANDBOX
+            ),
             price=float(intent["limit_price"] or 0.0),
         )
         self._set_intent_status(
@@ -316,7 +343,12 @@ class SandboxExecutionService:
         )
 
         try:
-            response = self.broker.place_sandbox_order(
+            broker_method = (
+                self.broker.place_live_order
+                if is_live
+                else self.broker.place_sandbox_order
+            )
+            response = broker_method(
                 strategy=intent["strategy_name"],
                 symbol=intent["symbol"],
                 action=intent["side"],
@@ -354,7 +386,11 @@ class SandboxExecutionService:
         self.orders.transition(
             order.order_id,
             OrderStatus.SUBMITTED,
-            reason="OpenAlgo analyzer order accepted",
+            reason=(
+                "OpenAlgo live order accepted"
+                if is_live
+                else "OpenAlgo analyzer order accepted"
+            ),
             broker_order_id=broker_order_id,
         )
         self._set_intent_status(
@@ -372,6 +408,7 @@ class SandboxExecutionService:
                 "order_id": order.order_id,
                 "broker_order_id": broker_order_id,
                 "mode": response.get("mode"),
+                "execution_mode": execution_mode.value,
             },
         )
         return self.get_intent(intent_id)
@@ -616,7 +653,11 @@ class SandboxExecutionService:
             ]
         }
 
-    def _approved_risk_decision(self, decision_id: str) -> dict[str, Any]:
+    def _approved_risk_decision(
+        self,
+        decision_id: str,
+        execution_mode: ExecutionMode,
+    ) -> dict[str, Any]:
         con = connect(self.db_path)
         try:
             row = con.execute(
@@ -638,10 +679,10 @@ class SandboxExecutionService:
         evaluated_mode = (
             checks.get("execution_mode_check", {}).get("mode")
         )
-        if evaluated_mode != ExecutionMode.SEMI_AUTO.value:
+        if evaluated_mode != execution_mode.value:
             raise ValueError(
-                "Sandbox order intents require a risk decision evaluated "
-                "in semi_auto mode"
+                f"{execution_mode.value} order intents require a risk "
+                f"decision evaluated in {execution_mode.value} mode"
             )
         return {
             "run_id": row[0],

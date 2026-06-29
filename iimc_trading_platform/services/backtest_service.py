@@ -479,12 +479,8 @@ class BacktestService:
                 execution_mode=execution_mode,
                 price=raw_signal.price,
             )
-            if execution_mode == ExecutionMode.SEMI_AUTO:
+            if execution_mode in {ExecutionMode.SEMI_AUTO, ExecutionMode.LIVE}:
                 continue
-            if execution_mode == ExecutionMode.LIVE:
-                raise ValueError(
-                    "Live backtest execution is not supported by this service"
-                )
 
             fill = ledger.process(
                 signal_type=raw_signal.signal_type,

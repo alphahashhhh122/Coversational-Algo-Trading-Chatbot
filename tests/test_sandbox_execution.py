@@ -42,6 +42,14 @@ class FakeSandboxBroker:
             "orderid": "sandbox_123",
         }
 
+    def place_live_order(self, **kwargs) -> dict:
+        self.place_calls += 1
+        return {
+            "status": "success",
+            "mode": "live",
+            "orderid": "live_123",
+        }
+
     def cancel_order(self, *, order_id: str, strategy: str) -> dict:
         self.status = "cancelled"
         return {
@@ -153,6 +161,85 @@ class SandboxExecutionTest(unittest.TestCase):
                 "reconciled",
             ],
         )
+
+    def test_live_intent_is_blocked_when_config_disabled(self) -> None:
+        service = SandboxExecutionService(
+            self.db_path,
+            self.audit,
+            FakeSandboxBroker(),
+            require_approval=True,
+            allow_live_trading=False,
+        )
+
+        with self.assertRaises(PermissionError):
+            service.prepare_live_intent(
+                decision_id=self._approved_live_decision(),
+                symbol="NHPC",
+                exchange="NSE",
+                side="BUY",
+                product="MIS",
+                order_type="MARKET",
+                quantity=1,
+                strategy_name="IIMC_Live_Test",
+                requested_by="user",
+            )
+
+    def test_live_intent_requires_approval_and_submits_live_order(self) -> None:
+        broker = FakeSandboxBroker(analyze=False)
+        service = SandboxExecutionService(
+            self.db_path,
+            self.audit,
+            broker,
+            require_approval=False,
+            allow_live_trading=True,
+        )
+        intent = service.prepare_live_intent(
+            decision_id=self._approved_live_decision(),
+            symbol="NHPC",
+            exchange="NSE",
+            side="BUY",
+            product="MIS",
+            order_type="MARKET",
+            quantity=1,
+            strategy_name="IIMC_Live_Test",
+            requested_by="user",
+        )
+        self.assertEqual(intent["execution_mode"], "live")
+        self.assertEqual(intent["status"], "pending_approval")
+        self.assertIsNotNone(intent["approval_id"])
+
+        approved = service.decide(
+            intent["approval_id"],
+            approved=True,
+            decided_by="manual_approver",
+            reason="Tiny live smoke test reviewed manually",
+        )
+        submitted = service.submit(approved["intent_id"], actor="manual_approver")
+
+        self.assertEqual(submitted["status"], "submitted")
+        self.assertEqual(submitted["broker_order_id"], "live_123")
+        con = connect(self.db_path)
+        try:
+            stored = con.execute(
+                """
+                SELECT execution_mode, broker_order_id
+                FROM order_events
+                WHERE order_id = ?
+                """,
+                [submitted["order_id"]],
+            ).fetchone()
+            approval_action = con.execute(
+                """
+                SELECT requested_action
+                FROM approval_requests
+                WHERE approval_id = ?
+                """,
+                [intent["approval_id"]],
+            ).fetchone()
+        finally:
+            con.close()
+        self.assertEqual(stored, ("live", "live_123"))
+        self.assertEqual(approval_action, ("submit_openalgo_live_order",))
 
     def test_submitted_intent_can_be_cancelled_and_audited(self) -> None:
         broker = FakeSandboxBroker()
@@ -391,6 +478,23 @@ class SandboxExecutionTest(unittest.TestCase):
             confidence=1.0,
             execution_mode=ExecutionMode.SEMI_AUTO,
         )
+        return evaluation.decision_id
+
+    def _approved_live_decision(self) -> str:
+        evaluation = RiskService(
+            self.db_path,
+            allow_live_trading=True,
+        ).evaluate(
+            run_id="run_live",
+            signal_id="sig_live",
+            signal_type="entry",
+            symbol="NHPC",
+            price=100.0,
+            requested_quantity=1,
+            confidence=1.0,
+            execution_mode=ExecutionMode.LIVE,
+        )
+        self.assertTrue(evaluation.approved)
         return evaluation.decision_id
 
 

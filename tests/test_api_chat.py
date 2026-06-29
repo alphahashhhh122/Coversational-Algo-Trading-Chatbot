@@ -92,7 +92,8 @@ class ApiChatTest(unittest.TestCase):
         payload = response.json()
         self.assertEqual(payload["intent"], "unsupported")
         self.assertEqual(payload["tool_calls"], [])
-        self.assertIn("run research backtests", payload["answer"])
+        self.assertIn("prepare a live order intent", payload["answer"])
+        self.assertIn("explicit human approval", payload["answer"])
         self.assertEqual(payload["orchestration_mode"], "offline_fallback")
         self.assertTrue(payload["evaluation"]["passed"])
 

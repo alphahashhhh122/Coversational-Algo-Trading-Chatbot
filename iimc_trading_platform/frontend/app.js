@@ -58,7 +58,9 @@ async function api(path, options = {}) {
     const detail = payload.detail;
     const message = typeof detail === "string"
       ? detail
-      : detail?.message || payload.message || `Request failed with status ${response.status}`;
+      : [detail?.message, detail?.cause].filter(Boolean).join(" Cause: ")
+        || payload.message
+        || `Request failed with status ${response.status}`;
     throw new Error(message);
   }
   return payload;

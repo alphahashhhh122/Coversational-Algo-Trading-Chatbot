@@ -55,6 +55,13 @@ class RiskService:
     ) -> None:
         self.db_path = db_path
         self.policy = policy or RiskPolicy()
+        if allow_live_trading and policy is None:
+            self.policy = RiskPolicy(
+                allowed_modes=(
+                    *self.policy.allowed_modes,
+                    ExecutionMode.LIVE,
+                )
+            )
         self.allow_live_trading = allow_live_trading
         self._ensure_policy_stored()
 

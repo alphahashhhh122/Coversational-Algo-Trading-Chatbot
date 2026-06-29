@@ -637,6 +637,28 @@ class OfflineOrchestrator:
         ):
             return OrchestrationDecision("list_portfolios", {})
         if (
+            "prepare_live_order_intent" in tool_names
+            and any(word in text for word in ("prepare", "create", "draft"))
+            and "live" in text
+            and "order" in text
+        ):
+            decision_id = _extract_identifier(message, "risk_")
+            if not decision_id:
+                return OrchestrationDecision(
+                    tool_name=None,
+                    arguments={},
+                    direct_response=(
+                        "Please provide the approved live risk decision_id "
+                        "(for example risk_...) before I prepare a live "
+                        "OpenAlgo order intent. Live submission still requires "
+                        "separate human approval."
+                    ),
+                )
+            return OrchestrationDecision(
+                "prepare_live_order_intent",
+                _sandbox_intent_arguments(message, decision_id),
+            )
+        if (
             "live" in text
             and "order" in text
             and any(word in text for word in ("place", "submit", "execute"))
@@ -645,8 +667,9 @@ class OfflineOrchestrator:
                 tool_name=None,
                 arguments={},
                 direct_response=(
-                    "I cannot place live orders. I can run research "
-                    "backtests and inspect governed risk or order evidence."
+                    "I cannot directly place live orders from chat. I can "
+                    "prepare a live order intent from an approved live risk "
+                    "decision; submission requires explicit human approval."
                 ),
             )
         if any(word in text for word in ("order", "fill")) and run_id:
@@ -710,6 +733,8 @@ class OfflineOrchestrator:
                 for phrase in ("semi-auto", "semi auto", "paper", "approval")
             ):
                 arguments["execution_mode"] = "semi_auto"
+            if "live" in text:
+                arguments["execution_mode"] = "live"
             if dataset_id:
                 arguments["dataset_id"] = dataset_id
             return OrchestrationDecision("run_backtest", arguments)
@@ -1133,6 +1158,13 @@ def _grounded_fallback_response(
             f"{result['symbol']} {result['side']} {result['quantity']}. "
             f"Approval {result['approval_id']} is required before OpenAlgo "
             "submission."
+        )
+    if tool_name == "prepare_live_order_intent":
+        return (
+            f"Prepared live order intent {result['intent_id']} for "
+            f"{result['symbol']} {result['side']} {result['quantity']}. "
+            f"Approval {result['approval_id']} is mandatory before OpenAlgo "
+            "live submission."
         )
     if tool_name == "assess_dataset_freshness":
         return (

@@ -99,6 +99,44 @@ class OpenAlgoClient:
             )
         return response
 
+    def place_live_order(
+        self,
+        *,
+        strategy: str,
+        symbol: str,
+        action: str,
+        exchange: str,
+        price_type: str,
+        product: str,
+        quantity: int,
+        price: float = 0.0,
+        trigger_price: float = 0.0,
+    ) -> dict[str, Any]:
+        response = self._post(
+            "/api/v1/placeorder",
+            {
+                "strategy": strategy,
+                "symbol": symbol,
+                "action": action,
+                "exchange": exchange,
+                "pricetype": price_type,
+                "product": product,
+                "quantity": quantity,
+                "price": price,
+                "trigger_price": trigger_price,
+                "disclosed_quantity": 0,
+            },
+        )
+        if not response.get("orderid"):
+            raise OpenAlgoResponseError(
+                "OpenAlgo live order response omitted orderid"
+            )
+        if response.get("mode") == "analyze":
+            raise OpenAlgoResponseError(
+                "OpenAlgo reported analyzer mode for a live order request"
+            )
+        return response
+
     def order_status(
         self,
         *,

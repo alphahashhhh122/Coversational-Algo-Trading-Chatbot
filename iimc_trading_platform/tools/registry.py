@@ -193,6 +193,10 @@ class PrepareSandboxIntentInput(ToolInput):
     requested_by: str = Field(default="chat_user", min_length=1, max_length=200)
 
 
+class PrepareLiveIntentInput(PrepareSandboxIntentInput):
+    pass
+
+
 class SandboxIntentActionInput(ToolInput):
     intent_id: str = Field(min_length=1)
     actor: str = Field(default="chat_user", min_length=1, max_length=200)
@@ -340,6 +344,7 @@ def build_default_tool_registry(
         AuditService(DuckDBAuditRepository(db_path)),
         None,
         require_approval=active_config.require_paper_approval,
+        allow_live_trading=active_config.allow_live_trading,
     )
 
     def run_backtest_tool(value: ToolInput) -> dict[str, Any]:
@@ -838,6 +843,7 @@ def build_default_tool_registry(
             AuditService(DuckDBAuditRepository(db_path)),
             OpenAlgoClient(openalgo_base_url, openalgo_api_key),
             require_approval=active_config.require_paper_approval,
+            allow_live_trading=active_config.allow_live_trading,
         )
         snapshots = OpenAlgoSnapshotService(
             db_path,
@@ -879,6 +885,26 @@ def build_default_tool_registry(
                     ),
                     side_effects=(
                         "creates an order intent and human approval request"
+                    ),
+                    retry_safe=True,
+                    required_role="researcher",
+                ),
+                ToolDefinition(
+                    name="prepare_live_order_intent",
+                    description=(
+                        "Prepare a risk-approved live OpenAlgo order intent "
+                        "and create a mandatory human approval. This does not "
+                        "submit an order."
+                    ),
+                    input_model=PrepareLiveIntentInput,
+                    handler=lambda value: sandbox.prepare_live_intent(
+                        **PrepareLiveIntentInput.model_validate(
+                            value.model_dump()
+                        ).model_dump()
+                    ),
+                    side_effects=(
+                        "creates a live order intent and mandatory human "
+                        "approval request"
                     ),
                     retry_safe=True,
                     required_role="researcher",

@@ -164,6 +164,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             else None
         ),
         require_approval=active_config.require_paper_approval,
+        allow_live_trading=active_config.allow_live_trading,
     )
     evidence_service = EvidenceService(
         active_config.database_path,
@@ -1481,6 +1482,27 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(
                 status_code=422,
                 detail=exc.errors(include_url=False),
+            ) from exc
+        except Exception as exc:
+            logger.exception(
+                "Chat request failed safely",
+                extra={
+                    "event": "chat_request_failed",
+                    "error_type": type(exc).__name__,
+                },
+            )
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "message": (
+                        "Chat orchestration failed before a trading action "
+                        "could be completed."
+                    ),
+                    "error_type": type(exc).__name__,
+                    "cause": str(exc)[:500],
+                    "safe_failure": True,
+                    "order_submitted": False,
+                },
             ) from exc
         logger.info(
             "Chat request handled",

@@ -156,6 +156,43 @@ class TradingRuntimeTest(unittest.TestCase):
             con.close()
         self.assertGreaterEqual(policy_count, 3)
 
+    def test_live_backtest_creates_risk_evidence_without_fills(self) -> None:
+        service = BacktestService(self.db_path, allow_live_trading=True)
+        result = service.run(
+            strategy_name="ema_crossover",
+            dataset_id=self.dataset_id,
+            parameters={
+                "fast_period": 5,
+                "slow_period": 18,
+                "stop_loss_pct": 0.03,
+            },
+            execution_mode=ExecutionMode.LIVE,
+            requested_quantity=1,
+        )
+
+        con = connect(self.db_path)
+        try:
+            counts = con.execute(
+                """
+                SELECT
+                    (SELECT COUNT(*) FROM risk_decisions WHERE run_id = ?),
+                    (SELECT COUNT(*) FROM order_events WHERE run_id = ?),
+                    (SELECT COUNT(*) FROM trade_fills WHERE run_id = ?),
+                    (SELECT checks_json FROM risk_decisions
+                     WHERE run_id = ?
+                     ORDER BY created_at
+                     LIMIT 1)
+                """,
+                [result["run_id"]] * 4,
+            ).fetchone()
+        finally:
+            con.close()
+
+        self.assertGreater(counts[0], 0)
+        self.assertGreater(counts[1], 0)
+        self.assertEqual(counts[2], 0)
+        self.assertIn('"mode": "live"', counts[3])
+
     def test_order_idempotency_and_state_machine(self) -> None:
         service = OrderService(self.db_path)
         first = service.create_order(
