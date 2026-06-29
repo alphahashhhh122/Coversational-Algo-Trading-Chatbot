@@ -7,8 +7,8 @@ workflows through a conversational interface.
 The system combines **Groq LLM orchestration**, **retrieval-augmented generation
 (RAG)**, **FastAPI**, **DuckDB**, and **OpenAlgo/Dhan broker APIs** to route
 natural-language requests into governed backend tools. It is built as a
-local-first research and execution-control workspace, with live trading disabled
-by default.
+local-first research and execution-control workspace. Live trading is disabled
+by default, but can be explicitly enabled for approval-gated live order intents.
 
 ## Core Capabilities
 
@@ -62,6 +62,8 @@ The backend separates orchestration, services, repositories, and infrastructure:
 The project is designed for controlled research and paper-trading workflows:
 
 - Live trading is disabled unless explicitly enabled through configuration.
+- Live order intents require a live-mode risk decision and mandatory human
+  approval before OpenAlgo submission.
 - Paper orders route through OpenAlgo analyzer mode and approval gates.
 - Tool calls, approval decisions, broker snapshots, signals, risk decisions, and
   execution events are persisted for traceability.
