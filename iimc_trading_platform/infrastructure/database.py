@@ -37,6 +37,7 @@ CORE_TABLES = [
     "openalgo_snapshots",
     "strategy_definitions",
     "strategy_personas",
+    "custom_strategy_specs",
     "risk_limits",
     "approval_requests",
     "order_intents",
@@ -859,6 +860,22 @@ def initialize_database(db_path: Path) -> None:
                 dashboard_focus_json VARCHAR NOT NULL,
                 prompt_guidance VARCHAR NOT NULL,
                 enabled BOOLEAN NOT NULL,
+                created_at TIMESTAMP NOT NULL,
+                updated_at TIMESTAMP NOT NULL
+            )
+            """
+        )
+        con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS custom_strategy_specs (
+                spec_id VARCHAR PRIMARY KEY,
+                name VARCHAR NOT NULL,
+                description VARCHAR NOT NULL,
+                status VARCHAR NOT NULL,
+                spec_json VARCHAR NOT NULL,
+                validation_json VARCHAR NOT NULL,
+                missing_capabilities_json VARCHAR NOT NULL,
+                created_by VARCHAR NOT NULL,
                 created_at TIMESTAMP NOT NULL,
                 updated_at TIMESTAMP NOT NULL
             )

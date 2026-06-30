@@ -323,6 +323,7 @@ class OfflineOrchestrator:
             )
         if (
             "list_strategy_personas" in tool_names
+            and not ("custom" in text and "strateg" in text)
             and any(
                 word in text
                 for word in (
@@ -711,6 +712,23 @@ class OfflineOrchestrator:
                     "Please provide the run_id for performance evidence."
                 ),
             )
+        if (
+            "list_custom_strategy_specs" in tool_names
+            and "custom" in text
+            and "strateg" in text
+            and any(word in text for word in ("list", "show", "drafts"))
+        ):
+            return OrchestrationDecision("list_custom_strategy_specs", {})
+        if (
+            "create_custom_strategy_spec" in tool_names
+            and any(word in text for word in ("custom", "combine", "combined"))
+            and "strateg" in text
+            and any(word in text for word in ("create", "draft", "spec", "using"))
+        ):
+            return OrchestrationDecision(
+                "create_custom_strategy_spec",
+                _custom_strategy_spec_arguments(message),
+            )
         if "run_" in text and run_id:
             return OrchestrationDecision(
                 "get_backtest_result",
@@ -902,6 +920,77 @@ def _strategy_parameters(text: str, strategy_name: str) -> dict[str, Any]:
     return {}
 
 
+def _custom_strategy_spec_arguments(message: str) -> dict[str, Any]:
+    text = message.lower()
+    indicators: list[dict[str, Any]] = []
+    entry_rules: list[dict[str, Any]] = []
+    exit_rules: list[dict[str, Any]] = []
+
+    if "ema" in text:
+        indicators.extend(
+            [
+                {"type": "EMA", "period": 9, "source": "close"},
+                {"type": "EMA", "period": 21, "source": "close"},
+            ]
+        )
+        entry_rules.append(
+            {
+                "left": "EMA_9",
+                "operator": "crosses_above",
+                "right": "EMA_21",
+                "joiner": "AND",
+            }
+        )
+        exit_rules.append(
+            {
+                "left": "EMA_9",
+                "operator": "crosses_below",
+                "right": "EMA_21",
+                "joiner": "OR",
+            }
+        )
+    if "rsi" in text:
+        indicators.append({"type": "RSI", "period": 14, "source": "close"})
+        entry_rules.append(
+            {"left": "RSI_14", "operator": "<", "right": 60, "joiner": "AND"}
+        )
+        exit_rules.append(
+            {"left": "RSI_14", "operator": ">", "right": 75, "joiner": "OR"}
+        )
+    if any(word in text for word in ("momentum", "roc")):
+        indicators.append({"type": "ROC", "period": 10, "source": "close"})
+        entry_rules.append(
+            {"left": "ROC_10", "operator": ">", "right": 0, "joiner": "AND"}
+        )
+    if "iv" in text or "skew" in text:
+        indicators.append({"type": "IV_SKEW", "period": 14, "source": "iv"})
+        entry_rules.append(
+            {"left": "IV_SKEW_14", "operator": ">", "right": 0, "joiner": "AND"}
+        )
+
+    if not indicators:
+        indicators.append({"type": "EMA", "period": 9, "source": "close"})
+        entry_rules.append(
+            {"left": "EMA_9", "operator": ">", "right": "price", "joiner": "AND"}
+        )
+    if not exit_rules:
+        exit_rules.append(
+            {"left": "price", "operator": "<", "right": "EMA_9", "joiner": "OR"}
+        )
+
+    return {
+        "name": "custom_strategy_draft",
+        "description": message[:1000],
+        "symbol": _symbol_from_text(message) or "NIFTY",
+        "timeframe": _timeframe_from_text(text),
+        "indicators": indicators,
+        "entry_rules": entry_rules,
+        "exit_rules": exit_rules,
+        "risk": {"max_position_size": 1, "stop_loss_pct": 0.02},
+        "created_by": "chat_user",
+    }
+
+
 def _symbol_from_text(text: str) -> str | None:
     upper = text.upper()
     for symbol in ("RELIANCE", "TCS", "INFY", "NIFTY", "BANKNIFTY"):
@@ -917,6 +1006,15 @@ def _exchange_from_text(text: str, *, default: str = "NSE") -> str:
         if re.search(rf"\b{exchange}\b", upper):
             return exchange
     return default
+
+
+def _timeframe_from_text(text: str) -> str:
+    match = re.search(r"\b(\d+)\s*(m|min|minute|h|hour|d|day)\b", text)
+    if not match:
+        return "5m"
+    value, unit = match.groups()
+    normalized = {"m": "m", "min": "m", "minute": "m", "h": "h", "hour": "h", "d": "d", "day": "d"}[unit]
+    return f"{value}{normalized}"
 
 
 def _readiness_arguments(message: str) -> dict[str, Any]:

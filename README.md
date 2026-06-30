@@ -19,6 +19,9 @@ by default, but can be explicitly enabled for approval-gated live order intents.
 - RAG over project, architecture, policy, and trading workflow documents.
 - Strategy backtesting with stored signals, risk decisions, order events, fills,
   and performance summaries.
+- Custom strategy draft specs for no-code strategy ideas, with validation of
+  indicators/rules, missing-capability reporting, and review-before-execution
+  policy rather than arbitrary LLM-generated code execution.
 - OpenAlgo/Dhan integration for quote, history, analyzer-mode status, funds,
   orderbook, tradebook, and positionbook checks.
 - Broker-backed instrument discovery for NSE equities, NFO derivatives, and MCX
@@ -64,6 +67,9 @@ The project is designed for controlled research and paper-trading workflows:
 - Tools declare input schemas, side effects, retry policy, required roles, and
   capability metadata such as supported actions, asset classes, execution modes,
   provider dependencies, and approval requirements.
+- Natural-language custom strategies are stored as governed draft specs and
+  must map to supported primitives or reviewed strategy plugins before
+  backtesting/execution.
 - Live trading is disabled unless explicitly enabled through configuration.
 - Live order intents require a live-mode risk decision and mandatory human
   approval before OpenAlgo submission.

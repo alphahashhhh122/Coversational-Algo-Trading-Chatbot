@@ -14,6 +14,7 @@ from ..infrastructure.openalgo import OpenAlgoClient
 from ..services.capability_coverage_service import CapabilityCoverageService
 from ..services.audit_service import AuditService
 from ..services.backtest_service import BacktestService
+from ..services.custom_strategy_service import CustomStrategyService
 from ..services.evidence_service import EvidenceService
 from ..services.execution_readiness_service import ExecutionReadinessService
 from ..services.freshness_service import FreshnessService
@@ -58,6 +59,41 @@ class StrategyParameters(ToolInput):
 
     def values_for_strategy(self) -> dict[str, Any]:
         return self.model_dump(exclude_none=True)
+
+
+class CustomIndicatorSpec(ToolInput):
+    type: str = Field(min_length=1, max_length=40)
+    period: int | None = Field(default=None, ge=1, le=10_000)
+    source: str = Field(default="close", min_length=1, max_length=40)
+
+
+class CustomRuleSpec(ToolInput):
+    left: str = Field(min_length=1, max_length=120)
+    operator: str = Field(min_length=1, max_length=40)
+    right: str | float | int = Field()
+    joiner: Literal["AND", "OR"] = "AND"
+
+
+class CustomStrategyRiskSpec(ToolInput):
+    max_position_size: int | None = Field(default=None, ge=1, le=100_000)
+    stop_loss_pct: float | None = Field(default=None, ge=0, le=1)
+    take_profit_pct: float | None = Field(default=None, ge=0, le=10)
+
+
+class CreateCustomStrategySpecInput(ToolInput):
+    name: str = Field(min_length=1, max_length=120)
+    description: str = Field(min_length=1, max_length=1000)
+    symbol: str = Field(min_length=1, max_length=80)
+    timeframe: str = Field(min_length=1, max_length=20)
+    indicators: list[CustomIndicatorSpec] = Field(min_length=1, max_length=12)
+    entry_rules: list[CustomRuleSpec] = Field(min_length=1, max_length=12)
+    exit_rules: list[CustomRuleSpec] = Field(min_length=1, max_length=12)
+    risk: CustomStrategyRiskSpec = Field(default_factory=CustomStrategyRiskSpec)
+    created_by: str = Field(default="chat_user", min_length=1, max_length=200)
+
+
+class ListCustomStrategySpecsInput(ToolInput):
+    limit: int = Field(default=50, ge=1, le=200)
 
 
 class RunBacktestInput(ToolInput):
@@ -364,6 +400,7 @@ def build_default_tool_registry(
     robustness = RobustnessService(db_path)
     portfolios = PortfolioService(db_path)
     tasks = build_task_service(db_path)
+    custom_strategies = CustomStrategyService(db_path)
     openalgo_readiness = OpenAlgoReadinessService(active_config)
     capabilities = CapabilityCoverageService(db_path, openalgo_readiness)
     execution_readiness = ExecutionReadinessService(
@@ -761,6 +798,63 @@ def build_default_tool_registry(
                     actions=("list",),
                     execution_modes=("research",),
                     required_data=("strategy_registry",),
+                    risk_level="low",
+                ),
+            ),
+            ToolDefinition(
+                name="create_custom_strategy_spec",
+                description=(
+                    "Create and persist a governed draft strategy spec from "
+                    "structured indicators, entry rules, exit rules, and risk "
+                    "constraints. This does not execute generated code or place "
+                    "orders; unsupported primitives are marked requires_review."
+                ),
+                input_model=CreateCustomStrategySpecInput,
+                handler=lambda value: custom_strategies.create_spec(
+                    **CreateCustomStrategySpecInput.model_validate(
+                        value.model_dump()
+                    ).model_dump()
+                ),
+                side_effects=(
+                    "creates a persisted custom strategy draft for review"
+                ),
+                retry_safe=False,
+                required_role="researcher",
+                capabilities=ToolCapabilityMetadata(
+                    actions=("draft_strategy", "validate_strategy_spec"),
+                    asset_classes=(
+                        "equity",
+                        "index",
+                        "futures",
+                        "options",
+                        "commodity",
+                        "crypto",
+                    ),
+                    execution_modes=("research",),
+                    required_data=("strategy_spec",),
+                    requires_approval=True,
+                    risk_level="medium",
+                ),
+            ),
+            ToolDefinition(
+                name="list_custom_strategy_specs",
+                description=(
+                    "List governed custom strategy draft specs, including "
+                    "whether each spec is executable with current primitives "
+                    "or requires human review/new backend implementation."
+                ),
+                input_model=ListCustomStrategySpecsInput,
+                handler=lambda value: custom_strategies.list_specs(
+                    ListCustomStrategySpecsInput.model_validate(
+                        value.model_dump()
+                    ).limit
+                ),
+                side_effects="read-only database query",
+                retry_safe=True,
+                capabilities=ToolCapabilityMetadata(
+                    actions=("list", "review_strategy_specs"),
+                    execution_modes=("research",),
+                    required_data=("custom_strategy_specs",),
                     risk_level="low",
                 ),
             ),

@@ -4,6 +4,7 @@ from .backtest_service import BacktestService
 from .backup_service import BackupService
 from .catalog_service import CatalogService
 from .capability_coverage_service import CapabilityCoverageService
+from .custom_strategy_service import CustomStrategyService
 from .dashboard_preference_service import DashboardPreferenceService
 from .evidence_service import EvidenceService
 from .execution_readiness_service import ExecutionReadinessService
@@ -40,6 +41,7 @@ __all__ = [
     "BackupService",
     "CatalogService",
     "CapabilityCoverageService",
+    "CustomStrategyService",
     "DashboardPreferenceService",
     "EvidenceService",
     "ExecutionReadinessService",
