@@ -226,6 +226,22 @@ class ToolCapabilityMetadata:
             "risk_level": self.risk_level,
         }
 
+    def summary(self) -> str:
+        parts = [f"risk={self.risk_level}"]
+        if self.actions:
+            parts.append(f"actions={','.join(self.actions)}")
+        if self.asset_classes:
+            parts.append(f"assets={','.join(self.asset_classes)}")
+        if self.execution_modes:
+            parts.append(f"modes={','.join(self.execution_modes)}")
+        if self.required_data:
+            parts.append(f"data={','.join(self.required_data)}")
+        if self.required_providers:
+            parts.append(f"providers={','.join(self.required_providers)}")
+        if self.requires_approval:
+            parts.append("approval=required")
+        return "; ".join(parts)
+
 
 @dataclass(frozen=True)
 class ToolDefinition:
@@ -249,7 +265,9 @@ class ToolDefinition:
             "name": self.name,
             "description": (
                 f"{self.description} Side effects: {self.side_effects}. "
-                f"Retry safe: {str(self.retry_safe).lower()}."
+                f"Retry safe: {str(self.retry_safe).lower()}. "
+                f"Required role: {self.required_role}. "
+                f"Capabilities: {self.capabilities.summary()}."
             ),
             "parameters": _strict_schema(self.input_model.model_json_schema()),
             "strict": True,

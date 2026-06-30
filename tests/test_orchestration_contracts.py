@@ -77,6 +77,16 @@ class OrchestrationContractsTest(unittest.TestCase):
         for tool in registry.openai_tools():
             self._assert_strict_objects(tool["parameters"])
 
+    def test_openai_tool_descriptions_include_governance_context(self) -> None:
+        registry = build_default_tool_registry(Path("unused.duckdb"))
+        tools = {tool["name"]: tool for tool in registry.openai_tools()}
+
+        description = tools["run_backtest"]["description"]
+        self.assertIn("Required role: researcher", description)
+        self.assertIn("Capabilities:", description)
+        self.assertIn("risk=medium", description)
+        self.assertIn("actions=backtest", description)
+
     def test_tool_roles_are_a_single_authorization_source(self) -> None:
         registry = build_default_tool_registry(Path("unused.duckdb"))
 
