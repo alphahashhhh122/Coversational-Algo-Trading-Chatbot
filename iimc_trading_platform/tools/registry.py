@@ -206,6 +206,28 @@ ToolHandler = Callable[[ToolInput], dict[str, Any]]
 
 
 @dataclass(frozen=True)
+class ToolCapabilityMetadata:
+    actions: tuple[str, ...] = ()
+    asset_classes: tuple[str, ...] = ()
+    execution_modes: tuple[str, ...] = ()
+    required_data: tuple[str, ...] = ()
+    required_providers: tuple[str, ...] = ()
+    requires_approval: bool = False
+    risk_level: Literal["low", "medium", "high"] = "low"
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "actions": list(self.actions),
+            "asset_classes": list(self.asset_classes),
+            "execution_modes": list(self.execution_modes),
+            "required_data": list(self.required_data),
+            "required_providers": list(self.required_providers),
+            "requires_approval": self.requires_approval,
+            "risk_level": self.risk_level,
+        }
+
+
+@dataclass(frozen=True)
 class ToolDefinition:
     name: str
     description: str
@@ -214,6 +236,7 @@ class ToolDefinition:
     side_effects: str
     retry_safe: bool
     required_role: str = "viewer"
+    capabilities: ToolCapabilityMetadata = ToolCapabilityMetadata()
 
     def validate(self, payload: dict[str, Any] | None) -> ToolInput:
         if payload is None:
@@ -258,6 +281,7 @@ class ToolRegistry:
                 "side_effects": tool.side_effects,
                 "retry_safe": tool.retry_safe,
                 "required_role": tool.required_role,
+                "capabilities": tool.capabilities.as_dict(),
             }
             for tool in self._tools.values()
         ]
@@ -399,6 +423,19 @@ def build_default_tool_registry(
                 handler=lambda value: platform_dashboard.summary(),
                 side_effects="read-only platform summary checks",
                 retry_safe=True,
+                capabilities=ToolCapabilityMetadata(
+                    actions=("monitor",),
+                    asset_classes=(
+                        "equity",
+                        "index",
+                        "futures",
+                        "options",
+                        "commodity",
+                        "crypto",
+                    ),
+                    execution_modes=("research",),
+                    risk_level="low",
+                ),
             ),
             ToolDefinition(
                 name="list_datasets",
@@ -467,6 +504,12 @@ def build_default_tool_registry(
                 ),
                 side_effects="creates a retrieval audit event",
                 retry_safe=True,
+                capabilities=ToolCapabilityMetadata(
+                    actions=("retrieve", "explain"),
+                    execution_modes=("research",),
+                    required_data=("governed_documents",),
+                    risk_level="low",
+                ),
             ),
             ToolDefinition(
                 name="check_platform_readiness",
@@ -482,6 +525,21 @@ def build_default_tool_registry(
                 ),
                 side_effects="read-only readiness checks",
                 retry_safe=True,
+                capabilities=ToolCapabilityMetadata(
+                    actions=("validate", "monitor"),
+                    asset_classes=(
+                        "equity",
+                        "index",
+                        "futures",
+                        "options",
+                        "commodity",
+                        "crypto",
+                    ),
+                    execution_modes=("research", "paper", "live"),
+                    required_data=("instrument_metadata",),
+                    required_providers=("openalgo",),
+                    risk_level="low",
+                ),
             ),
             ToolDefinition(
                 name="get_research_context",
@@ -543,6 +601,13 @@ def build_default_tool_registry(
                 handler=lambda value: openalgo_readiness.monitor(),
                 side_effects="read-only OpenAlgo status checks",
                 retry_safe=True,
+                capabilities=ToolCapabilityMetadata(
+                    actions=("monitor",),
+                    asset_classes=("equity", "futures", "options", "commodity"),
+                    execution_modes=("paper", "live"),
+                    required_providers=("openalgo",),
+                    risk_level="low",
+                ),
             ),
             ToolDefinition(
                 name="search_instruments",
@@ -559,6 +624,13 @@ def build_default_tool_registry(
                 ),
                 side_effects="read-only OpenAlgo symbol search",
                 retry_safe=True,
+                capabilities=ToolCapabilityMetadata(
+                    actions=("discover",),
+                    asset_classes=("equity", "futures", "options", "commodity"),
+                    execution_modes=("research", "paper", "live"),
+                    required_providers=("openalgo",),
+                    risk_level="low",
+                ),
             ),
             ToolDefinition(
                 name="validate_instrument_symbol",
@@ -620,6 +692,13 @@ def build_default_tool_registry(
                 ),
                 retry_safe=True,
                 required_role="researcher",
+                capabilities=ToolCapabilityMetadata(
+                    actions=("research", "fetch_news"),
+                    asset_classes=("equity", "index", "commodity", "crypto"),
+                    execution_modes=("research",),
+                    required_providers=("market_news",),
+                    risk_level="low",
+                ),
             ),
             ToolDefinition(
                 name="list_strategy_personas",
@@ -660,6 +739,12 @@ def build_default_tool_registry(
                 },
                 side_effects="none",
                 retry_safe=True,
+                capabilities=ToolCapabilityMetadata(
+                    actions=("list",),
+                    execution_modes=("research",),
+                    required_data=("strategy_registry",),
+                    risk_level="low",
+                ),
             ),
             ToolDefinition(
                 name="run_backtest",
@@ -673,6 +758,20 @@ def build_default_tool_registry(
                 side_effects="creates persisted research workflow records",
                 retry_safe=False,
                 required_role="researcher",
+                capabilities=ToolCapabilityMetadata(
+                    actions=("backtest",),
+                    asset_classes=(
+                        "equity",
+                        "index",
+                        "futures",
+                        "options",
+                        "commodity",
+                        "crypto",
+                    ),
+                    execution_modes=("research", "semi_auto", "live"),
+                    required_data=("historical_ohlcv", "strategy_registry"),
+                    risk_level="medium",
+                ),
             ),
             ToolDefinition(
                 name="get_backtest_result",
@@ -687,6 +786,12 @@ def build_default_tool_registry(
                 ),
                 side_effects="read-only database query",
                 retry_safe=True,
+                capabilities=ToolCapabilityMetadata(
+                    actions=("monitor",),
+                    execution_modes=("research",),
+                    required_data=("performance_summaries",),
+                    risk_level="low",
+                ),
             ),
             ToolDefinition(
                 name="get_performance",
@@ -866,6 +971,13 @@ def build_default_tool_registry(
                     "read-only OpenAlgo API call and local snapshot record"
                 ),
                 retry_safe=True,
+                capabilities=ToolCapabilityMetadata(
+                    actions=("monitor", "snapshot"),
+                    asset_classes=("equity", "futures", "options", "commodity"),
+                    execution_modes=("paper", "live"),
+                    required_providers=("openalgo",),
+                    risk_level="low",
+                ),
             )
         )
         tools.extend(
@@ -888,6 +1000,20 @@ def build_default_tool_registry(
                     ),
                     retry_safe=True,
                     required_role="researcher",
+                    capabilities=ToolCapabilityMetadata(
+                        actions=("prepare_order",),
+                        asset_classes=(
+                            "equity",
+                            "futures",
+                            "options",
+                            "commodity",
+                        ),
+                        execution_modes=("paper",),
+                        required_data=("risk_decision", "instrument_metadata"),
+                        required_providers=("openalgo",),
+                        requires_approval=True,
+                        risk_level="high",
+                    ),
                 ),
                 ToolDefinition(
                     name="prepare_live_order_intent",
@@ -908,6 +1034,20 @@ def build_default_tool_registry(
                     ),
                     retry_safe=True,
                     required_role="researcher",
+                    capabilities=ToolCapabilityMetadata(
+                        actions=("prepare_order",),
+                        asset_classes=(
+                            "equity",
+                            "futures",
+                            "options",
+                            "commodity",
+                        ),
+                        execution_modes=("live",),
+                        required_data=("risk_decision", "instrument_metadata"),
+                        required_providers=("openalgo",),
+                        requires_approval=True,
+                        risk_level="high",
+                    ),
                 ),
                 ToolDefinition(
                     name="list_pending_approvals",
@@ -920,6 +1060,13 @@ def build_default_tool_registry(
                     side_effects="read-only database query",
                     retry_safe=True,
                     required_role="approver",
+                    capabilities=ToolCapabilityMetadata(
+                        actions=("approve", "monitor"),
+                        execution_modes=("paper", "live"),
+                        required_data=("approvals",),
+                        requires_approval=True,
+                        risk_level="high",
+                    ),
                 ),
                 ToolDefinition(
                     name="reconcile_sandbox_intent",
@@ -941,6 +1088,19 @@ def build_default_tool_registry(
                     ),
                     retry_safe=True,
                     required_role="researcher",
+                    capabilities=ToolCapabilityMetadata(
+                        actions=("reconcile",),
+                        asset_classes=(
+                            "equity",
+                            "futures",
+                            "options",
+                            "commodity",
+                        ),
+                        execution_modes=("paper", "live"),
+                        required_data=("order_intent",),
+                        required_providers=("openalgo",),
+                        risk_level="medium",
+                    ),
                 ),
             ]
         )

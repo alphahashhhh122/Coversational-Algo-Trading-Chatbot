@@ -14,8 +14,8 @@ by default, but can be explicitly enabled for approval-gated live order intents.
 
 - Conversational chatbot for market research, instrument discovery, backtesting,
   broker-state queries, and performance summaries.
-- LLM tool orchestration with typed contracts, response grounding, and audit
-  evidence for every tool-backed answer.
+- LLM tool orchestration with typed contracts, role gates, capability metadata,
+  response grounding, and audit evidence for every tool-backed answer.
 - RAG over project, architecture, policy, and trading workflow documents.
 - Strategy backtesting with stored signals, risk decisions, order events, fills,
   and performance summaries.
@@ -61,6 +61,9 @@ The backend separates orchestration, services, repositories, and infrastructure:
 
 The project is designed for controlled research and paper-trading workflows:
 
+- Tools declare input schemas, side effects, retry policy, required roles, and
+  capability metadata such as supported actions, asset classes, execution modes,
+  provider dependencies, and approval requirements.
 - Live trading is disabled unless explicitly enabled through configuration.
 - Live order intents require a live-mode risk decision and mandatory human
   approval before OpenAlgo submission.

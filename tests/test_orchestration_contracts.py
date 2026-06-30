@@ -88,6 +88,24 @@ class OrchestrationContractsTest(unittest.TestCase):
         self.assertIn("run_backtest", researcher)
         self.assertIn("run_robustness_experiment", researcher)
 
+    def test_resume_facing_tools_expose_capability_metadata(self) -> None:
+        registry = build_default_tool_registry(
+            Path("unused.duckdb"),
+            openalgo_base_url="http://127.0.0.1:5000",
+            openalgo_api_key="configured",
+        )
+        tools = {tool["name"]: tool for tool in registry.list_tools()}
+
+        backtest = tools["run_backtest"]["capabilities"]
+        self.assertIn("backtest", backtest["actions"])
+        self.assertIn("historical_ohlcv", backtest["required_data"])
+        self.assertEqual(backtest["risk_level"], "medium")
+
+        live = tools["prepare_live_order_intent"]["capabilities"]
+        self.assertIn("live", live["execution_modes"])
+        self.assertTrue(live["requires_approval"])
+        self.assertIn("openalgo", live["required_providers"])
+
     def test_null_tool_arguments_validate_as_empty_payload(self) -> None:
         registry = build_default_tool_registry(Path("unused.duckdb"))
 
@@ -117,6 +135,29 @@ class OrchestrationContractsTest(unittest.TestCase):
         self.assertFalse(evaluated.passed)
         self.assertIn("ungrounded_metric:net_pnl", evaluated.warnings)
         self.assertIn("Net P&L: -100.0", evaluated.answer)
+
+    def test_evaluator_replaces_incorrect_nested_metric_alias(self) -> None:
+        result = {
+            "run_id": "run_alias",
+            "net_pnl": 42.0,
+            "max_drawdown": 10.0,
+            "return_pct": 0.5,
+            "total_trades": 3,
+            "metrics": {"sharpe_ratio": -0.25},
+        }
+        evaluated = ResponseEvaluator().evaluate(
+            answer=(
+                "Net P&L: 42; max drawdown: 10; return: 0.5; "
+                "closed trades: 3; Sharpe: 2.5"
+            ),
+            tool_name="run_backtest",
+            tool_result=result,
+            tool_call_id="tool_alias",
+        )
+
+        self.assertFalse(evaluated.passed)
+        self.assertIn("ungrounded_metric:sharpe_ratio", evaluated.warnings)
+        self.assertIn("Backtest run_alias completed", evaluated.answer)
 
     def test_responses_orchestrator_uses_function_call_output(self) -> None:
         orchestrator = OpenAIResponsesOrchestrator(

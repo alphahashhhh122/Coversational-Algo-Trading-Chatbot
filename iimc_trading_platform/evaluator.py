@@ -89,21 +89,24 @@ def _validate_backtest_metrics(
     result: dict[str, Any],
 ) -> list[str]:
     warnings: list[str] = []
+    metrics = result.get("metrics") if isinstance(result.get("metrics"), dict) else {}
     checks = {
-        "net_pnl": result.get("net_pnl"),
-        "max_drawdown": result.get("max_drawdown"),
-        "return_pct": result.get("return_pct"),
-        "total_trades": result.get("total_trades"),
+        "net_pnl": _first_number(result, metrics, "net_pnl"),
+        "max_drawdown": _first_number(result, metrics, "max_drawdown"),
+        "return_pct": _first_number(result, metrics, "return_pct"),
+        "total_trades": _first_number(result, metrics, "total_trades"),
+        "winning_trades": _first_number(result, metrics, "winning_trades"),
+        "losing_trades": _first_number(result, metrics, "losing_trades"),
+        "gross_profit": _first_number(result, metrics, "gross_profit"),
+        "gross_loss": _first_number(result, metrics, "gross_loss"),
+        "total_fees": _first_number(result, metrics, "total_fees"),
+        "sharpe_ratio": _first_number(result, metrics, "sharpe_ratio"),
+        "profit_factor": _first_number(result, metrics, "profit_factor"),
     }
     for name, expected in checks.items():
         if expected is None:
             continue
-        label = name.replace("_", r"[\s_]*")
-        match = re.search(
-            rf"{label}\s*[:=]?\s*[\u20b9$]?\s*(-?[\d,]+(?:\.\d+)?)",
-            answer,
-            flags=re.IGNORECASE,
-        )
+        match = _metric_match(answer, name)
         if match:
             claimed = float(match.group(1).replace(",", ""))
             if abs(claimed - float(expected)) > max(
@@ -112,6 +115,47 @@ def _validate_backtest_metrics(
             ):
                 warnings.append(f"ungrounded_metric:{name}")
     return warnings
+
+
+def _first_number(
+    primary: dict[str, Any],
+    secondary: dict[str, Any],
+    key: str,
+) -> float | int | None:
+    for payload in (primary, secondary):
+        value = payload.get(key)
+        if isinstance(value, bool) or value is None:
+            continue
+        if isinstance(value, (int, float)):
+            return value
+        try:
+            return float(str(value).replace(",", ""))
+        except ValueError:
+            continue
+    return None
+
+
+def _metric_match(answer: str, name: str) -> re.Match[str] | None:
+    aliases = {
+        "net_pnl": [r"net\s*p\s*&?\s*l", r"net\s*pnl", r"p\s*&?\s*l"],
+        "max_drawdown": [r"max(?:imum)?\s*drawdown", r"drawdown"],
+        "return_pct": [r"return\s*(?:pct|percent|%)?", r"return_pct"],
+        "total_trades": [r"total\s*trades", r"closed\s*trades", r"trades"],
+        "winning_trades": [r"winning\s*trades", r"wins"],
+        "losing_trades": [r"losing\s*trades", r"losses"],
+        "gross_profit": [r"gross\s*profit"],
+        "gross_loss": [r"gross\s*loss"],
+        "total_fees": [r"total\s*fees", r"fees"],
+        "sharpe_ratio": [r"sharpe(?:\s*ratio)?"],
+        "profit_factor": [r"profit\s*factor"],
+    }
+    labels = aliases.get(name, [name.replace("_", r"[\s_]*")])
+    value_pattern = r"\s*[:=]?\s*[\u20b9$]?\s*(-?[\d,]+(?:\.\d+)?)"
+    for label in labels:
+        match = re.search(rf"\b{label}\b{value_pattern}", answer, flags=re.IGNORECASE)
+        if match:
+            return match
+    return None
 
 
 def _safe_replacement(
