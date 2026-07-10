@@ -25,7 +25,7 @@ def utc_now() -> datetime:
 
 
 class PlatformDashboardService:
-    """Read-only dashboard contract for the professor and resume demo."""
+    """Read-only dashboard contract for local platform operation evidence."""
 
     def __init__(self, config: AppConfig) -> None:
         self.config = config
@@ -56,7 +56,7 @@ class PlatformDashboardService:
         return {
             "generated_at": utc_now(),
             "status": (
-                "ready_for_local_demo"
+                "ready_for_local_operation"
                 if health["status"] == "healthy"
                 else "needs_attention"
             ),
@@ -137,15 +137,18 @@ class PlatformDashboardService:
             },
         }
 
-    def professor_demo(self) -> dict[str, Any]:
+    def professor_review(self) -> dict[str, Any]:
         run = self._latest_completed_run()
         run_id = run["run_id"] if run else None
+        operating_goal = (
+            "Explain how governed market data, strategy logic, risk decisions, "
+            "orders, fills, broker readiness, and performance evidence work "
+            "together inside the local platform."
+        )
         return {
             "generated_at": utc_now(),
-            "demo_goal": (
-                "Explain how a governed strategy run becomes stored signals, "
-                "risk decisions, orders, fills, and performance evidence."
-            ),
+            "operating_goal": operating_goal,
+            "demo_goal": operating_goal,
             "latest_completed_run": run,
             "workflow": [
                 {
@@ -203,6 +206,9 @@ class PlatformDashboardService:
                 "no_synthetic_fallback": True,
             },
         }
+
+    def professor_demo(self) -> dict[str, Any]:
+        return self.professor_review()
 
     def _table_counts(self, table_names: list[str]) -> dict[str, int]:
         con = connect(self.db_path)

@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from datetime import datetime, timedelta
 from pathlib import Path
 
+from iimc_trading_platform.db import connect
 from iimc_trading_platform.infrastructure import initialize_database
 from iimc_trading_platform.orchestration import OfflineOrchestrator
 from iimc_trading_platform.services.custom_strategy_service import (
@@ -100,6 +102,153 @@ class CustomStrategySpecTest(unittest.TestCase):
         self.assertEqual(decision.tool_name, "create_custom_strategy_spec")
         self.assertEqual(result["status"], "draft_executable")
         self.assertIn("arbitrary LLM-generated code is not executed", result["execution_policy"])
+
+    def test_supported_custom_spec_runs_native_rule_spec_backtest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "platform.duckdb"
+            initialize_database(db_path)
+            dataset_id = _seed_trending_dataset(db_path)
+            service = CustomStrategyService(db_path)
+            created = service.create_spec(
+                name="ema_breakout",
+                description="EMA crossover rule spec.",
+                symbol="NIFTY",
+                timeframe="5m",
+                indicators=[
+                    {"type": "EMA", "period": 3, "source": "price"},
+                    {"type": "EMA", "period": 8, "source": "price"},
+                ],
+                entry_rules=[
+                    {
+                        "left": "EMA_3",
+                        "operator": ">",
+                        "right": "EMA_8",
+                    }
+                ],
+                exit_rules=[
+                    {
+                        "left": "EMA_3",
+                        "operator": "<",
+                        "right": "EMA_8",
+                    }
+                ],
+            )
+
+            result = service.run_backtest(
+                spec_id=created["spec_id"],
+                dataset_id=dataset_id,
+                requested_quantity=1,
+            )
+
+        self.assertEqual(result["strategy"], "rule_spec")
+        self.assertEqual(result["custom_strategy_spec_id"], created["spec_id"])
+        self.assertEqual(result["status"], "completed")
+        self.assertIn("no generated code", result["execution_policy"])
+        self.assertGreater(result["metrics"]["signal_count"], 0)
+
+def _seed_trending_dataset(db_path: Path) -> str:
+    source_id = "source_custom_strategy"
+    dataset_id = "nifty_custom_strategy_5m"
+    start = datetime(2026, 1, 1, 9, 15)
+    prices = [
+        100,
+        99,
+        98,
+        97,
+        98,
+        100,
+        103,
+        106,
+        109,
+        111,
+        110,
+        108,
+        105,
+        102,
+        99,
+        97,
+    ]
+    rows = []
+    for index, price in enumerate(prices):
+        timestamp = start + timedelta(minutes=5 * index)
+        rows.append(
+            [
+                "NIFTY",
+                "NFO",
+                "MONTH_E1",
+                "5m",
+                timestamp,
+                "ATM",
+                25_000.0,
+                "CALL",
+                price - 1,
+                price + 1,
+                price - 2,
+                price,
+                1000 + index,
+                5000,
+                15.0,
+                price,
+                source_id,
+                "custom.csv",
+                "clean",
+                timestamp,
+            ]
+        )
+
+    con = connect(db_path)
+    try:
+        con.execute(
+            """
+            INSERT INTO raw_file_registry VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                source_id,
+                "custom.csv",
+                "custom.csv",
+                "hash",
+                100,
+                start,
+                len(rows),
+                len(rows),
+                0,
+                0,
+            ],
+        )
+        con.executemany(
+            """
+            INSERT INTO options_ohlcv VALUES (
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+            )
+            """,
+            rows,
+        )
+        con.execute(
+            """
+            INSERT INTO data_catalog VALUES (
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+            )
+            """,
+            [
+                dataset_id,
+                "market_data",
+                "options_ohlcv",
+                "NIFTY",
+                "NFO",
+                "5m",
+                rows[0][4],
+                rows[-1][4],
+                len(rows),
+                "options_ohlcv",
+                source_id,
+                "clean",
+                None,
+                start,
+            ],
+        )
+    finally:
+        con.close()
+    return dataset_id
 
 
 if __name__ == "__main__":

@@ -36,7 +36,6 @@ def foundation_health(config: AppConfig) -> dict[str, Any]:
         "database_exists",
         "database_accessible",
         "core_schema_complete",
-        "live_trading_disabled",
     }
     healthy = all(checks[name] for name in required_checks)
     notes = []
@@ -57,6 +56,11 @@ def foundation_health(config: AppConfig) -> dict[str, Any]:
     if not config.allow_live_trading:
         notes.append(
             "Live trading is disabled; research and read-only workflows remain available."
+        )
+    else:
+        notes.append(
+            "Live trading is enabled; orders still require broker readiness, "
+            "risk checks, and explicit approval policy."
         )
     if config.auth_required and not config.auth_secret:
         notes.append(

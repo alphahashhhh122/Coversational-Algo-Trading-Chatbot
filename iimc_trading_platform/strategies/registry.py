@@ -7,6 +7,7 @@ from .builtins import (
     RSIMeanReversionStrategy,
     SMACrossoverStrategy,
 )
+from .rule_spec import RuleSpecStrategy
 
 
 class StrategyRegistry:
@@ -47,7 +48,7 @@ def build_strategy_registry() -> StrategyRegistry:
         SMACrossoverStrategy(),
         RSIMeanReversionStrategy(),
         MomentumStrategy(),
+        RuleSpecStrategy(),
     ]:
         registry.register(strategy)
     return registry
-

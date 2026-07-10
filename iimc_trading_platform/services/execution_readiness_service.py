@@ -84,7 +84,13 @@ class ExecutionReadinessService:
             ),
             _stage(
                 "live_trading",
-                "ready" if self.config.allow_live_trading and provider_ready else "disabled",
+                (
+                    "ready"
+                    if self.config.allow_live_trading and provider_ready
+                    else "blocked"
+                    if self.config.allow_live_trading
+                    else "disabled"
+                ),
                 bool(self.config.allow_live_trading and provider_ready),
                 _blockers(
                     ("live_trading_disabled", not self.config.allow_live_trading),
@@ -93,6 +99,8 @@ class ExecutionReadinessService:
                 (
                     "Live submission remains human-approved and broker-gated."
                     if self.config.allow_live_trading and provider_ready
+                    else "Live trading is enabled but blocked until broker readiness passes."
+                    if self.config.allow_live_trading
                     else "Keep live trading disabled until production controls are explicitly enabled."
                 ),
                 requires_human_approval=True,

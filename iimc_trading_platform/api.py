@@ -19,6 +19,7 @@ from .api_models import (
     ChatRequest,
     ChatResponse,
     CreatePortfolioRequest,
+    CustomStrategyBacktestRequest,
     DashboardPreferencesRequest,
     LoginRequest,
     PortfolioControlRequest,
@@ -89,14 +90,17 @@ from .services.conversation_service import ConversationService
 from .services.sandbox_execution_service import SandboxExecutionService
 from .services.tool_execution_service import ToolExecutionError
 from .tools.registry import (
+    CreateCustomStrategySpecInput,
     DatasetDetailInput,
     DatasetFreshnessInput,
     InstrumentSearchInput,
     KnowledgeSearchInput,
+    ListCustomStrategySpecsInput,
     OpenAlgoSnapshotInput,
     OptionSymbolInput,
     PrepareSandboxIntentInput,
     RunBacktestInput,
+    RunCustomStrategySpecInput,
     RunIdInput,
     SymbolValidationInput,
     ToolRegistry,
@@ -783,6 +787,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     ) -> dict[str, Any]:
         return platform_dashboard_service.professor_demo()
 
+    @app.get("/platform/professor-review")
+    def platform_professor_review(
+        principal: Principal = Depends(viewer),
+    ) -> dict[str, Any]:
+        return platform_dashboard_service.professor_review()
+
     @app.get("/platform/status")
     def platform_status(
         symbol: str = "NIFTY",
@@ -1025,6 +1035,37 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     @app.get("/strategies")
     def strategies(principal: Principal = Depends(viewer)) -> dict[str, Any]:
         return execute_tool("list_strategies", {})
+
+    @app.get("/custom-strategy-specs")
+    def custom_strategy_specs(
+        limit: int = 50,
+        principal: Principal = Depends(viewer),
+    ) -> dict[str, Any]:
+        payload = ListCustomStrategySpecsInput(limit=limit).model_dump(
+            mode="json"
+        )
+        return execute_tool("list_custom_strategy_specs", payload)
+
+    @app.post("/custom-strategy-specs")
+    def create_custom_strategy_spec(
+        request: CreateCustomStrategySpecInput,
+        principal: Principal = Depends(researcher),
+    ) -> dict[str, Any]:
+        payload = request.model_dump(mode="json")
+        payload["created_by"] = principal.username
+        return execute_tool("create_custom_strategy_spec", payload)
+
+    @app.post("/custom-strategy-specs/{spec_id}/backtest")
+    def run_custom_strategy_spec(
+        spec_id: str,
+        request: CustomStrategyBacktestRequest,
+        principal: Principal = Depends(researcher),
+    ) -> dict[str, Any]:
+        payload = RunCustomStrategySpecInput(
+            spec_id=spec_id,
+            **request.model_dump(mode="json"),
+        ).model_dump(mode="json")
+        return execute_tool("run_custom_strategy_spec", payload)
 
     @app.get("/personas")
     def personas(principal: Principal = Depends(viewer)) -> dict[str, Any]:

@@ -3,8 +3,8 @@
 ## Current Deployment Class
 
 The repository implements a production-minded, single-node research and
-OpenAlgo analyzer platform. It is suitable for a controlled institutional demo,
-development environment, and a small authenticated research deployment. It is
+OpenAlgo analyzer platform. It is suitable for controlled institutional review,
+local development, and a small authenticated research deployment. It is
 not represented as a horizontally scalable live-trading system.
 
 ## Implemented Controls

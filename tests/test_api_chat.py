@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -12,6 +12,9 @@ from iimc_trading_platform.api import create_app
 from iimc_trading_platform.config import AppConfig
 from iimc_trading_platform.db import connect
 from iimc_trading_platform.infrastructure import initialize_database
+from iimc_trading_platform.services.custom_strategy_service import (
+    CustomStrategyService,
+)
 
 
 class ApiChatTest(unittest.TestCase):
@@ -233,6 +236,45 @@ class ApiChatTest(unittest.TestCase):
             con.close()
         self.assertEqual(stored, 1)
 
+    def test_chat_can_run_persisted_custom_strategy_spec_backtest(self) -> None:
+        created = CustomStrategyService(self.db_path).create_spec(
+            name="chat_custom_ema",
+            description="EMA crossover created before chat execution.",
+            symbol="NIFTY",
+            timeframe="5m",
+            indicators=[
+                {"type": "EMA", "period": 3, "source": "price"},
+                {"type": "EMA", "period": 8, "source": "price"},
+            ],
+            entry_rules=[
+                {"left": "EMA_3", "operator": ">", "right": "EMA_8"}
+            ],
+            exit_rules=[
+                {"left": "EMA_3", "operator": "<", "right": "EMA_8"}
+            ],
+        )
+
+        response = self.client.post(
+            "/chat",
+            json={
+                "message": (
+                    f"Backtest custom strategy spec {created['spec_id']} "
+                    "on dataset nifty_options"
+                ),
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["intent"], "run_custom_strategy_spec")
+        self.assertEqual(
+            payload["data"]["custom_strategy_spec_id"],
+            created["spec_id"],
+        )
+        self.assertEqual(payload["data"]["strategy"], "rule_spec")
+        self.assertEqual(payload["data"]["status"], "completed")
+        self.assertIn("No generated code", payload["answer"])
+
     def test_datasets_endpoint_returns_tool_evidence(self) -> None:
         response = self.client.get("/datasets")
 
@@ -262,6 +304,23 @@ class ApiChatTest(unittest.TestCase):
         try:
             con.execute(
                 """
+                INSERT INTO raw_file_registry VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    "source_1",
+                    "chat.csv",
+                    "chat.csv",
+                    "hash",
+                    100,
+                    datetime(2026, 4, 23, 9, 15),
+                    16,
+                    16,
+                    0,
+                    0,
+                ],
+            )
+            con.execute(
+                """
                 INSERT INTO data_catalog VALUES (
                     'nifty_options', 'market_data', 'options_ohlcv',
                     'NIFTY', 'NFO', '5m', ?, ?, 66080,
@@ -282,6 +341,60 @@ class ApiChatTest(unittest.TestCase):
                     'clean_with_warnings', CURRENT_TIMESTAMP
                 )
                 """
+            )
+            prices = [
+                100,
+                99,
+                98,
+                97,
+                98,
+                100,
+                103,
+                106,
+                109,
+                111,
+                110,
+                108,
+                105,
+                102,
+                99,
+                97,
+            ]
+            rows = []
+            start = datetime(2026, 4, 23, 9, 15)
+            for index, price in enumerate(prices):
+                timestamp = start + timedelta(minutes=5 * index)
+                rows.append(
+                    [
+                        "NIFTY",
+                        "NFO",
+                        "MONTH_E1",
+                        "5m",
+                        timestamp,
+                        "ATM",
+                        25_000.0,
+                        "CALL",
+                        price - 1,
+                        price + 1,
+                        price - 2,
+                        price,
+                        1000 + index,
+                        5000,
+                        15.0,
+                        price,
+                        "source_1",
+                        "chat.csv",
+                        "clean",
+                        timestamp,
+                    ]
+                )
+            con.executemany(
+                """
+                INSERT INTO options_ohlcv VALUES (
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                )
+                """,
+                rows,
             )
         finally:
             con.close()

@@ -86,6 +86,7 @@ h2 { margin-bottom: 4px; font-size: 16px; letter-spacing: 0; }
 .environment-badges { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .badge { padding: 6px 9px; border: 1px solid var(--line); background: var(--surface); font-size: 12px; }
 .badge.safe { color: var(--green); border-color: #b7dac8; background: var(--green-soft); }
+.badge.attention { color: var(--amber); border-color: #ead09d; background: var(--amber-soft); }
 .status-strip {
   margin: 18px 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
   background: var(--surface); border: 1px solid var(--line);
@@ -802,7 +803,9 @@ tbody tr:hover { background: #f5f8f6; }
 }
 .knowledge-search-form { grid-template-columns: 1fr auto; }
 .backtest-form label span,
-.knowledge-search-form label span {
+.knowledge-search-form label span,
+.custom-strategy-form label span,
+.custom-strategy-review label span {
   display: block;
   margin-bottom: 5px;
   color: var(--muted);
@@ -812,15 +815,77 @@ tbody tr:hover { background: #f5f8f6; }
 }
 .backtest-form input,
 .backtest-form select,
-.knowledge-search-form input {
+.knowledge-search-form input,
+.custom-strategy-form input,
+.custom-strategy-form select,
+.custom-strategy-form textarea,
+.custom-strategy-review select {
   width: 100%;
   min-height: 40px;
   padding: 0 10px;
   border: 1px solid #cbd5cf;
   background: #fff;
 }
+.custom-strategy-form textarea {
+  min-height: 74px;
+  padding: 10px;
+}
 .backtest-form .primary-button,
 .knowledge-search-form .primary-button { min-height: 40px; }
+.custom-strategy-panel {
+  margin-bottom: 14px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+.custom-strategy-form {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(130px, 1fr)) auto auto;
+  align-items: end;
+  gap: 12px;
+  padding: 16px;
+  border-bottom: 1px solid var(--line);
+}
+.custom-strategy-description {
+  grid-column: 1 / -3;
+}
+.custom-strategy-form .primary-button,
+.custom-strategy-form .secondary-button {
+  min-height: 40px;
+}
+.custom-strategy-status {
+  margin: 14px 16px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  background: #f7f9f7;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+.custom-strategy-status.ready {
+  color: var(--green);
+  border-color: #b7dac8;
+  background: var(--green-soft);
+}
+.custom-strategy-status.attention {
+  color: var(--amber);
+  border-color: #ead09d;
+  background: var(--amber-soft);
+}
+.custom-strategy-review {
+  display: grid;
+  grid-template-columns: minmax(220px, .35fr) minmax(0, 1fr);
+  gap: 14px;
+  padding: 14px 16px 16px;
+}
+.custom-strategy-review select {
+  min-height: 168px;
+  padding: 8px;
+}
+.custom-strategy-review .json-view {
+  min-height: 168px;
+  max-height: 360px;
+  margin: 0;
+}
 .strategy-parameter-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(82px, 1fr));
@@ -988,6 +1053,9 @@ tbody tr:hover { background: #f5f8f6; }
   .workflow-step-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .workflow-step:nth-child(2n) { border-right: 0; }
   .paper-intent-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .custom-strategy-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .custom-strategy-description { grid-column: 1 / -1; }
+  .custom-strategy-review { grid-template-columns: 1fr; }
   .market-news-form { grid-template-columns: 1fr; }
   .performance-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .evidence-panel { min-height: 260px; }
@@ -1027,6 +1095,7 @@ tbody tr:hover { background: #f5f8f6; }
   .workflow-step:last-child { border-bottom: 0; }
   .experiment-form { grid-template-columns: 1fr; }
   .backtest-form, .knowledge-search-form { grid-template-columns: 1fr; }
+  .custom-strategy-form { grid-template-columns: 1fr; }
   .strategy-parameter-grid { grid-template-columns: 1fr; }
   .paper-intent-form { grid-template-columns: 1fr; }
   .performance-metric-grid { grid-template-columns: 1fr; }

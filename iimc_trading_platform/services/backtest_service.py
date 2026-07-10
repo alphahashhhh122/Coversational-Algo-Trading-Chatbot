@@ -296,7 +296,13 @@ class BacktestService:
                 )
             candle_rows = con.execute(
                 """
-                SELECT timestamp, median(spot) AS price
+                SELECT timestamp,
+                       median(spot) AS price,
+                       median(open) AS open,
+                       median(high) AS high,
+                       median(low) AS low,
+                       median(close) AS close,
+                       median(volume) AS volume
                 FROM options_ohlcv
                 WHERE source_id = ?
                   AND (? IS NULL OR timestamp >= ?)
@@ -319,6 +325,11 @@ class BacktestService:
             {
                 "timestamp": row[0],
                 "price": float(row[1]),
+                "open": float(row[2]),
+                "high": float(row[3]),
+                "low": float(row[4]),
+                "close": float(row[5]),
+                "volume": float(row[6]),
                 "symbol": dataset_row[0],
             }
             for row in candle_rows

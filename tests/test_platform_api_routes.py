@@ -44,6 +44,7 @@ class PlatformApiRoutesTest(unittest.TestCase):
         self.assertIn("/platform/dashboard/summary", paths)
         self.assertIn("/platform/dashboard/preferences", paths)
         self.assertIn("/platform/professor-demo", paths)
+        self.assertIn("/platform/professor-review", paths)
         self.assertIn("/platform/status", paths)
         self.assertIn("/platform/execution/readiness", paths)
         self.assertIn("/platform/symbol/readiness", paths)
@@ -65,7 +66,7 @@ class PlatformApiRoutesTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()
-        self.assertEqual(payload["status"], "ready_for_local_demo")
+        self.assertEqual(payload["status"], "ready_for_local_operation")
         self.assertFalse(payload["safety"]["live_trading_enabled"])
         self.assertTrue(payload["safety"]["no_synthetic_fallback"])
         self.assertFalse(payload["safety"]["openalgo_key_configured"])
@@ -81,10 +82,11 @@ class PlatformApiRoutesTest(unittest.TestCase):
         self.assertFalse(payload["execution_paths"]["live_trading"]["enabled"])
 
     def test_professor_demo_route_returns_workflow_contract(self) -> None:
-        response = self.client.get("/platform/professor-demo")
+        response = self.client.get("/platform/professor-review")
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()
+        self.assertIn("operating_goal", payload)
         stages = [item["stage"] for item in payload["workflow"]]
         self.assertEqual(
             stages,
@@ -165,6 +167,39 @@ class PlatformApiRoutesTest(unittest.TestCase):
         )
         self.assertFalse(stages["live_trading"]["can_start"])
         self.assertTrue(payload["no_synthetic_fallback"])
+
+    def test_execution_readiness_distinguishes_live_enabled_provider_blocker(self) -> None:
+        client = TestClient(
+            create_app(
+                AppConfig(
+                    database_path=self.db_path,
+                    artifacts_dir=self.artifacts_dir,
+                    openalgo_root=Path(self.temp_dir.name),
+                    openalgo_api_key="configured",
+                    allow_live_trading=True,
+                )
+            )
+        )
+
+        response = client.get(
+            "/platform/execution/readiness",
+            params={
+                "symbol": "BTCUSDT",
+                "exchange": "BINANCE",
+                "asset_class": "crypto",
+                "interval": "1h",
+                "start_date": "2026-06-01",
+                "end_date": "2026-06-10",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        stages = {item["stage"]: item for item in payload["stages"]}
+        self.assertEqual(stages["live_trading"]["status"], "blocked")
+        self.assertFalse(stages["live_trading"]["can_start"])
+        self.assertIn("openalgo_not_ready", stages["live_trading"]["blockers"])
+        self.assertTrue(payload["openalgo"]["live_trading_enabled"])
 
     def test_openalgo_monitor_without_credentials_is_safe_failure(self) -> None:
         response = self.client.get("/platform/openalgo/monitor")

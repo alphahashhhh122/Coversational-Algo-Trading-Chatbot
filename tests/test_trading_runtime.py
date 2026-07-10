@@ -41,6 +41,7 @@ class TradingRuntimeTest(unittest.TestCase):
             names,
             {
                 "ema_crossover",
+                "rule_spec",
                 "sma_crossover",
                 "rsi_mean_reversion",
                 "momentum_roc",

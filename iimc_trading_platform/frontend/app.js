@@ -20,10 +20,11 @@ const state = {
   openalgoMonitor: null,
   marketNews: null,
   personas: [],
+  customStrategySpecs: [],
   researchBriefs: [],
   executionReadiness: null,
   platformSummary: null,
-  professorDemo: null,
+  professorReview: null,
   dashboardWidgets: JSON.parse(
     localStorage.getItem("iimc_dashboard_widgets")
     || '["research","assets","backtests","openalgo","risk","execution"]',
@@ -215,6 +216,15 @@ async function loadHealth() {
       ? `${llmProvider.toUpperCase()} configured`
       : `${llmProvider.toUpperCase()} key required`;
     $("#openalgo-status").textContent = checks.openalgo_api_key_configured ? "Configured" : "Not configured";
+    const liveBadge = $("#live-badge");
+    if (liveBadge) {
+      liveBadge.textContent = checks.live_trading_disabled
+        ? "Live disabled"
+        : "Live enabled";
+      liveBadge.className = checks.live_trading_disabled
+        ? "badge safe"
+        : "badge attention";
+    }
     $("#orchestrator-badge").textContent = llmConfigured
       ? `${llmProvider.toUpperCase()} orchestration`
       : "LLM key required";
@@ -339,10 +349,11 @@ async function logout() {
 
 async function loadOverview() {
   const canApprove = hasRole("approver");
-  const [datasets, runs, strategies, experiments, portfolios, approvals, intents, documents, operations, platform, marketNews, personas, researchBriefs, executionReadiness, preferences] = await Promise.all([
+  const [datasets, runs, strategies, customSpecs, experiments, portfolios, approvals, intents, documents, operations, platform, marketNews, personas, researchBriefs, executionReadiness, preferences] = await Promise.all([
     api("/datasets"),
     api("/runs?limit=50"),
     api("/strategies"),
+    api("/custom-strategy-specs"),
     api("/experiments/robustness?limit=50"),
     api("/portfolios"),
     canApprove ? api("/approvals/pending") : Promise.resolve({ approvals: [] }),
@@ -361,6 +372,7 @@ async function loadOverview() {
   state.datasets = datasets.datasets || [];
   state.runs = runs.runs || [];
   state.strategies = strategies.strategies || [];
+  state.customStrategySpecs = customSpecs.custom_strategy_specs || [];
   state.experiments = experiments.experiments || [];
   state.portfolios = portfolios.portfolios || [];
   state.approvals = approvals.approvals || [];
@@ -823,10 +835,10 @@ function renderOpenAlgoMonitor(monitor) {
 }
 
 async function loadProfessorDashboard() {
-  const payload = await api("/platform/professor-demo");
-  state.professorDemo = payload;
+  const payload = await api("/platform/professor-review");
+  state.professorReview = payload;
   const run = payload.latest_completed_run;
-  $("#professor-demo-goal").textContent = payload.demo_goal;
+  $("#professor-demo-goal").textContent = payload.operating_goal || payload.demo_goal;
   $("#prof-run-id").textContent = run?.run_id || "-";
   $("#prof-run-status").textContent = run
     ? `${run.strategy} on ${run.dataset_id}`
@@ -1125,6 +1137,184 @@ function renderBacktestControls() {
   `).join("");
   renderBacktestParameters(strategySelect.value);
   strategySelect.onchange = () => renderBacktestParameters(strategySelect.value);
+  renderCustomStrategyControls();
+}
+
+function customStrategyTemplate(template) {
+  if (template === "ema_rsi") {
+    return {
+      indicators: [
+        { type: "EMA", period: 9, source: "price" },
+        { type: "EMA", period: 21, source: "price" },
+        { type: "RSI", period: 14, source: "price" },
+      ],
+      entry_rules: [
+        { left: "EMA_9", operator: "crosses_above", right: "EMA_21", joiner: "AND" },
+        { left: "RSI_14", operator: "<", right: 65, joiner: "AND" },
+      ],
+      exit_rules: [
+        { left: "EMA_9", operator: "crosses_below", right: "EMA_21", joiner: "OR" },
+        { left: "RSI_14", operator: ">", right: 75, joiner: "OR" },
+      ],
+      risk: { max_position_size: 1, stop_loss_pct: 0.02, take_profit_pct: 0.05 },
+    };
+  }
+  if (template === "momentum") {
+    return {
+      indicators: [
+        { type: "ROC", period: 10, source: "price" },
+        { type: "SMA", period: 20, source: "price" },
+      ],
+      entry_rules: [
+        { left: "ROC_10", operator: ">", right: 0, joiner: "AND" },
+        { left: "price", operator: ">", right: "SMA_20", joiner: "AND" },
+      ],
+      exit_rules: [
+        { left: "ROC_10", operator: "<=", right: 0, joiner: "OR" },
+        { left: "price", operator: "<", right: "SMA_20", joiner: "OR" },
+      ],
+      risk: { max_position_size: 1, stop_loss_pct: 0.025, take_profit_pct: 0.06 },
+    };
+  }
+  return {
+    indicators: [
+      { type: "EMA", period: 9, source: "price" },
+      { type: "EMA", period: 21, source: "price" },
+    ],
+    entry_rules: [
+      { left: "EMA_9", operator: "crosses_above", right: "EMA_21", joiner: "AND" },
+    ],
+    exit_rules: [
+      { left: "EMA_9", operator: "crosses_below", right: "EMA_21", joiner: "OR" },
+    ],
+    risk: { max_position_size: 1, stop_loss_pct: 0.02, take_profit_pct: 0.05 },
+  };
+}
+
+function customStrategyPayloadFromForm() {
+  const template = customStrategyTemplate($("#custom-strategy-template").value);
+  return {
+    name: $("#custom-strategy-name").value.trim(),
+    description: $("#custom-strategy-description").value.trim(),
+    symbol: $("#custom-strategy-symbol").value.trim(),
+    timeframe: $("#custom-strategy-timeframe").value.trim(),
+    ...template,
+    created_by: state.principal?.username || "local_ui",
+  };
+}
+
+function renderCustomStrategyControls() {
+  const datasetSelect = $("#custom-strategy-dataset");
+  const specSelect = $("#custom-strategy-spec-select");
+  if (!datasetSelect || !specSelect) return;
+  const currentDataset = datasetSelect.value;
+  datasetSelect.innerHTML = state.datasets.map((dataset) => `
+    <option value="${escapeHtml(dataset.dataset_id)}">${escapeHtml(dataset.dataset_id)}</option>
+  `).join("");
+  if (currentDataset) datasetSelect.value = currentDataset;
+
+  const currentSpec = specSelect.value;
+  specSelect.innerHTML = state.customStrategySpecs.length
+    ? state.customStrategySpecs.map((spec) => `
+      <option value="${escapeHtml(spec.spec_id)}">
+        ${escapeHtml(spec.name)} - ${escapeHtml(spec.status)}
+      </option>
+    `).join("")
+    : `<option value="">No saved custom specs</option>`;
+  if (currentSpec) specSelect.value = currentSpec;
+  renderSelectedCustomStrategySpec();
+}
+
+function renderSelectedCustomStrategySpec() {
+  const specId = $("#custom-strategy-spec-select")?.value;
+  const detail = $("#custom-strategy-json");
+  const status = $("#custom-strategy-status");
+  if (!detail || !status) return;
+  const spec = state.customStrategySpecs.find((item) => item.spec_id === specId);
+  if (!spec) {
+    detail.textContent = "No custom strategy spec selected.";
+    status.textContent = "Create or select a custom strategy spec.";
+    status.className = "custom-strategy-status";
+    return;
+  }
+  detail.textContent = JSON.stringify(spec, null, 2);
+  const missing = spec.missing_capabilities || [];
+  status.textContent = missing.length
+    ? `Requires review: ${missing.map((item) => item.name || item.kind).join(", ")}`
+    : `Executable by native rule-spec runtime: ${spec.spec_id}`;
+  status.className = `custom-strategy-status ${missing.length ? "attention" : "ready"}`;
+}
+
+async function submitCustomStrategySpec(event) {
+  event.preventDefault();
+  const button = $("#create-custom-strategy");
+  button.disabled = true;
+  try {
+    const created = await api("/custom-strategy-specs", {
+      method: "POST",
+      body: JSON.stringify(customStrategyPayloadFromForm()),
+    });
+    state.customStrategySpecs = [
+      created,
+      ...state.customStrategySpecs,
+    ].filter((item, index, items) => (
+      items.findIndex((candidate) => candidate.spec_id === item.spec_id) === index
+    ));
+    renderCustomStrategyControls();
+    $("#custom-strategy-spec-select").value = created.spec_id;
+    renderSelectedCustomStrategySpec();
+    toast(`Custom strategy ${created.spec_id} stored`);
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function runSelectedCustomStrategySpec() {
+  const button = $("#run-custom-strategy");
+  const resultBox = $("#backtest-result-json");
+  const specId = $("#custom-strategy-spec-select").value;
+  if (!specId) {
+    toast("Select a custom strategy spec first");
+    return;
+  }
+  button.disabled = true;
+  resultBox.classList.remove("hidden");
+  resultBox.textContent = "Running custom rule-spec backtest...";
+  try {
+    const payload = await api(`/custom-strategy-specs/${encodeURIComponent(specId)}/backtest`, {
+      method: "POST",
+      body: JSON.stringify({
+        dataset_id: $("#custom-strategy-dataset").value,
+        execution_mode: "research",
+        requested_quantity: 1,
+        slippage_bps: Number($("#backtest-slippage").value || 0.5),
+      }),
+    });
+    resultBox.textContent = JSON.stringify({
+      ...payload,
+      data_source: "real",
+      execution_note: "Native rule-spec runtime; no generated code executed.",
+    }, null, 2);
+    toast(`Custom strategy backtest ${payload.run_id} completed`);
+    await loadOverview();
+    if (payload.run_id) await loadRun(payload.run_id);
+  } catch (error) {
+    resultBox.textContent = JSON.stringify(
+      {
+        ok: false,
+        safe_failure: true,
+        message: error.message,
+        no_synthetic_fallback: true,
+      },
+      null,
+      2,
+    );
+    toast(error.message);
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function renderBacktestParameters(strategyName) {
@@ -2207,6 +2397,14 @@ function wireEvents() {
     () => setAutoRefresh(!state.autoRefresh),
   );
   $("#backtest-form").addEventListener("submit", submitBacktest);
+  $("#custom-strategy-form").addEventListener("submit", submitCustomStrategySpec);
+  $("#run-custom-strategy").addEventListener("click", runSelectedCustomStrategySpec);
+  $("#custom-strategy-spec-select").addEventListener("change", renderSelectedCustomStrategySpec);
+  $("#custom-strategy-template").addEventListener("change", () => {
+    $("#custom-strategy-description").value = (
+      `Local governed ${$("#custom-strategy-template").selectedOptions[0].textContent} strategy.`
+    );
+  });
   $("#paper-intent-form").addEventListener("submit", submitPaperIntent);
   $("#paper-run").addEventListener("change", (event) => {
     if (event.target.value) loadPaperDecisions(event.target.value);

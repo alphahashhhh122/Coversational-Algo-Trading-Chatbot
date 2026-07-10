@@ -40,7 +40,8 @@ Approved risk decision
 - The LLM has no approval tool.
 - The bridge never toggles OpenAlgo analyzer mode.
 - Submission is refused unless OpenAlgo proves `analyze_mode=true`.
-- Live execution remains disabled.
+- Live execution is refused unless explicitly configured, broker readiness
+  passes, and a live-mode approval exists.
 - An ambiguous network failure becomes `submission_uncertain`.
 - `submission_uncertain` is not automatically retried.
 - Secrets are sent to OpenAlgo but never stored in order or snapshot tables.

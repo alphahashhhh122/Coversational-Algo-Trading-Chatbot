@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..evaluator import ResponseEvaluator
-from ..orchestration import Orchestrator
+from ..orchestration import Orchestrator, grounded_tool_response
 from ..tools.registry import ToolRegistry
 from .conversation_service import ConversationService
 from .tool_execution_service import ToolExecutionError, ToolExecutionService
@@ -43,6 +43,17 @@ class ChatService:
         self.orchestrator = orchestrator
         self.conversation_service = conversation_service
         self.evaluator = evaluator or ResponseEvaluator()
+
+    _DETERMINISTIC_RESPONSE_TOOLS = {
+        "get_execution_readiness",
+        "get_openalgo_monitor",
+        "check_platform_readiness",
+        "run_backtest",
+        "run_custom_strategy_spec",
+        "prepare_sandbox_order_intent",
+        "prepare_live_order_intent",
+        "list_sandbox_intents",
+    }
 
     def answer(
         self,
@@ -113,11 +124,17 @@ class ChatService:
                 handler=lambda: tool.handler(validated),
                 session_id=active_session_id,
             )
-            generated_answer = self.orchestrator.compose_response(
-                message,
-                decision,
-                result,
-            )
+            if decision.tool_name in self._DETERMINISTIC_RESPONSE_TOOLS:
+                generated_answer = grounded_tool_response(
+                    decision.tool_name,
+                    result,
+                )
+            else:
+                generated_answer = self.orchestrator.compose_response(
+                    message,
+                    decision,
+                    result,
+                )
             evaluation = self.evaluator.evaluate(
                 answer=generated_answer,
                 tool_name=decision.tool_name,

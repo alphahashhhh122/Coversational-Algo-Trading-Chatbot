@@ -119,11 +119,12 @@ metric grounding, and financial-safety policies. Every run stores the case-set
 SHA-256 and per-case evidence. The verified offline baseline is 27/27 cases;
 the configured OpenAI model uses the same suite once credentials are supplied.
 
-Live order placement remains disabled. The OpenAlgo analyzer bridge implements
-human approval, analyzer-mode proof, idempotent intent preparation, sandbox
-submission, and reconciliation. It has automated contract and HTTP tests; an
-actual local OpenAlgo submission remains pending configured credentials and an
-explicit user-confirmed sandbox demo.
+Live order placement is configuration-gated and remains blocked unless broker
+readiness, live-mode risk approval, and explicit human approval all pass. The
+OpenAlgo analyzer bridge implements human approval, analyzer-mode proof,
+idempotent intent preparation, sandbox submission, and reconciliation. It has
+automated contract and HTTP tests; an actual local OpenAlgo submission remains
+pending configured credentials and explicit user confirmation.
 
 ## Verified State On June 20, 2026
 

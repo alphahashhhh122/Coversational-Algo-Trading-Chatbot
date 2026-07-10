@@ -4,6 +4,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from .domain import ExecutionMode
+
 
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
@@ -98,6 +100,15 @@ class RobustnessExperimentRequest(BaseModel):
     fee_bps: float = Field(default=1.0, ge=0, le=1_000)
     slippage_bps: float = Field(default=0.0, ge=0, le=1_000)
     persist_selected_runs: bool = True
+
+
+class CustomStrategyBacktestRequest(BaseModel):
+    dataset_id: str = Field(min_length=1)
+    execution_mode: ExecutionMode = ExecutionMode.RESEARCH
+    requested_quantity: int = Field(default=1, ge=1, le=100_000)
+    starting_equity: float = Field(default=1_000_000.0, gt=0)
+    fee_bps: float = Field(default=1.0, ge=0, le=1_000)
+    slippage_bps: float = Field(default=0.0, ge=0, le=1_000)
 
 
 class CreatePortfolioRequest(BaseModel):

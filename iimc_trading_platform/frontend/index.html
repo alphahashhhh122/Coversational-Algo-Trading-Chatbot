@@ -64,7 +64,7 @@
         <div class="environment-badges">
           <span class="badge" id="user-badge">Local development</span>
           <span class="badge" id="orchestrator-badge">Loading orchestration</span>
-          <span class="badge safe">Live disabled</span>
+          <span class="badge safe" id="live-badge">Live checking</span>
           <button class="secondary-button hidden" id="logout-button">Log out</button>
         </div>
       </header>
@@ -229,14 +229,14 @@
         <div class="section-heading">
           <div>
             <h2>Professor Dashboard</h2>
-            <p>One-place view of the EMA demo workflow, storage evidence, and safety gates.</p>
+            <p>One-place review of strategy workflow, storage evidence, broker readiness, and safety gates.</p>
           </div>
           <button class="secondary-button" id="refresh-professor">Refresh</button>
         </div>
         <div class="professor-grid">
           <section class="professor-panel">
             <div class="panel-heading">
-              <div><h2>Demo Status</h2><p id="professor-demo-goal">Loading persisted evidence.</p></div>
+              <div><h2>Platform Status</h2><p id="professor-demo-goal">Loading persisted evidence.</p></div>
             </div>
             <div class="metric-grid professor-metrics">
               <div class="metric"><span>Latest run</span><strong id="prof-run-id">-</strong><small id="prof-run-status">No completed run loaded</small></div>
@@ -301,6 +301,45 @@
           <button type="submit" class="primary-button" id="run-backtest">Run IIMC backtest</button>
         </form>
         <pre class="json-view hidden" id="backtest-result-json"></pre>
+        <section class="custom-strategy-panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Governed Custom Strategies</h2>
+              <p>Create no-code rule specs and run them through the native deterministic runtime.</p>
+            </div>
+          </div>
+          <form class="custom-strategy-form" id="custom-strategy-form">
+            <label><span>Name</span><input id="custom-strategy-name" value="local_ema_rsi" required></label>
+            <label><span>Symbol</span><input id="custom-strategy-symbol" value="NIFTY" required></label>
+            <label><span>Timeframe</span><input id="custom-strategy-timeframe" value="5m" required></label>
+            <label>
+              <span>Template</span>
+              <select id="custom-strategy-template">
+                <option value="ema_cross">EMA crossover</option>
+                <option value="ema_rsi">EMA + RSI filter</option>
+                <option value="momentum">Momentum ROC</option>
+              </select>
+            </label>
+            <label>
+              <span>Dataset</span>
+              <select id="custom-strategy-dataset" required></select>
+            </label>
+            <label class="custom-strategy-description">
+              <span>Description</span>
+              <textarea id="custom-strategy-description" rows="3" required>Local governed rule-spec strategy.</textarea>
+            </label>
+            <button type="submit" class="primary-button" id="create-custom-strategy">Create spec</button>
+            <button type="button" class="secondary-button" id="run-custom-strategy">Backtest selected</button>
+          </form>
+          <div class="custom-strategy-status" id="custom-strategy-status">Create or select a custom strategy spec.</div>
+          <div class="custom-strategy-review">
+            <label>
+              <span>Saved specs</span>
+              <select id="custom-strategy-spec-select" size="5"></select>
+            </label>
+            <pre class="json-view" id="custom-strategy-json">No custom strategy spec selected.</pre>
+          </div>
+        </section>
         <div class="table-wrap">
           <table>
             <thead>
@@ -399,12 +438,12 @@
         <div class="section-heading">
           <div>
             <h2>Execution Controls</h2>
-            <p>Paper trading uses OpenAlgo analyzer mode; live trading stays disabled.</p>
+            <p>Paper trading uses OpenAlgo analyzer mode; live execution is separately gated.</p>
           </div>
           <button class="secondary-button" id="refresh-approvals">Refresh</button>
         </div>
         <div class="notice">
-          The chatbot can prepare paper intents, but live trading remains disabled. OpenAlgo submission requires analyzer mode.
+          The chatbot can prepare governed intents. Paper submission uses analyzer mode; live submission requires configuration, broker readiness, risk approval, and explicit human approval.
         </div>
         <section class="paper-trading-panel">
           <div class="panel-heading">

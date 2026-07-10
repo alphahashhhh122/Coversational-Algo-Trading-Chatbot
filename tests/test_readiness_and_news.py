@@ -12,6 +12,10 @@ from fastapi.testclient import TestClient
 from iimc_trading_platform.api import create_app
 from iimc_trading_platform.config import AppConfig
 from iimc_trading_platform.infrastructure import initialize_database
+from iimc_trading_platform.infrastructure.openalgo import OpenAlgoResponseError
+from iimc_trading_platform.services.openalgo_readiness_service import (
+    OpenAlgoReadinessService,
+)
 
 
 class _FakeResponse:
@@ -26,6 +30,18 @@ class _FakeResponse:
 
     def read(self) -> bytes:
         return json.dumps(self.payload).encode("utf-8")
+
+
+class _PartiallyFailingOpenAlgoClient:
+    def analyzer_status(self) -> dict:
+        return {"mode": "live", "analyze_mode": False}
+
+    def account_snapshot(self, snapshot_type: str) -> dict:
+        if snapshot_type == "funds":
+            return {"data": {"availablecash": 10000}}
+        if snapshot_type == "orderbook":
+            raise OpenAlgoResponseError("broker orderbook failed")
+        return {"data": []}
 
 
 class ReadinessAndNewsTest(unittest.TestCase):
@@ -63,6 +79,38 @@ class ReadinessAndNewsTest(unittest.TestCase):
         self.assertEqual(payload["status"], "unavailable")
         self.assertTrue(payload["safe_failure"])
         self.assertTrue(payload["no_synthetic_fallback"])
+
+    def test_openalgo_monitor_reports_partial_account_degradation(self) -> None:
+        service = OpenAlgoReadinessService(
+            AppConfig(
+                database_path=self.db_path,
+                artifacts_dir=self.artifacts_dir,
+                openalgo_root=self.root,
+                openalgo_api_key="configured",
+                allow_live_trading=True,
+            )
+        )
+        with patch.object(
+            service,
+            "_client",
+            return_value=_PartiallyFailingOpenAlgoClient(),
+        ):
+            payload = service.monitor()
+
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["status"], "degraded")
+        self.assertTrue(payload["safe_failure"])
+        self.assertFalse(payload["analyzer_mode"])
+        self.assertTrue(payload["live_mode"])
+        self.assertTrue(payload["live_trading_enabled"])
+        self.assertTrue(payload["checks"]["analyzer"]["ok"])
+        self.assertTrue(payload["checks"]["funds"]["ok"])
+        self.assertFalse(payload["checks"]["orderbook"]["ok"])
+        self.assertEqual(
+            payload["checks"]["orderbook"]["status"],
+            "provider_error",
+        )
+        self.assertIn("orderbook", payload["message"])
 
     def test_market_news_configured_fetches_and_persists_articles(self) -> None:
         client = TestClient(

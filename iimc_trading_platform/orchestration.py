@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
+from datetime import date, timedelta
 from typing import Any, Protocol
 
 from .tools.registry import ToolRegistry
@@ -33,6 +34,10 @@ class Orchestrator(Protocol):
         decision: OrchestrationDecision,
         tool_result: dict[str, Any],
     ) -> str: ...
+
+
+def grounded_tool_response(tool_name: str, result: dict[str, Any]) -> str:
+    return _grounded_fallback_response(tool_name, result)
 
 
 class OpenAIResponsesOrchestrator:
@@ -237,7 +242,7 @@ class OfflineOrchestrator:
         text = message.lower()
         run_id = _extract_identifier(message, "run_")
         run_ids = _extract_identifiers(message, "run_")
-        dataset_id = _extract_identifier(message, "dataset_")
+        dataset_id = _dataset_from_text(message)
         intent_id = _extract_identifier(message, "intent_")
         experiment_id = _extract_identifier(message, "robust_")
         portfolio_id = _extract_identifier(message, "portfolio_")
@@ -719,6 +724,36 @@ class OfflineOrchestrator:
             and any(word in text for word in ("list", "show", "drafts"))
         ):
             return OrchestrationDecision("list_custom_strategy_specs", {})
+        custom_spec_id = _extract_identifier(message, "custom_")
+        if (
+            "run_custom_strategy_spec" in tool_names
+            and custom_spec_id
+            and any(word in text for word in ("backtest", "simulate", "run"))
+            and any(word in text for word in ("custom", "spec", "strategy"))
+        ):
+            if not dataset_id:
+                return OrchestrationDecision(
+                    tool_name=None,
+                    arguments={},
+                    direct_response=(
+                        "Please provide the dataset_id to backtest the custom "
+                        "strategy spec, for example: backtest custom_... on "
+                        "nifty_options."
+                    ),
+                )
+            arguments = {
+                "spec_id": custom_spec_id,
+                "dataset_id": dataset_id,
+            }
+            if any(
+                phrase in text
+                for phrase in ("semi-auto", "semi auto", "paper", "approval")
+            ):
+                arguments["execution_mode"] = "semi_auto"
+            return OrchestrationDecision(
+                "run_custom_strategy_spec",
+                arguments,
+            )
         if (
             "create_custom_strategy_spec" in tool_names
             and any(word in text for word in ("custom", "combine", "combined"))
@@ -774,7 +809,8 @@ class OfflineOrchestrator:
             direct_response=(
                 "I can inspect datasets, list strategies, run research "
                 "backtests, and retrieve stored performance, risk, or order "
-                "evidence. Configure OPENAI_API_KEY for model-based routing."
+                "evidence. Configure a supported LLM key for model-based "
+                "routing."
             ),
         )
 
@@ -884,6 +920,33 @@ def _extract_identifiers(text: str, prefix: str) -> list[str]:
     )
 
 
+def _dataset_from_text(text: str) -> str | None:
+    dataset_id = _extract_identifier(text, "dataset_")
+    if dataset_id:
+        return _clean_identifier(dataset_id)
+    match = re.search(
+        r"\bdataset(?:_id| id)?\s*[:=]?\s*([A-Za-z0-9_.-]+)",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if match:
+        candidate = _clean_identifier(match.group(1))
+        if candidate.lower() not in {"id", "dataset"}:
+            return candidate
+    match = re.search(
+        r"\bon\s+([A-Za-z][A-Za-z0-9_.-]+)\b",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if match and "dataset" in text.lower():
+        return _clean_identifier(match.group(1))
+    return None
+
+
+def _clean_identifier(value: str) -> str:
+    return value.strip().strip(".,;:)]}")
+
+
 def _strategy_from_text(text: str) -> str:
     if "rsi" in text:
         return "rsi_mean_reversion"
@@ -979,9 +1042,9 @@ def _custom_strategy_spec_arguments(message: str) -> dict[str, Any]:
         )
 
     return {
-        "name": "custom_strategy_draft",
+        "name": _custom_strategy_name(message),
         "description": message[:1000],
-        "symbol": _symbol_from_text(message) or "NIFTY",
+        "symbol": _symbol_from_text(message) or "MARKET",
         "timeframe": _timeframe_from_text(text),
         "indicators": indicators,
         "entry_rules": entry_rules,
@@ -991,13 +1054,93 @@ def _custom_strategy_spec_arguments(message: str) -> dict[str, Any]:
     }
 
 
+def _custom_strategy_name(message: str) -> str:
+    match = re.search(
+        r"\b(?:called|named|name)\s+([A-Za-z][A-Za-z0-9_-]{1,60})\b",
+        message,
+        flags=re.IGNORECASE,
+    )
+    if match:
+        return _clean_identifier(match.group(1)).lower()
+    symbol = (_symbol_from_text(message) or "market").lower()
+    features = [
+        label
+        for keyword, label in (
+            ("ema", "ema"),
+            ("sma", "sma"),
+            ("rsi", "rsi"),
+            ("momentum", "momentum"),
+            ("roc", "roc"),
+            ("iv", "iv"),
+            ("skew", "skew"),
+        )
+        if keyword in message.lower()
+    ]
+    suffix = "_".join(dict.fromkeys(features)) or "rules"
+    return f"{symbol}_{suffix}_spec"
+
+
 def _symbol_from_text(text: str) -> str | None:
     upper = text.upper()
-    for symbol in ("RELIANCE", "TCS", "INFY", "NIFTY", "BANKNIFTY"):
-        if symbol in upper:
-            return symbol
-    matches = re.findall(r"\b[A-Z]{2,12}\b", text)
-    return matches[0] if matches else None
+    excluded = {
+        "AND",
+        "API",
+        "ATM",
+        "BUY",
+        "CALL",
+        "CE",
+        "CNC",
+        "DATASET",
+        "EMA",
+        "FOR",
+        "FUTURES",
+        "IV",
+        "LIMIT",
+        "LIVE",
+        "MARKET",
+        "MIS",
+        "NFO",
+        "NRML",
+        "NSE",
+        "OHLCV",
+        "OPTION",
+        "OPTIONS",
+        "ORDER",
+        "PAPER",
+        "PE",
+        "PREPARE",
+        "PUT",
+        "RISK",
+        "ROC",
+        "RSI",
+        "SELL",
+        "SL",
+        "SMA",
+        "SPEC",
+        "STRATEGY",
+    }
+    for pattern in (
+        r"\b(?:symbol|ticker|underlying)\s*[:=]?\s*([A-Za-z][A-Za-z0-9&.-]{1,30})\b",
+        r"\b(?:for|on|trade|backtest)\s+([A-Za-z][A-Za-z0-9&.-]{1,30})\b",
+    ):
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            candidate = _clean_symbol(match.group(1))
+            if candidate and candidate not in excluded:
+                return candidate
+    matches = [
+        _clean_symbol(value)
+        for value in re.findall(r"\b[A-Z][A-Z0-9&.-]{1,30}\b", upper)
+    ]
+    candidates = [
+        value for value in matches
+        if value and value not in excluded and not value.startswith("CUSTOM_")
+    ]
+    return candidates[0] if candidates else None
+
+
+def _clean_symbol(value: str) -> str:
+    return _clean_identifier(value).replace("&", "").replace(".", "").upper()
 
 
 def _exchange_from_text(text: str, *, default: str = "NSE") -> str:
@@ -1009,37 +1152,90 @@ def _exchange_from_text(text: str, *, default: str = "NSE") -> str:
 
 
 def _timeframe_from_text(text: str) -> str:
-    match = re.search(r"\b(\d+)\s*(m|min|minute|h|hour|d|day)\b", text)
+    if re.search(r"\b(day|daily|1d)\b", text):
+        return "1d"
+    match = re.search(
+        r"\b(\d+)\s*(m|min|mins|minute|minutes|h|hr|hour|hours|d|day|days)\b",
+        text,
+    )
     if not match:
         return "5m"
     value, unit = match.groups()
-    normalized = {"m": "m", "min": "m", "minute": "m", "h": "h", "hour": "h", "d": "d", "day": "d"}[unit]
+    normalized = {
+        "m": "m",
+        "min": "m",
+        "mins": "m",
+        "minute": "m",
+        "minutes": "m",
+        "h": "h",
+        "hr": "h",
+        "hour": "h",
+        "hours": "h",
+        "d": "d",
+        "day": "d",
+        "days": "d",
+    }[unit]
     return f"{value}{normalized}"
 
 
 def _readiness_arguments(message: str) -> dict[str, Any]:
     text = message.lower()
-    symbol = _symbol_from_text(message) or "NIFTY"
-    if "reliance" in text or "tcs" in text or "infy" in text:
-        exchange = "NSE"
-        asset_class = "equity"
-    elif "future" in text:
-        exchange = "NFO"
-        asset_class = "futures"
-    elif "option" in text or "nifty" in text:
-        exchange = "NFO"
-        asset_class = "options"
-    else:
-        exchange = "NSE"
-        asset_class = "equity"
+    symbol = _symbol_from_text(message) or "MARKET"
+    asset_class = _asset_class_from_text(text)
+    exchange = _exchange_from_text(
+        message,
+        default=_default_exchange_for_asset(asset_class),
+    )
+    start_date, end_date = _date_range_from_text(text)
     return {
         "symbol": symbol,
         "exchange": exchange,
         "asset_class": asset_class,
-        "interval": "5m",
-        "start_date": "2026-01-01",
-        "end_date": "2026-01-31",
+        "interval": _timeframe_from_text(text),
+        "start_date": start_date,
+        "end_date": end_date,
     }
+
+
+def _asset_class_from_text(text: str) -> str:
+    if any(word in text for word in ("crypto", "coin", "bitcoin", "btc", "eth")):
+        return "crypto"
+    if any(word in text for word in ("commodity", "gold", "silver", "crude", "mcx")):
+        return "commodity"
+    if "future" in text:
+        return "futures"
+    if any(word in text for word in ("option", "ce", "pe", "call", "put")):
+        return "options"
+    if "index" in text:
+        return "index"
+    return "equity"
+
+
+def _default_exchange_for_asset(asset_class: str) -> str:
+    return {
+        "commodity": "MCX",
+        "crypto": "CRYPTO",
+        "futures": "NFO",
+        "options": "NFO",
+        "index": "NSE_INDEX",
+    }.get(asset_class, "NSE")
+
+
+def _date_range_from_text(text: str) -> tuple[str, str]:
+    dates = re.findall(r"\b(20\d{2}-\d{2}-\d{2})\b", text)
+    if len(dates) >= 2:
+        return dates[0], dates[1]
+    if len(dates) == 1:
+        return dates[0], dates[0]
+    match = re.search(r"\blast\s+(\d{1,4})\s+(day|days)\b", text)
+    if match:
+        days = max(1, min(int(match.group(1)), 3650))
+        end = date.today()
+        start = end - timedelta(days=days)
+        return start.isoformat(), end.isoformat()
+    end = date.today()
+    start = end - timedelta(days=30)
+    return start.isoformat(), end.isoformat()
 
 
 def _sandbox_intent_arguments(message: str, decision_id: str) -> dict[str, Any]:
@@ -1140,11 +1336,29 @@ def _grounded_fallback_response(
             f"{sources}."
         )
     if tool_name == "check_platform_readiness":
+        blocked_reasons = []
+        if not result.get("supported_by_architecture", False):
+            blocked_reasons.append(result.get("unsupported_reason") or "unsupported asset or symbol")
+        if not result.get("local_dataset_exists", False):
+            blocked_reasons.append("local historical dataset is missing")
+        if result.get("analyzer_path_status") not in {None, "ready", "available"}:
+            blocked_reasons.append(f"OpenAlgo analyzer path is {result.get('analyzer_path_status')}")
+        if result.get("unsupported_reason"):
+            blocked_reasons.append(result["unsupported_reason"])
+        unique_blockers = []
+        for blocker in blocked_reasons:
+            if blocker and blocker not in unique_blockers:
+                unique_blockers.append(blocker)
         return (
             f"Readiness for {result['symbol']} {result['asset_class']} "
             f"completed. Local dataset: {result['local_dataset_exists']}; "
+            f"rows available: {result.get('rows_available', 0)}; "
             f"provider configured: {result['provider_configured']}; "
-            f"verified now: {result['verified_now']}. "
+            f"verified now: {result['verified_now']}; analyzer path: "
+            f"{result.get('analyzer_path_status')}; paper path: "
+            f"{result.get('paper_path_status')}; live path: "
+            f"{result.get('live_path_status')}. Blockers: "
+            f"{'; '.join(unique_blockers) if unique_blockers else 'none'}. "
             "No synthetic market fallback was used."
         )
     if tool_name == "get_research_context":
@@ -1280,6 +1494,15 @@ def _grounded_fallback_response(
             f"{result['strategy']}. Net P&L: {result['net_pnl']:.2f}; "
             f"max drawdown: {result['max_drawdown']:.2f}; "
             f"return: {result['return_pct']:.4f}%."
+        )
+    if tool_name == "run_custom_strategy_spec":
+        return (
+            f"Custom strategy spec {result['custom_strategy_spec_id']} "
+            f"backtest {result['run_id']} completed through the native "
+            f"{result['strategy']} runtime. Net P&L: "
+            f"{result['net_pnl']:.2f}; max drawdown: "
+            f"{result['max_drawdown']:.2f}; return: "
+            f"{result['return_pct']:.4f}%. No generated code was executed."
         )
     if "run_id" in result:
         return f"Retrieved stored evidence for run {result['run_id']}."

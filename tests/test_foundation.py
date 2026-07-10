@@ -240,6 +240,29 @@ class FoundationTest(unittest.TestCase):
             self.assertTrue(status["checks"]["core_schema_complete"])
             self.assertTrue(status["checks"]["live_trading_disabled"])
 
+    def test_foundation_health_accepts_intentional_live_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db_path = root / "test.duckdb"
+            artifacts = root / "artifacts"
+            artifacts.mkdir()
+            initialize_database(db_path)
+
+            status = foundation_health(
+                AppConfig(
+                    database_path=db_path,
+                    artifacts_dir=artifacts,
+                    openalgo_root=root / "missing-openalgo",
+                    allow_live_trading=True,
+                )
+            )
+
+            self.assertEqual(status["status"], "healthy")
+            self.assertFalse(status["checks"]["live_trading_disabled"])
+            self.assertTrue(
+                any("Live trading is enabled" in note for note in status["notes"])
+            )
+
     def test_foundation_health_does_not_create_missing_database(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "missing.duckdb"

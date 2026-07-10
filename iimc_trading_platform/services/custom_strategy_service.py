@@ -7,33 +7,9 @@ from pathlib import Path
 from typing import Any
 
 from ..db import connect
-
-
-SUPPORTED_INDICATORS = {
-    "EMA",
-    "SMA",
-    "RSI",
-    "ROC",
-}
-
-SUPPORTED_OPERATORS = {
-    ">",
-    "<",
-    ">=",
-    "<=",
-    "==",
-    "crosses_above",
-    "crosses_below",
-}
-
-SUPPORTED_DATA_FIELDS = {
-    "open",
-    "high",
-    "low",
-    "close",
-    "volume",
-    "price",
-}
+from ..domain import ExecutionMode
+from ..strategies.rule_spec import validate_rule_spec
+from .backtest_service import BacktestService
 
 
 def utc_now() -> datetime:
@@ -107,10 +83,9 @@ class CustomStrategyService:
             "validation": validation,
             "missing_capabilities": missing,
             "execution_policy": (
-                "This is a validated draft spec. It may be backtested only "
-                "after mapping to supported primitives or reviewed strategy "
-                "plugin registration; arbitrary LLM-generated code is not "
-                "executed."
+                "This governed spec can be backtested by the native rule-spec "
+                "runtime when validation passes. Unsupported primitives remain "
+                "requires_review; arbitrary LLM-generated code is not executed."
             ),
         }
 
@@ -132,52 +107,65 @@ class CustomStrategyService:
             con.close()
         return {"custom_strategy_specs": [_spec_from_row(row) for row in rows]}
 
-    def _validate_spec(self, spec: dict[str, Any]) -> dict[str, Any]:
-        missing: list[dict[str, str]] = []
-        indicators = spec["indicators"]
-        entry_rules = spec["entry_rules"]
-        exit_rules = spec["exit_rules"]
+    def get_spec(self, spec_id: str) -> dict[str, Any]:
+        con = connect(self.db_path)
+        try:
+            row = con.execute(
+                """
+                SELECT spec_id, name, description, status, spec_json,
+                       validation_json, missing_capabilities_json, created_by,
+                       created_at, updated_at
+                FROM custom_strategy_specs
+                WHERE spec_id = ?
+                """,
+                [spec_id],
+            ).fetchone()
+        finally:
+            con.close()
+        if row is None:
+            raise ValueError(f"Custom strategy spec not found: {spec_id}")
+        return _spec_from_row(row)
 
-        for indicator in indicators:
-            indicator_type = str(indicator["type"]).upper()
-            source = str(indicator.get("source", "close")).lower()
-            if indicator_type not in SUPPORTED_INDICATORS:
-                missing.append(
-                    {
-                        "kind": "indicator",
-                        "value": indicator_type,
-                        "reason": "Indicator is not supported by the rule-spec runtime.",
-                    }
-                )
-            if source not in SUPPORTED_DATA_FIELDS:
-                missing.append(
-                    {
-                        "kind": "data_field",
-                        "value": source,
-                        "reason": "Required source field is not in supported OHLCV fields.",
-                    }
-                )
-
-        for rule in [*entry_rules, *exit_rules]:
-            operator = str(rule["operator"]).lower()
-            if operator not in SUPPORTED_OPERATORS:
-                missing.append(
-                    {
-                        "kind": "operator",
-                        "value": operator,
-                        "reason": "Rule operator is not supported by the rule-spec runtime.",
-                    }
-                )
-
+    def run_backtest(
+        self,
+        *,
+        spec_id: str,
+        dataset_id: str,
+        execution_mode: ExecutionMode = ExecutionMode.RESEARCH,
+        requested_quantity: int = 1,
+        starting_equity: float = 1_000_000.0,
+        fee_bps: float = 1.0,
+        slippage_bps: float = 0.0,
+    ) -> dict[str, Any]:
+        record = self.get_spec(spec_id)
+        validation = record["validation"]
+        if validation["missing_capabilities"]:
+            raise ValueError(
+                "Custom strategy spec requires review before execution: "
+                f"{validation['missing_capabilities']}"
+            )
+        result = BacktestService(self.db_path).run(
+            strategy_name="rule_spec",
+            dataset_id=dataset_id,
+            parameters={"spec": record["spec"]},
+            execution_mode=execution_mode,
+            requested_quantity=requested_quantity,
+            starting_equity=starting_equity,
+            fee_bps=fee_bps,
+            slippage_bps=slippage_bps,
+        )
         return {
-            "well_formed": True,
-            "supported_indicators": sorted(SUPPORTED_INDICATORS),
-            "supported_operators": sorted(SUPPORTED_OPERATORS),
-            "supported_data_fields": sorted(SUPPORTED_DATA_FIELDS),
-            "missing_capabilities": missing,
-            "requires_human_review": bool(missing),
-            "can_execute_without_new_code": not missing,
+            **result,
+            "custom_strategy_spec_id": spec_id,
+            "strategy": "rule_spec",
+            "execution_policy": (
+                "Executed by the native deterministic rule-spec runtime; "
+                "no generated code was evaluated."
+            ),
         }
+
+    def _validate_spec(self, spec: dict[str, Any]) -> dict[str, Any]:
+        return validate_rule_spec(spec)
 
 
 def _spec_from_row(row: tuple[Any, ...]) -> dict[str, Any]:

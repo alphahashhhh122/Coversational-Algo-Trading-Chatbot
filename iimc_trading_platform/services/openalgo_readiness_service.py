@@ -37,40 +37,77 @@ class OpenAlgoReadinessService:
         checks: dict[str, Any] = {}
         try:
             analyzer = client.analyzer_status()
-            checks["analyzer"] = {
-                "ok": True,
-                "status": "available",
-                "data": analyzer,
-            }
-            for snapshot_type in SNAPSHOT_TYPES:
-                response = client.account_snapshot(snapshot_type)
-                checks[snapshot_type] = {
-                    "ok": True,
-                    "status": "available",
-                    "data": response.get("data"),
-                }
-            analyzer_mode = (
-                analyzer.get("analyze_mode") is True
-                and analyzer.get("mode") == "analyze"
-            )
-            return {
-                **base,
-                "ok": True,
-                "status": "available",
-                "safe_failure": False,
-                "message": "OpenAlgo is reachable with configured credentials.",
-                "no_synthetic_fallback": True,
-                "analyzer_mode": analyzer_mode,
-                "live_mode": not analyzer_mode,
-                "live_trading_enabled": self.config.allow_live_trading,
-                "checks": checks,
-            }
         except OpenAlgoAuthenticationError as exc:
             return self._failed("authentication_failed", str(exc), checks)
         except OpenAlgoUnavailableError as exc:
             return self._failed("unavailable", str(exc), checks)
         except (OpenAlgoResponseError, OpenAlgoError) as exc:
             return self._failed("provider_error", str(exc), checks)
+
+        checks["analyzer"] = {
+            "ok": True,
+            "status": "available",
+            "data": analyzer,
+        }
+        for snapshot_type in SNAPSHOT_TYPES:
+            try:
+                response = client.account_snapshot(snapshot_type)
+            except OpenAlgoAuthenticationError as exc:
+                checks[snapshot_type] = self._check_failed(
+                    "authentication_failed",
+                    str(exc),
+                )
+            except OpenAlgoUnavailableError as exc:
+                checks[snapshot_type] = self._check_failed("unavailable", str(exc))
+            except (OpenAlgoResponseError, OpenAlgoError) as exc:
+                checks[snapshot_type] = self._check_failed(
+                    "provider_error",
+                    str(exc),
+                )
+            else:
+                checks[snapshot_type] = {
+                    "ok": True,
+                    "status": "available",
+                    "data": response.get("data"),
+                }
+
+        analyzer_mode = (
+            analyzer.get("analyze_mode") is True
+            and analyzer.get("mode") == "analyze"
+        )
+        failed_checks = [
+            name for name, check in checks.items()
+            if not check.get("ok")
+        ]
+        if failed_checks:
+            return {
+                **base,
+                "ok": False,
+                "status": "degraded",
+                "safe_failure": True,
+                "message": (
+                    "OpenAlgo is reachable, but these account checks failed: "
+                    + ", ".join(failed_checks)
+                ),
+                "no_synthetic_fallback": True,
+                "analyzer_mode": analyzer_mode,
+                "live_mode": not analyzer_mode,
+                "live_trading_enabled": self.config.allow_live_trading,
+                "checks": {**self._empty_checks("not_checked"), **checks},
+            }
+
+        return {
+            **base,
+            "ok": True,
+            "status": "available",
+            "safe_failure": False,
+            "message": "OpenAlgo is reachable with configured credentials.",
+            "no_synthetic_fallback": True,
+            "analyzer_mode": analyzer_mode,
+            "live_mode": not analyzer_mode,
+            "live_trading_enabled": self.config.allow_live_trading,
+            "checks": checks,
+        }
 
     def readiness(
         self,
@@ -240,6 +277,14 @@ class OpenAlgoReadinessService:
             "analyzer_mode": False,
             "live_mode": False,
             "checks": {**self._empty_checks(status), **checks},
+        }
+
+    def _check_failed(self, status: str, message: str) -> dict[str, Any]:
+        return {
+            "ok": False,
+            "status": status,
+            "message": message,
+            "no_synthetic_fallback": True,
         }
 
     def _empty_checks(self, status: str) -> dict[str, Any]:

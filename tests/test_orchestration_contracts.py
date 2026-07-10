@@ -21,8 +21,15 @@ from iimc_trading_platform.services.openalgo_readiness_service import (
 from iimc_trading_platform.orchestration import (
     OfflineOrchestrator,
     OpenAIResponsesOrchestrator,
+    OrchestrationDecision,
 )
-from iimc_trading_platform.tools.registry import build_default_tool_registry
+from iimc_trading_platform.services.chat_service import ChatService
+from iimc_trading_platform.tools.registry import (
+    EmptyInput,
+    ToolDefinition,
+    ToolRegistry,
+    build_default_tool_registry,
+)
 
 
 class _FakeResponse:
@@ -68,7 +75,44 @@ class _Responses:
                 "output": [],
                 "output_text": "Found the governed dataset.",
             },
-        )()
+            )()
+
+
+class _FakeConversationService:
+    def __init__(self) -> None:
+        self.messages: list[tuple[str, str]] = []
+
+    def ensure_session(self, session_id: str) -> None:
+        return None
+
+    def history(self, session_id: str) -> list[dict]:
+        return []
+
+    def append(
+        self,
+        *,
+        session_id: str,
+        role: str,
+        content: str,
+        metadata: dict | None = None,
+    ) -> str:
+        self.messages.append((role, content))
+        return f"msg_{len(self.messages)}"
+
+
+class _FakeToolExecutionService:
+    def execute(self, *, tool_name, request, handler, session_id=None):
+        return "tool_safety", handler()
+
+
+class _LyingReadinessOrchestrator:
+    mode = "fake_llm"
+
+    def select_tool(self, message, history, registry):
+        return OrchestrationDecision("get_execution_readiness", {})
+
+    def compose_response(self, message, decision, tool_result):
+        return "Live trading is disabled and OpenAlgo is not configured."
 
 
 class OrchestrationContractsTest(unittest.TestCase):
@@ -169,6 +213,46 @@ class OrchestrationContractsTest(unittest.TestCase):
         self.assertIn("ungrounded_metric:sharpe_ratio", evaluated.warnings)
         self.assertIn("Backtest run_alias completed", evaluated.answer)
 
+    def test_chat_service_grounds_safety_critical_tool_responses(self) -> None:
+        readiness_result = {
+            "symbol": "BTCUSDT",
+            "asset_class": "crypto",
+            "stages": [
+                {"stage": "research", "can_start": True},
+                {"stage": "backtest", "can_start": False},
+            ],
+            "next_blocker": {
+                "stage": "backtest",
+                "next_action": "Ingest real historical data.",
+            },
+            "no_synthetic_fallback": True,
+        }
+        registry = ToolRegistry(
+            [
+                ToolDefinition(
+                    name="get_execution_readiness",
+                    description="Readiness",
+                    input_model=EmptyInput,
+                    handler=lambda value: readiness_result,
+                    side_effects="read-only",
+                    retry_safe=True,
+                )
+            ]
+        )
+        service = ChatService(
+            registry,
+            _FakeToolExecutionService(),
+            _LyingReadinessOrchestrator(),
+            _FakeConversationService(),
+        )
+
+        result = service.answer("Can we live trade BTCUSDT?")
+
+        self.assertEqual(result.intent, "get_execution_readiness")
+        self.assertIn("Execution readiness for BTCUSDT crypto checked", result.answer)
+        self.assertIn("Next blocker: backtest", result.answer)
+        self.assertNotIn("Live trading is disabled", result.answer)
+
     def test_responses_orchestrator_uses_function_call_output(self) -> None:
         orchestrator = OpenAIResponsesOrchestrator(
             "test-key",
@@ -238,6 +322,48 @@ class OrchestrationContractsTest(unittest.TestCase):
         self.assertIsNone(decision.tool_name)
         self.assertIn("approved risk decision_id", decision.direct_response)
         self.assertIn("cannot approve or submit", decision.direct_response)
+
+    def test_offline_router_parses_generic_readiness_request(self) -> None:
+        registry = build_default_tool_registry(Path("unused.duckdb"))
+
+        decision = OfflineOrchestrator().select_tool(
+            (
+                "Can we live trade BTCUSDT crypto 1 hour from "
+                "2026-06-01 to 2026-06-10, what is blocked?"
+            ),
+            [],
+            registry,
+        )
+
+        self.assertEqual(decision.tool_name, "get_execution_readiness")
+        self.assertEqual(decision.arguments["symbol"], "BTCUSDT")
+        self.assertEqual(decision.arguments["asset_class"], "crypto")
+        self.assertEqual(decision.arguments["exchange"], "CRYPTO")
+        self.assertEqual(decision.arguments["interval"], "1h")
+        self.assertEqual(decision.arguments["start_date"], "2026-06-01")
+        self.assertEqual(decision.arguments["end_date"], "2026-06-10")
+
+    def test_offline_router_names_and_generalizes_custom_strategy_specs(self) -> None:
+        registry = build_default_tool_registry(Path("unused.duckdb"))
+
+        decision = OfflineOrchestrator().select_tool(
+            (
+                "Create custom strategy called breakout_gold using EMA and "
+                "RSI for gold 15 minutes"
+            ),
+            [],
+            registry,
+        )
+
+        self.assertEqual(decision.tool_name, "create_custom_strategy_spec")
+        self.assertEqual(decision.arguments["name"], "breakout_gold")
+        self.assertEqual(decision.arguments["symbol"], "GOLD")
+        self.assertEqual(decision.arguments["timeframe"], "15m")
+        indicator_types = {
+            indicator["type"]
+            for indicator in decision.arguments["indicators"]
+        }
+        self.assertEqual(indicator_types, {"EMA", "RSI"})
 
     @patch("iimc_trading_platform.infrastructure.openalgo.urlopen")
     def test_openalgo_client_proves_analyzer_mode_before_order(

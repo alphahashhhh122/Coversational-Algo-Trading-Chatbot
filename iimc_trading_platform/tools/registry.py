@@ -96,6 +96,16 @@ class ListCustomStrategySpecsInput(ToolInput):
     limit: int = Field(default=50, ge=1, le=200)
 
 
+class RunCustomStrategySpecInput(ToolInput):
+    spec_id: str = Field(min_length=1)
+    dataset_id: str = Field(min_length=1)
+    execution_mode: ExecutionMode = ExecutionMode.RESEARCH
+    requested_quantity: int = Field(default=1, ge=1, le=100_000)
+    starting_equity: float = Field(default=1_000_000.0, gt=0)
+    fee_bps: float = Field(default=1.0, ge=0, le=1_000)
+    slippage_bps: float = Field(default=0.0, ge=0, le=1_000)
+
+
 class RunBacktestInput(ToolInput):
     strategy_name: str = "ema_crossover"
     dataset_id: str | None = None
@@ -856,6 +866,43 @@ def build_default_tool_registry(
                     execution_modes=("research",),
                     required_data=("custom_strategy_specs",),
                     risk_level="low",
+                ),
+            ),
+            ToolDefinition(
+                name="run_custom_strategy_spec",
+                description=(
+                    "Backtest a persisted custom strategy spec through the "
+                    "native deterministic rule-spec runtime. Unsupported specs "
+                    "fail closed; arbitrary generated code is never executed."
+                ),
+                input_model=RunCustomStrategySpecInput,
+                handler=lambda value: custom_strategies.run_backtest(
+                    **RunCustomStrategySpecInput.model_validate(
+                        value.model_dump()
+                    ).model_dump()
+                ),
+                side_effects=(
+                    "creates persisted research workflow records for a custom "
+                    "rule-spec strategy"
+                ),
+                retry_safe=False,
+                required_role="researcher",
+                capabilities=ToolCapabilityMetadata(
+                    actions=("backtest", "execute_strategy_spec"),
+                    asset_classes=(
+                        "equity",
+                        "index",
+                        "futures",
+                        "options",
+                        "commodity",
+                        "crypto",
+                    ),
+                    execution_modes=("research", "semi_auto", "live"),
+                    required_data=(
+                        "custom_strategy_specs",
+                        "historical_ohlcv",
+                    ),
+                    risk_level="medium",
                 ),
             ),
             ToolDefinition(

@@ -1,8 +1,8 @@
-# Professor Demo Runbook
+# Professor Review Runbook
 
 ## Objective
 
-Demonstrate a real, persisted research workflow from governed data through
+Review a real, persisted research workflow from governed data through
 signal generation, risk management, order management, fills, performance, and
 auditable conversational retrieval. Do not present a historical simulation as
 live trading.
@@ -62,7 +62,8 @@ Current verified demo run:
    run evidence rather than treating the LLM response as the source of truth.
 14. Show Approvals. Explain that the LLM cannot approve or submit an order.
 15. State the boundary: OpenAlgo account reads and analyzer submission require
-    credentials; live trading remains disabled.
+    credentials; live trading requires explicit configuration, broker readiness,
+    live-mode risk approval, and human approval.
 
 Verified local boundary as of June 27, 2026: without `OPENALGO_API_KEY`,
 OpenAlgo monitor/readiness returns `credential_required` with credentials
