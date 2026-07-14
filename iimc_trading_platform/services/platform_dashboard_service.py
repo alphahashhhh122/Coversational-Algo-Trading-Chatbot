@@ -206,16 +206,6 @@ class PlatformDashboardService:
             },
         }
 
-    # Compatibility aliases for earlier local clients; the operator contract is
-    # the canonical workspace API.
-    def professor_review(self) -> dict[str, Any]:
-        payload = self.operator_review()
-        payload["operating_goal"] = payload["operator_goal"]
-        return payload
-
-    def professor_demo(self) -> dict[str, Any]:
-        return self.professor_review()
-
     def _table_counts(self, table_names: list[str]) -> dict[str, int]:
         con = connect(self.db_path)
         try:

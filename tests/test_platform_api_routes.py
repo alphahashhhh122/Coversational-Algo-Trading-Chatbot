@@ -43,9 +43,9 @@ class PlatformApiRoutesTest(unittest.TestCase):
         self.assertIn("/platform/dashboard", paths)
         self.assertIn("/platform/dashboard/summary", paths)
         self.assertIn("/platform/dashboard/preferences", paths)
-        self.assertIn("/platform/professor-demo", paths)
-        self.assertIn("/platform/professor-review", paths)
         self.assertIn("/platform/operator-review", paths)
+        self.assertNotIn("/platform/professor-demo", paths)
+        self.assertNotIn("/platform/professor-review", paths)
         self.assertIn("/platform/status", paths)
         self.assertIn("/platform/execution/readiness", paths)
         self.assertIn("/platform/symbol/readiness", paths)
@@ -82,12 +82,12 @@ class PlatformApiRoutesTest(unittest.TestCase):
         self.assertTrue(payload["execution_paths"]["backtest"]["enabled"])
         self.assertFalse(payload["execution_paths"]["live_trading"]["enabled"])
 
-    def test_professor_demo_route_returns_workflow_contract(self) -> None:
-        response = self.client.get("/platform/professor-review")
+    def test_operator_review_route_returns_workflow_contract(self) -> None:
+        response = self.client.get("/platform/operator-review")
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()
-        self.assertIn("operating_goal", payload)
+        self.assertIn("operator_goal", payload)
         stages = [item["stage"] for item in payload["workflow"]]
         self.assertEqual(
             stages,

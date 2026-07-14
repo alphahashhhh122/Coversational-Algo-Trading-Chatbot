@@ -24,7 +24,7 @@ from iimc_trading_platform.tools.catalog_tools import list_datasets
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Build professor-demo evidence from the persisted platform."
+        description="Build operator evidence from the persisted platform."
     )
     parser.add_argument("--run-id")
     parser.add_argument(
@@ -50,7 +50,7 @@ def main() -> None:
         config.artifacts_dir,
     )
     runs = backtests.list_runs(limit=100)
-    selected = _select_demo_run(backtests, runs, args.run_id)
+    selected = _select_canonical_run(backtests, runs, args.run_id)
     if selected is None and args.prepare:
         datasets = list_datasets(config.database_path)["datasets"]
         if not datasets:
@@ -106,7 +106,7 @@ def main() -> None:
     if args.create_report:
         report = evidence.create_run_report(
             run_id,
-            created_by="professor_demo",
+            created_by="operator_evidence",
         )
         result["report"] = {
             "report_id": report["report_id"],
@@ -116,7 +116,7 @@ def main() -> None:
     print(json.dumps(result, indent=2, default=str))
 
 
-def _select_demo_run(
+def _select_canonical_run(
     backtests: BacktestService,
     runs: list[dict],
     requested_run_id: str | None,

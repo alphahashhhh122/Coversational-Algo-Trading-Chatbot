@@ -24,7 +24,7 @@ const state = {
   researchBriefs: [],
   executionReadiness: null,
   platformSummary: null,
-  professorReview: null,
+  operatorReview: null,
   dashboardWidgets: JSON.parse(
     localStorage.getItem("iimc_dashboard_widgets")
     || '["research","assets","backtests","openalgo","risk","execution"]',
@@ -184,7 +184,7 @@ function setAutoRefresh(enabled, persist = true) {
 function setView(view) {
   const labels = {
     workspace: ["Trading Research Workspace", "Grounded analysis, audited tools, controlled execution."],
-    professor: ["Operator Console", "Signal, risk, order, fill, and performance evidence in one place."],
+    operator: ["Operator Console", "Signal, risk, order, fill, and performance evidence in one place."],
     runs: ["Strategy Runs", "Deterministic execution and stored performance evidence."],
     experiments: ["Strategy Experiments", "Chronological out-of-sample validation and parameter stability."],
     portfolios: ["Portfolio Risk", "Durable positions, exposure reservations, and operator controls."],
@@ -401,7 +401,7 @@ async function loadOverview() {
   renderDatasets();
   renderExperiments();
   renderPortfolios();
-  await loadProfessorDashboard();
+  await loadOperatorConsole();
   await loadOpenAlgoHistory();
   await loadOperations();
 }
@@ -834,21 +834,21 @@ function renderOpenAlgoMonitor(monitor) {
   }).join("");
 }
 
-async function loadProfessorDashboard() {
+async function loadOperatorConsole() {
   const payload = await api("/platform/operator-review");
-  state.professorReview = payload;
+  state.operatorReview = payload;
   const run = payload.latest_completed_run;
-  $("#professor-demo-goal").textContent = payload.operator_goal;
-  $("#prof-run-id").textContent = run?.run_id || "-";
-  $("#prof-run-status").textContent = run
+  $("#operator-goal").textContent = payload.operator_goal;
+  $("#operator-run-id").textContent = run?.run_id || "-";
+  $("#operator-run-status").textContent = run
     ? `${run.strategy} on ${run.dataset_id}`
     : "Run a research backtest to populate this panel.";
-  $("#prof-net-pnl").textContent = run ? formatNumber(run.net_pnl) : "-";
-  $("#prof-trades").textContent = run ? formatNumber(run.total_trades, 0) : "-";
-  $("#prof-drawdown").textContent = run ? formatNumber(run.max_drawdown) : "-";
+  $("#operator-net-pnl").textContent = run ? formatNumber(run.net_pnl) : "-";
+  $("#operator-trades").textContent = run ? formatNumber(run.total_trades, 0) : "-";
+  $("#operator-drawdown").textContent = run ? formatNumber(run.max_drawdown) : "-";
 
   const storageEntries = Object.entries(payload.run_storage_evidence || {});
-  $("#prof-storage-table").innerHTML = storageEntries.length
+  $("#operator-storage-table").innerHTML = storageEntries.length
     ? storageEntries.map(([tableName, count]) => `
       <tr>
         <td>${escapeHtml(tableName)}</td>
@@ -857,7 +857,7 @@ async function loadProfessorDashboard() {
     `).join("")
     : `<tr><td colspan="2">No completed run storage evidence yet.</td></tr>`;
 
-  $("#prof-workflow").innerHTML = payload.workflow.map((step, index) => `
+  $("#operator-workflow").innerHTML = payload.workflow.map((step, index) => `
     <article class="workflow-step">
       <strong>${formatNumber(index + 1, 0)}. ${escapeHtml(step.stage.replaceAll("_", " "))}</strong>
       <p>${escapeHtml(step.purpose)}</p>
@@ -865,12 +865,12 @@ async function loadProfessorDashboard() {
     </article>
   `).join("");
 
-  $("#professor-actions").innerHTML = payload.ui_actions.map((action) => `
-    <button class="secondary-button professor-action" data-target-view="${escapeHtml(action.target_view)}">
+  $("#operator-actions").innerHTML = payload.ui_actions.map((action) => `
+    <button class="secondary-button operator-action" data-target-view="${escapeHtml(action.target_view)}">
       ${escapeHtml(action.label)}
     </button>
   `).join("");
-  $("#professor-actions").querySelectorAll(".professor-action").forEach((button) => {
+  $("#operator-actions").querySelectorAll(".operator-action").forEach((button) => {
     button.addEventListener("click", () => setView(button.dataset.targetView));
   });
 }
@@ -2452,7 +2452,7 @@ function wireEvents() {
     $("#evidence-content").classList.add("hidden");
     $("#evidence-empty").classList.remove("hidden");
   });
-  ["refresh-overview", "refresh-professor", "refresh-runs", "refresh-experiments", "refresh-portfolios", "refresh-approvals", "refresh-data", "refresh-openalgo", "refresh-operations"].forEach((id) => {
+  ["refresh-overview", "refresh-operator", "refresh-runs", "refresh-experiments", "refresh-portfolios", "refresh-approvals", "refresh-data", "refresh-openalgo", "refresh-operations"].forEach((id) => {
     $(`#${id}`).addEventListener("click", async () => {
       try {
         state.operations = null;

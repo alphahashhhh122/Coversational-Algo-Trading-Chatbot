@@ -20,7 +20,7 @@
         <button class="nav-item active" data-view="workspace">
           <span aria-hidden="true">⌂</span> Workspace
         </button>
-        <button class="nav-item" data-view="professor">
+        <button class="nav-item" data-view="operator">
           <span aria-hidden="true">OC</span> Operator
         </button>
         <button class="nav-item" data-view="runs">
@@ -225,44 +225,44 @@
         </section>
       </section>
 
-      <section class="view" id="view-professor">
+      <section class="view" id="view-operator">
         <div class="section-heading">
           <div>
             <h2>Operator Console</h2>
             <p>One-place review of strategy workflow, storage evidence, broker readiness, and safety gates.</p>
           </div>
-          <button class="secondary-button" id="refresh-professor">Refresh</button>
+          <button class="secondary-button" id="refresh-operator">Refresh</button>
         </div>
-        <div class="professor-grid">
-          <section class="professor-panel">
+        <div class="operator-grid">
+          <section class="operator-panel">
             <div class="panel-heading">
-              <div><h2>Platform Status</h2><p id="professor-demo-goal">Loading persisted evidence.</p></div>
+              <div><h2>Platform Status</h2><p id="operator-goal">Loading persisted evidence.</p></div>
             </div>
-            <div class="metric-grid professor-metrics">
-              <div class="metric"><span>Latest run</span><strong id="prof-run-id">-</strong><small id="prof-run-status">No completed run loaded</small></div>
-              <div class="metric"><span>Net P&amp;L</span><strong id="prof-net-pnl">-</strong><small>Historical simulation only</small></div>
-              <div class="metric"><span>Trades</span><strong id="prof-trades">-</strong><small>Closed simulated trades</small></div>
-              <div class="metric"><span>Drawdown</span><strong id="prof-drawdown">-</strong><small>Maximum drawdown</small></div>
+            <div class="metric-grid operator-metrics">
+              <div class="metric"><span>Latest run</span><strong id="operator-run-id">-</strong><small id="operator-run-status">No completed run loaded</small></div>
+              <div class="metric"><span>Net P&amp;L</span><strong id="operator-net-pnl">-</strong><small>Historical simulation only</small></div>
+              <div class="metric"><span>Trades</span><strong id="operator-trades">-</strong><small>Closed simulated trades</small></div>
+              <div class="metric"><span>Drawdown</span><strong id="operator-drawdown">-</strong><small>Maximum drawdown</small></div>
             </div>
-            <div class="professor-actions" id="professor-actions"></div>
+            <div class="operator-actions" id="operator-actions"></div>
           </section>
-          <section class="professor-panel">
+          <section class="operator-panel">
             <div class="panel-heading">
               <div><h2>Storage Evidence</h2><p>Run-scoped counts from the platform database.</p></div>
             </div>
             <div class="table-wrap">
               <table>
                 <thead><tr><th>Table</th><th>Rows</th></tr></thead>
-                <tbody id="prof-storage-table"></tbody>
+                <tbody id="operator-storage-table"></tbody>
               </table>
             </div>
           </section>
         </div>
-        <section class="professor-panel workflow-panel">
+        <section class="operator-panel workflow-panel">
           <div class="panel-heading">
             <div><h2>Backend Workflow</h2><p>End-to-end evidence available to the operator.</p></div>
           </div>
-          <div class="workflow-step-list" id="prof-workflow"></div>
+          <div class="workflow-step-list" id="operator-workflow"></div>
         </section>
       </section>
 

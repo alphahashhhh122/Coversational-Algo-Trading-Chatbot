@@ -45,7 +45,7 @@ class DomainGuardService:
             allowed=False,
             reason=(
                 "Prompt is outside the trading research, platform, data, "
-                "OpenAlgo, or professor-demo scope."
+                "OpenAlgo, or operator-workflow scope."
             ),
             risk_level="blocked",
         )

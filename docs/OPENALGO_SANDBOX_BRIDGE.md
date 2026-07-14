@@ -63,12 +63,12 @@ Local order:
 created -> submitted -> filled | rejected | cancelled | failed
 ```
 
-## Demo Commands
+## Operator Workflow Commands
 
 Prepare a risk decision, order intent, and approval request:
 
 ```powershell
-python scripts\openalgo_sandbox_demo.py prepare `
+python scripts\openalgo_sandbox_workflow.py prepare `
   --symbol NHPC --exchange NSE --side BUY --product MIS `
   --quantity 1 --reference-price 100
 ```
@@ -76,16 +76,16 @@ python scripts\openalgo_sandbox_demo.py prepare `
 Review the returned intent and approval IDs. Then approve and submit:
 
 ```powershell
-python scripts\openalgo_sandbox_demo.py approve-and-submit `
+python scripts\openalgo_sandbox_workflow.py approve-and-submit `
   --intent-id <intent_id> --actor <your_name> `
-  --reason "Reviewed for professor sandbox demo" `
+  --reason "Reviewed for operator sandbox workflow" `
   --confirm I_UNDERSTAND_THIS_IS_AN_OPENALGO_SANDBOX_ORDER
 ```
 
 Reconcile OpenAlgo status:
 
 ```powershell
-python scripts\openalgo_sandbox_demo.py reconcile `
+python scripts\openalgo_sandbox_workflow.py reconcile `
   --intent-id <intent_id>
 ```
 

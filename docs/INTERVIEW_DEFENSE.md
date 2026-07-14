@@ -10,13 +10,13 @@ result is stored with evidence IDs.
 
 ## Architecture
 
-- Frontend: local workspace for chat, professor dashboard, runs, data, OpenAlgo,
+- Frontend: local workspace for chat, operator console, runs, data, OpenAlgo,
   approvals, and operations.
 - FastAPI: typed HTTP boundary and OpenAPI contract.
 - Tool registry: the only functions the orchestrator can call.
 - Services: business rules such as backtesting, risk, order state, readiness,
   news, RAG, and reports.
-- DuckDB: local evidence store for professor/resume demo.
+- DuckDB: local evidence store for operator workflows and review evidence.
 - OpenAlgo client: external broker/analyzer boundary, never used for fake local
   backtest reflection.
 

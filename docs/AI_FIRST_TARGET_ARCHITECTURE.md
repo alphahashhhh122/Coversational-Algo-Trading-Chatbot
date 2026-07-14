@@ -77,7 +77,7 @@ tools. This includes market data, runs, signals, risk, orders, trades, funds,
 performance, conversations, and audit state.
 
 RAG is used only for unstructured material such as architecture documents,
-policies, professor notes, and operating manuals. The current retrieval layer:
+policies, operator notes, and operating manuals. The current retrieval layer:
 
 - indexes a curated corpus
 - chunks documents deterministically

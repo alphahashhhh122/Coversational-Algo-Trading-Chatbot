@@ -1,4 +1,4 @@
-# Professor Review Runbook
+# Operator Runbook
 
 ## Objective
 
@@ -17,7 +17,7 @@ python -m iimc_trading_platform.cli platform-status `
   --symbol RELIANCE --exchange NSE --asset-class equity `
   --interval 5m --start-date 2026-04-23 --end-date 2026-05-23
 python -m iimc_trading_platform.cli openalgo-monitor
-python scripts\professor_demo.py --create-report
+python scripts\operator_evidence.py --create-report
 ```
 
 Run these stateful commands sequentially. DuckDB allows only one writer at a
@@ -27,7 +27,7 @@ The final command selects the canonical completed EMA 9/21 full-dataset run
 unless `--run-id` is given. It prints database-backed counts and creates a
 report in `artifacts/reports`.
 
-Current verified demo run:
+Current verified canonical run:
 
 - run: `run_9f83c1c9ab65`
 - signals: 56
@@ -40,7 +40,7 @@ Current verified demo run:
 ## Ten-Minute Flow
 
 1. Open `http://127.0.0.1:8000/`.
-2. Open Professor Dashboard. Show the backend workflow and table-count evidence.
+2. Open Operator Console. Show the backend workflow and table-count evidence.
 3. Show the RELIANCE readiness check. Explain that the architecture supports
    multi-asset readiness validation, but each provider/symbol is verified per
    request and no missing data is fabricated.
@@ -82,10 +82,10 @@ They are read-only and safe without OpenAI or OpenAlgo keys.
 
 ## Browser QA Checklist
 
-Manual browser QA should be done before the professor meeting:
+Manual browser QA should be done before a local operator session:
 
 - open `http://127.0.0.1:8000/`
-- confirm Professor Dashboard loads without console errors
+- confirm Operator Console loads without console errors
 - confirm Strategy Runs table and run detail timeline are scrollable
 - confirm IIMC backtest form shows JSON result or structured safe failure
 - confirm OpenAlgo Monitor says `credential_required` or `unavailable` clearly

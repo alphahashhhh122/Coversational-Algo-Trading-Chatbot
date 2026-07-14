@@ -1,4 +1,4 @@
-# Project Defense And Professor Preparation
+# Project Ownership Checklist
 
 This preparation is limited to understanding and defending the project. General
 DSA or unrelated placement preparation is outside this plan.
@@ -25,7 +25,7 @@ The expected interview depth is:
 - one database/data-flow explanation
 - one live debugging or focused modification exercise
 - one trading-system concept review
-- one professor-style demonstration rehearsal
+- one operator-workflow rehearsal
 
 ## Foundation
 

@@ -55,7 +55,7 @@ nav { display: grid; gap: 4px; }
   letter-spacing: 0;
 }
 .nav-item[data-view="workspace"] span:first-child::after { content: "CC"; }
-.nav-item[data-view="professor"] span:first-child::after { content: "PD"; }
+.nav-item[data-view="operator"] span:first-child::after { content: "OC"; }
 .nav-item[data-view="runs"] span:first-child::after { content: "SR"; }
 .nav-item[data-view="experiments"] span:first-child::after { content: "EX"; }
 .nav-item[data-view="portfolios"] span:first-child::after { content: "PF"; }
@@ -726,24 +726,24 @@ tbody tr:hover { background: #f5f8f6; }
   border: 0;
 }
 .snapshot-history .table-wrap { max-height: 560px; }
-.professor-grid {
+.operator-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(340px, .8fr);
   gap: 14px;
 }
-.professor-panel {
+.operator-panel {
   min-width: 0;
   background: var(--surface);
   border: 1px solid var(--line);
 }
-.professor-metrics {
+.operator-metrics {
   border-left: 0;
   border-right: 0;
 }
-.professor-metrics .metric strong {
+.operator-metrics .metric strong {
   font-size: 20px;
 }
-.professor-actions {
+.operator-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -1049,7 +1049,7 @@ tbody tr:hover { background: #f5f8f6; }
   .chart-grid { grid-template-columns: 1fr; }
   .openalgo-grid { grid-template-columns: 1fr; }
   .openalgo-status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .professor-grid { grid-template-columns: 1fr; }
+  .operator-grid { grid-template-columns: 1fr; }
   .workflow-step-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .workflow-step:nth-child(2n) { border-right: 0; }
   .paper-intent-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }

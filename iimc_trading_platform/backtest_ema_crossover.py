@@ -564,7 +564,7 @@ def run_ema_crossover_demo(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run an EMA crossover demo backtest.")
+    parser = argparse.ArgumentParser(description="Run an EMA crossover backtest.")
     parser.add_argument("--db", default=DEFAULT_DB_PATH, type=Path, help="DuckDB database path.")
     parser.add_argument("--dataset-id", default=None, help="Data catalog dataset id.")
     parser.add_argument("--fast", default=9, type=int, help="Fast EMA period.")

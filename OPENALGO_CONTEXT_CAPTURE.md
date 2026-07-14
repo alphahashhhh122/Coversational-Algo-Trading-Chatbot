@@ -48,8 +48,8 @@ Chat UI -> FastAPI route -> Groq/custom orchestrator -> Pydantic tool registry -
 - `README.md` - current product summary, capabilities, quick start, commands, and scope.
 - `interview_prep_iimc_project.md` - most detailed ownership/interview preparation document.
 - `docs/INTERVIEW_DEFENSE.md` - concise defense notes and practice questions.
-- `docs/PROJECT_DEFENSE_TRACK.md` - preparation checklist for professor/recruiter ownership.
-- `docs/PROFESSOR_DEMO_RUNBOOK.md` - demo flow.
+- `docs/PROJECT_OWNERSHIP_CHECKLIST.md` - preparation checklist for operator/recruiter ownership.
+- `docs/OPERATOR_RUNBOOK.md` - local operator workflow.
 - `docs/OPENALGO_SANDBOX_BRIDGE.md` - OpenAlgo sandbox/analyzer bridge notes.
 - `docs/PRODUCTION_READINESS.md` - production-readiness framing.
 - `iimc_trading_platform/api.py` - FastAPI route surface.
@@ -97,5 +97,5 @@ Recommended answer frame:
 
 - Problems: unstructured intent, unsafe trading actions, traceability, hallucinated results.
 - Choices: FastAPI for typed APIs, Groq for low-latency orchestration, Pydantic for schema validation, DuckDB for local analytical persistence, BM25 for exact technical retrieval, OpenAlgo/Dhan for broker abstraction.
-- Objectives: core research/demo objectives were met; full institutional production deployment, formal routing benchmarks, deeper live reconciliation, and generic no-code strategy composition are future work.
+- Objectives: core research and operator objectives were met; full institutional production deployment, formal routing benchmarks, deeper live reconciliation, and generic no-code strategy composition remain scale-up work.
 - Lessons: declare capability metadata early, evaluate LLM routing formally, keep LLMs away from execution, separate prototype claims from production claims, support custom strategies through validated specs rather than arbitrary generated code.

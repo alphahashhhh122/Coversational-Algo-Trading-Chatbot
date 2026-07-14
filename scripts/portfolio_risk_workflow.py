@@ -11,9 +11,9 @@ def main() -> None:
     config = load_config()
     service = PortfolioService(Path(config.database_path))
     portfolio = service.create(
-        name="IIMC Portfolio Risk Demo",
+        name="IIMC Portfolio Risk Workflow",
         starting_cash=1_000_000.0,
-        created_by="portfolio_demo",
+        created_by="portfolio_workflow",
     )
     decision = service.evaluate_and_reserve(
         portfolio_id=portfolio["portfolio_id"],
@@ -25,7 +25,7 @@ def main() -> None:
     snapshot = service.apply_fill(
         portfolio_id=portfolio["portfolio_id"],
         reservation_id=decision["reservation_id"],
-        reference_id="portfolio-demo-buy-1",
+        reference_id="portfolio-workflow-buy-1",
         price=24_005.0,
         fees=2.4,
     )
@@ -33,7 +33,7 @@ def main() -> None:
         portfolio_id=portfolio["portfolio_id"],
         enabled=False,
         reason="demonstrate operator kill switch",
-        changed_by="portfolio_demo",
+        changed_by="portfolio_workflow",
     )
     rejected = service.evaluate_and_reserve(
         portfolio_id=portfolio["portfolio_id"],
@@ -45,8 +45,8 @@ def main() -> None:
     restored = service.set_trading_enabled(
         portfolio_id=portfolio["portfolio_id"],
         enabled=True,
-        reason="demo completed",
-        changed_by="portfolio_demo",
+        reason="workflow completed",
+        changed_by="portfolio_workflow",
     )
     print(
         json.dumps(

@@ -21,7 +21,7 @@ CONFIRMATION = "I_UNDERSTAND_THIS_IS_AN_OPENALGO_SANDBOX_ORDER"
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Approval-gated OpenAlgo analyzer workflow demo."
+        description="Approval-gated OpenAlgo analyzer workflow."
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -39,8 +39,8 @@ def main() -> int:
     prepare.add_argument("--reference-price", type=float, required=True)
     prepare.add_argument("--limit-price", type=float)
     prepare.add_argument("--trigger-price", type=float)
-    prepare.add_argument("--strategy", default="IIMC_Professor_Demo")
-    prepare.add_argument("--actor", default="demo_user")
+    prepare.add_argument("--strategy", default="IIMC_Operator_Workflow")
+    prepare.add_argument("--actor", default="operator")
 
     submit = subparsers.add_parser("approve-and-submit")
     submit.add_argument("--intent-id", required=True)
@@ -68,8 +68,8 @@ def main() -> int:
 
     if args.command == "prepare":
         risk = RiskService(config.database_path).evaluate(
-            run_id="run_openalgo_professor_demo",
-            signal_id="sig_openalgo_professor_demo",
+            run_id="run_openalgo_operator_workflow",
+            signal_id="sig_openalgo_operator_workflow",
             signal_type="entry",
             symbol=args.symbol,
             price=args.reference_price,
@@ -78,7 +78,7 @@ def main() -> int:
             execution_mode=ExecutionMode.SEMI_AUTO,
         )
         if not risk.approved:
-            raise SystemExit(f"Risk rejected the demo: {risk.reason}")
+            raise SystemExit(f"Risk rejected the workflow: {risk.reason}")
         result = service.prepare_intent(
             decision_id=risk.decision_id,
             symbol=args.symbol,

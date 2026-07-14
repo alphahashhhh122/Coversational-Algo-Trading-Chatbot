@@ -46,7 +46,7 @@ does not calculate indicators, risk, P&L, or order state in the browser.
 ```powershell
 node --check iimc_trading_platform\frontend\app.js
 python -m unittest discover -s tests -v
-python scripts\professor_demo.py --create-report
+python scripts\operator_evidence.py --create-report
 python scripts\smoke_real_api.py
 python -m iimc_trading_platform.cli platform-status --symbol RELIANCE --exchange NSE --asset-class equity --interval 5m --start-date 2026-04-23 --end-date 2026-05-23
 python -m iimc_trading_platform.cli openalgo-monitor

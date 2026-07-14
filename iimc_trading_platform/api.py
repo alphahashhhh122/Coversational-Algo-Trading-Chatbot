@@ -781,18 +781,6 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    @app.get("/platform/professor-demo")
-    def platform_professor_demo(
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        return platform_dashboard_service.professor_demo()
-
-    @app.get("/platform/professor-review")
-    def platform_professor_review(
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        return platform_dashboard_service.professor_review()
-
     @app.get("/platform/operator-review")
     def platform_operator_review(
         principal: Principal = Depends(viewer),
