@@ -85,6 +85,30 @@ class ApiChatTest(unittest.TestCase):
         self.assertEqual(stored, ("list_datasets", "succeeded", "session_test"))
         self.assertEqual(audit_actions, ["started", "succeeded"])
 
+    def test_chat_can_run_compound_read_only_catalog_question(self) -> None:
+        response = self.client.post(
+            "/chat",
+            json={
+                "session_id": "session_compound",
+                "message": "What datasets and strategies are available?",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["intent"], "multi_tool")
+        self.assertEqual(
+            [item["tool_name"] for item in payload["tool_calls"]],
+            ["list_datasets", "list_strategies"],
+        )
+        self.assertTrue(
+            all(item["status"] == "succeeded" for item in payload["tool_calls"])
+        )
+        self.assertIn("nifty_options", payload["answer"])
+        self.assertIn("deterministic strategy plugins", payload["answer"])
+        self.assertIn("list_datasets", payload["data"]["tool_results"])
+        self.assertIn("list_strategies", payload["data"]["tool_results"])
+
     def test_chat_unsupported_request_does_not_call_tool(self) -> None:
         response = self.client.post(
             "/chat",

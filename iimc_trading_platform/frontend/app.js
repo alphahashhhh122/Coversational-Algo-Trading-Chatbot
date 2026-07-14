@@ -184,7 +184,7 @@ function setAutoRefresh(enabled, persist = true) {
 function setView(view) {
   const labels = {
     workspace: ["Trading Research Workspace", "Grounded analysis, audited tools, controlled execution."],
-    professor: ["Professor Dashboard", "Signal, risk, order, fill, and performance evidence in one place."],
+    professor: ["Operator Console", "Signal, risk, order, fill, and performance evidence in one place."],
     runs: ["Strategy Runs", "Deterministic execution and stored performance evidence."],
     experiments: ["Strategy Experiments", "Chronological out-of-sample validation and parameter stability."],
     portfolios: ["Portfolio Risk", "Durable positions, exposure reservations, and operator controls."],
@@ -835,10 +835,10 @@ function renderOpenAlgoMonitor(monitor) {
 }
 
 async function loadProfessorDashboard() {
-  const payload = await api("/platform/professor-review");
+  const payload = await api("/platform/operator-review");
   state.professorReview = payload;
   const run = payload.latest_completed_run;
-  $("#professor-demo-goal").textContent = payload.operating_goal || payload.demo_goal;
+  $("#professor-demo-goal").textContent = payload.operator_goal;
   $("#prof-run-id").textContent = run?.run_id || "-";
   $("#prof-run-status").textContent = run
     ? `${run.strategy} on ${run.dataset_id}`

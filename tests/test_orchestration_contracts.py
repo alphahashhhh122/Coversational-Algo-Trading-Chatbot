@@ -22,6 +22,7 @@ from iimc_trading_platform.orchestration import (
     OfflineOrchestrator,
     OpenAIResponsesOrchestrator,
     OrchestrationDecision,
+    ToolInvocation,
 )
 from iimc_trading_platform.services.chat_service import ChatService
 from iimc_trading_platform.tools.registry import (
@@ -113,6 +114,38 @@ class _LyingReadinessOrchestrator:
 
     def compose_response(self, message, decision, tool_result):
         return "Live trading is disabled and OpenAlgo is not configured."
+
+
+class _MixedCompoundOrchestrator:
+    mode = "fake_llm"
+
+    def select_tool(self, message, history, registry):
+        invocations = [
+            ToolInvocation("read_status", {}),
+            ToolInvocation("change_state", {}),
+        ]
+        return OrchestrationDecision(
+            tool_name="read_status",
+            arguments={},
+            tool_calls=invocations,
+        )
+
+    def compose_response(self, message, decision, tool_result):
+        return "unused"
+
+
+class _NullArgumentOrchestrator:
+    mode = "fake_llm"
+
+    def select_tool(self, message, history, registry):
+        return OrchestrationDecision(
+            tool_name="read_status",
+            arguments={},
+            tool_calls=[ToolInvocation("read_status", None)],
+        )
+
+    def compose_response(self, message, decision, tool_result):
+        return "unused"
 
 
 class OrchestrationContractsTest(unittest.TestCase):
@@ -252,6 +285,67 @@ class OrchestrationContractsTest(unittest.TestCase):
         self.assertIn("Execution readiness for BTCUSDT crypto checked", result.answer)
         self.assertIn("Next blocker: backtest", result.answer)
         self.assertNotIn("Live trading is disabled", result.answer)
+
+    def test_chat_rejects_compound_requests_that_include_a_write(self) -> None:
+        registry = ToolRegistry(
+            [
+                ToolDefinition(
+                    name="read_status",
+                    description="Read status",
+                    input_model=EmptyInput,
+                    handler=lambda value: {"status": "ok"},
+                    side_effects="read-only database query",
+                    retry_safe=True,
+                ),
+                ToolDefinition(
+                    name="change_state",
+                    description="Change state",
+                    input_model=EmptyInput,
+                    handler=lambda value: (_ for _ in ()).throw(
+                        AssertionError("state-changing tool must not run")
+                    ),
+                    side_effects="creates a trading artifact",
+                    retry_safe=False,
+                ),
+            ]
+        )
+        service = ChatService(
+            registry,
+            _FakeToolExecutionService(),
+            _MixedCompoundOrchestrator(),
+            _FakeConversationService(),
+        )
+
+        result = service.answer("Check status and change state")
+
+        self.assertEqual(result.intent, "compound_request_rejected")
+        self.assertEqual(result.tool_calls, [])
+        self.assertIn("only read-only checks", result.answer)
+
+    def test_chat_normalizes_null_provider_arguments_for_empty_tools(self) -> None:
+        registry = ToolRegistry(
+            [
+                ToolDefinition(
+                    name="read_status",
+                    description="Read status",
+                    input_model=EmptyInput,
+                    handler=lambda value: {"status": "ok"},
+                    side_effects="read-only database query",
+                    retry_safe=True,
+                )
+            ]
+        )
+        service = ChatService(
+            registry,
+            _FakeToolExecutionService(),
+            _NullArgumentOrchestrator(),
+            _FakeConversationService(),
+        )
+
+        result = service.answer("Check status")
+
+        self.assertEqual(result.intent, "read_status")
+        self.assertEqual(result.tool_calls[0].status, "succeeded")
 
     def test_responses_orchestrator_uses_function_call_output(self) -> None:
         orchestrator = OpenAIResponsesOrchestrator(

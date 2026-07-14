@@ -137,18 +137,17 @@ class PlatformDashboardService:
             },
         }
 
-    def professor_review(self) -> dict[str, Any]:
+    def operator_review(self) -> dict[str, Any]:
         run = self._latest_completed_run()
         run_id = run["run_id"] if run else None
-        operating_goal = (
+        operator_goal = (
             "Explain how governed market data, strategy logic, risk decisions, "
             "orders, fills, broker readiness, and performance evidence work "
             "together inside the local platform."
         )
         return {
             "generated_at": utc_now(),
-            "operating_goal": operating_goal,
-            "demo_goal": operating_goal,
+            "operator_goal": operator_goal,
             "latest_completed_run": run,
             "workflow": [
                 {
@@ -206,6 +205,13 @@ class PlatformDashboardService:
                 "no_synthetic_fallback": True,
             },
         }
+
+    # Compatibility aliases for earlier local clients; the operator contract is
+    # the canonical workspace API.
+    def professor_review(self) -> dict[str, Any]:
+        payload = self.operator_review()
+        payload["operating_goal"] = payload["operator_goal"]
+        return payload
 
     def professor_demo(self) -> dict[str, Any]:
         return self.professor_review()

@@ -793,6 +793,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     ) -> dict[str, Any]:
         return platform_dashboard_service.professor_review()
 
+    @app.get("/platform/operator-review")
+    def platform_operator_review(
+        principal: Principal = Depends(viewer),
+    ) -> dict[str, Any]:
+        return platform_dashboard_service.operator_review()
+
     @app.get("/platform/status")
     def platform_status(
         symbol: str = "NIFTY",

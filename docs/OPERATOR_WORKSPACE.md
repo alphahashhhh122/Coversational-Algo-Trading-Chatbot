@@ -8,7 +8,7 @@ does not calculate indicators, risk, P&L, or order state in the browser.
 ## Views
 
 - Workspace: grounded chat, tool evidence, health, and current metrics
-- Professor Dashboard: read-only workflow, storage counts, and demo navigation
+- Operator Console: read-only workflow, storage counts, and operational navigation
 - Strategy Runs: stored runs, risk/order counts, and equity curve
 - Experiments: chronological robustness runs and parameter candidates
 - Portfolios: cash, positions, reservations, and kill-switch controls

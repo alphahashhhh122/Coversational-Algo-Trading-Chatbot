@@ -5,7 +5,7 @@ with market data, strategy backtests, broker readiness, and paper-trading
 workflows through a conversational interface.
 
 The system combines **Groq LLM orchestration**, **retrieval-augmented generation
-(RAG)**, **FastAPI**, **DuckDB**, and **OpenAlgo/Dhan broker APIs** to route
+(RAG)**, **FastAPI**, **DuckDB**, and **OpenAlgo broker APIs** to route
 natural-language requests into governed backend tools. It is built as a
 local-first research and execution-control workspace. Live trading is disabled
 by default, but can be explicitly enabled for approval-gated live order intents.
@@ -16,13 +16,16 @@ by default, but can be explicitly enabled for approval-gated live order intents.
   broker-state queries, and performance summaries.
 - LLM tool orchestration with typed contracts, role gates, capability metadata,
   response grounding, and audit evidence for every tool-backed answer.
+- Compound read-only chat questions can execute up to four independent governed
+  tools, each with its own lifecycle and audit evidence. State-changing actions
+  remain explicit, single-action workflows.
 - RAG over project, architecture, policy, and trading workflow documents.
 - Strategy backtesting with stored signals, risk decisions, order events, fills,
   and performance summaries.
 - Custom strategy draft specs for no-code strategy ideas, with validation of
   indicators/rules, missing-capability reporting, and review-before-execution
   policy rather than arbitrary LLM-generated code execution.
-- OpenAlgo/Dhan integration for quote, history, analyzer-mode status, funds,
+- OpenAlgo integration for quote, history, analyzer-mode status, funds,
   orderbook, tradebook, and positionbook checks.
 - Broker-backed instrument discovery for NSE equities, NFO derivatives, and MCX
   commodities.
@@ -41,10 +44,10 @@ flowchart LR
     Tools --> RAG["RAG / Knowledge Search"]
     Tools --> Backtest["Backtest + Strategy Engine"]
     Tools --> Risk["Risk + Approval Layer"]
-    Tools --> Broker["OpenAlgo / Dhan Adapter"]
+    Tools --> Broker["OpenAlgo Adapter"]
     Tools --> News["Market News Provider"]
     Tools --> Store["DuckDB Evidence Store"]
-    Store --> Dashboard["Professor / Operator Dashboard"]
+    Store --> Dashboard["Operator Dashboard"]
 ```
 
 The backend separates orchestration, services, repositories, and infrastructure:
@@ -154,8 +157,8 @@ python -m pytest tests/test_api_chat.py tests/test_platform_api_routes.py tests/
 ```text
 iimc_trading_platform/     Core backend, services, tools, frontend, adapters
 tests/                     Unit and integration-style tests
-docs/                      Architecture, operations, security, and demo docs
-scripts/                   Local verification and demo scripts
+docs/                      Architecture, operations, security, and runbooks
+scripts/                   Local verification and support scripts
 deploy/                    Docker/Kubernetes deployment references
 .github/workflows/         CI workflow
 ```
@@ -166,4 +169,4 @@ This repository demonstrates an AI-orchestrated trading research and controlled
 execution platform. It does not claim guaranteed profitability, autonomous live
 trading, or verified support for every broker instrument. Real provider behavior
 depends on configured credentials, broker availability, market hours, and the
-instrument coverage exposed by OpenAlgo/Dhan.
+instrument coverage exposed by OpenAlgo.

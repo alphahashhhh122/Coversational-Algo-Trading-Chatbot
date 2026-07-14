@@ -45,6 +45,7 @@ class PlatformApiRoutesTest(unittest.TestCase):
         self.assertIn("/platform/dashboard/preferences", paths)
         self.assertIn("/platform/professor-demo", paths)
         self.assertIn("/platform/professor-review", paths)
+        self.assertIn("/platform/operator-review", paths)
         self.assertIn("/platform/status", paths)
         self.assertIn("/platform/execution/readiness", paths)
         self.assertIn("/platform/symbol/readiness", paths)

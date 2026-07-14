@@ -10,12 +10,20 @@ from .tools.registry import ToolRegistry
 
 
 @dataclass(frozen=True)
+class ToolInvocation:
+    tool_name: str
+    arguments: dict[str, Any]
+    call_id: str | None = None
+
+
+@dataclass(frozen=True)
 class OrchestrationDecision:
     tool_name: str | None
     arguments: dict[str, Any]
     direct_response: str | None = None
     call_id: str | None = None
     provider_items: list[Any] = field(default_factory=list)
+    tool_calls: list[ToolInvocation] = field(default_factory=list)
 
 
 class Orchestrator(Protocol):
@@ -71,21 +79,33 @@ class OpenAIResponsesOrchestrator:
                 "research platform. Select only registered tools. Never invent "
                 "dataset IDs, run IDs, prices, P&L, risk decisions, or broker "
                 "state. Use research mode unless the user explicitly requests "
-                "another mode. Do not claim live execution."
+                "another mode. Do not claim live execution. For compound "
+                "questions, select at most four read-only tools. Never combine "
+                "a state-changing tool with any other tool."
             ),
             input=input_items,
             tools=registry.openai_tools(),
             reasoning={"effort": "low"},
             text={"verbosity": "low"},
         )
-        for item in response.output:
-            if item.type == "function_call":
-                return OrchestrationDecision(
-                    tool_name=item.name,
-                    arguments=json.loads(item.arguments or "{}"),
-                    call_id=item.call_id,
-                    provider_items=list(response.output),
-                )
+        tool_calls = [
+            ToolInvocation(
+                tool_name=item.name,
+                arguments=_tool_arguments(item.arguments),
+                call_id=item.call_id,
+            )
+            for item in response.output
+            if item.type == "function_call"
+        ]
+        if tool_calls:
+            first = tool_calls[0]
+            return OrchestrationDecision(
+                tool_name=first.tool_name,
+                arguments=first.arguments,
+                call_id=first.call_id,
+                provider_items=list(response.output),
+                tool_calls=tool_calls,
+            )
         return OrchestrationDecision(
             tool_name=None,
             arguments={},
@@ -160,12 +180,21 @@ class GroqToolOrchestrator:
         choice = response.choices[0].message
         tool_calls = getattr(choice, "tool_calls", None) or []
         if tool_calls:
-            tool_call = tool_calls[0]
-            arguments = getattr(tool_call.function, "arguments", None) or "{}"
+            invocations = [
+                ToolInvocation(
+                    tool_name=item.function.name,
+                    arguments=_tool_arguments(
+                        getattr(item.function, "arguments", None)
+                    ),
+                    call_id=item.id,
+                )
+                for item in tool_calls
+            ]
+            first = invocations[0]
             return OrchestrationDecision(
-                tool_name=tool_call.function.name,
-                arguments=json.loads(arguments),
-                call_id=tool_call.id,
+                tool_name=first.tool_name,
+                arguments=first.arguments,
+                call_id=first.call_id,
                 provider_items=[
                     {
                         "role": "assistant",
@@ -183,6 +212,7 @@ class GroqToolOrchestrator:
                         ],
                     }
                 ],
+                tool_calls=invocations,
             )
         return OrchestrationDecision(
             tool_name=None,
@@ -250,6 +280,26 @@ class OfflineOrchestrator:
             tool["name"]
             for tool in registry.list_tools()
         }
+
+        asks_for_catalog = any(
+            phrase in text
+            for phrase in ("available", "list", "what", "show")
+        )
+        if (
+            asks_for_catalog
+            and "dataset" in text
+            and "strateg" in text
+            and {"list_datasets", "list_strategies"}.issubset(tool_names)
+        ):
+            invocations = [
+                ToolInvocation("list_datasets", {}),
+                ToolInvocation("list_strategies", {}),
+            ]
+            return OrchestrationDecision(
+                tool_name=invocations[0].tool_name,
+                arguments=invocations[0].arguments,
+                tool_calls=invocations,
+            )
 
         if (
             "get_platform_summary" in tool_names
@@ -864,7 +914,9 @@ _ROUTER_SYSTEM_PROMPT = (
     "risk decisions, order IDs, broker state, news, or market data. Prefer "
     "research/backtest/read-only tools unless the user explicitly asks for "
     "paper or live execution. Live execution must remain guarded by backend "
-    "configuration and approval checks."
+    "configuration and approval checks. For compound questions, select at "
+    "most four read-only tools. Never combine a state-changing tool with "
+    "another tool."
 )
 
 
@@ -893,6 +945,16 @@ def _chat_completion_tools(registry: ToolRegistry) -> list[dict[str, Any]]:
         }
         for tool in registry.openai_tools()
     ]
+
+
+def _tool_arguments(raw_arguments: str | None) -> dict[str, Any]:
+    """Normalize provider tool arguments while preserving strict schemas."""
+    parsed = json.loads(raw_arguments or "{}")
+    if parsed is None:
+        return {}
+    if not isinstance(parsed, dict):
+        raise ValueError("Tool arguments must be a JSON object or null")
+    return parsed
 
 
 def _extract_identifier(text: str, prefix: str) -> str | None:
@@ -1507,3 +1569,14 @@ def _grounded_fallback_response(
     if "run_id" in result:
         return f"Retrieved stored evidence for run {result['run_id']}."
     return "The requested tool completed successfully."
+
+
+def grounded_multi_tool_response(
+    results: list[tuple[str, dict[str, Any]]],
+) -> str:
+    """Compose a deterministic, evidence-backed answer for read-only checks."""
+    summaries = [
+        _grounded_fallback_response(tool_name, result)
+        for tool_name, result in results
+    ]
+    return "Completed governed read-only checks:\n- " + "\n- ".join(summaries)

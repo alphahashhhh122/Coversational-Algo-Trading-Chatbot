@@ -305,6 +305,12 @@ class ToolDefinition:
             payload = {}
         return self.input_model.model_validate(payload)
 
+    @property
+    def is_read_only(self) -> bool:
+        return self.side_effects == "none" or self.side_effects.startswith(
+            "read-only"
+        )
+
     def openai_schema(self) -> dict[str, Any]:
         return {
             "type": "function",
