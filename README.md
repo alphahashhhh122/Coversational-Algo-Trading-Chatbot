@@ -25,10 +25,12 @@ by default, but can be explicitly enabled for approval-gated live order intents.
 - Custom strategy draft specs for no-code strategy ideas, with validation of
   EMA, SMA, RSI, ROC, ATR, VWAP, Bollinger, and MACD rules; unsupported
   primitives are reported for review rather than executed as arbitrary code.
-- Local governed OHLCV import for equity, index, futures, commodity, and crypto
-  datasets, with candle validation, provenance hash, quality evidence, catalog
-  visibility, and deterministic backtesting. Options retain their specialized
-  options-chain OHLCV path.
+  Rule definitions are editable JSON, validation-first, and support long or
+  short deterministic research positions.
+- Local governed OHLCV import for equity, index, futures, options, commodity,
+  and crypto datasets, with candle validation, provenance hash, quality
+  evidence, catalog visibility, and deterministic backtesting. Rich options
+  chains retain their specialized ingestion path.
 - OpenAlgo integration for quote, history, analyzer-mode status, funds,
   orderbook, tradebook, and positionbook checks.
 - Broker-backed instrument discovery for NSE equities, NFO derivatives, and MCX
@@ -107,7 +109,7 @@ http://127.0.0.1:8001/
 
 Use **Data Catalog > Local OHLCV Import** or `POST /datasets/ohlcv` to add
 user-supplied candles for local research. The request requires a `dataset_id`,
-asset class (`equity`, `index`, `futures`, `commodity`, or `crypto`), symbol,
+asset class (`equity`, `index`, `futures`, `options`, `commodity`, or `crypto`), symbol,
 exchange, interval, and at least two candles with `timestamp`, `open`, `high`,
 `low`, `close`, and optional non-negative `volume`.
 
@@ -116,6 +118,9 @@ unique timestamps. Invalid imports are rejected as a whole; the platform does
 not repair or invent missing candles. Successful imports are stored in
 `market_ohlcv`, cataloged with a SHA-256 source hash, and can immediately be
 used by standard and governed custom-strategy backtests.
+Plain options OHLCV is supported here. IV, OI, expiry, strike, and
+option-surface research use the specialized options ingestion workflow; those
+fields are intentionally not inferred from plain candles.
 
 ## Configuration
 

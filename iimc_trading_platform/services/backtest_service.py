@@ -26,6 +26,15 @@ def utc_now() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
+def _order_side_for_signal(raw_signal: Any, active_side: str) -> str:
+    if raw_signal.signal_type == "entry":
+        direction = str(
+            getattr(raw_signal.direction, "value", raw_signal.direction)
+        ).lower()
+        return "SELL" if direction == "short" else "BUY"
+    return "BUY" if active_side == "short" else "SELL"
+
+
 class BacktestService:
     def __init__(
         self,
@@ -504,7 +513,7 @@ class BacktestService:
                 run_id=run_id,
                 decision_id=risk.decision_id,
                 symbol=symbol,
-                side="BUY" if raw_signal.signal_type == "entry" else "SELL",
+                side=_order_side_for_signal(raw_signal, ledger.position_side),
                 order_type="MARKET",
                 quantity=risk.approved_quantity,
                 execution_mode=execution_mode,
@@ -520,6 +529,7 @@ class BacktestService:
                 fee_bps=fee_bps,
                 slippage_bps=slippage_bps,
                 timestamp=raw_signal.timestamp,
+                direction=raw_signal.direction,
             )
             if fill is None:
                 continue

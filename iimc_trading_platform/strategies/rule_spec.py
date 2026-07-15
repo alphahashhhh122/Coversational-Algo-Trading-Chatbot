@@ -31,6 +31,24 @@ SUPPORTED_OPERATORS = {
 SUPPORTED_DATA_FIELDS = {"open", "high", "low", "close", "volume", "price"}
 
 
+def rule_spec_capabilities() -> dict[str, Any]:
+    return {
+        "supported_indicators": sorted(SUPPORTED_INDICATORS),
+        "supported_operators": sorted(SUPPORTED_OPERATORS),
+        "supported_data_fields": sorted(SUPPORTED_DATA_FIELDS),
+        "supported_position_sides": ["long", "short"],
+        "supported_risk_controls": [
+            "max_position_size",
+            "stop_loss_pct",
+            "take_profit_pct",
+        ],
+        "execution_policy": (
+            "Native deterministic rule-spec execution only; unsupported "
+            "primitives are preserved for review and never executed as code."
+        ),
+    }
+
+
 class RuleSpecStrategy(StrategyPlugin):
     name = "rule_spec"
     version = "1.0.0"
@@ -66,6 +84,7 @@ class RuleSpecStrategy(StrategyPlugin):
         entry_rules = spec["entry_rules"]
         exit_rules = spec["exit_rules"]
         risk = spec.get("risk") or {}
+        position_side = str(spec.get("position_side", "long")).lower()
         stop_loss_pct = risk.get("stop_loss_pct")
         take_profit_pct = risk.get("take_profit_pct")
 
@@ -78,12 +97,20 @@ class RuleSpecStrategy(StrategyPlugin):
             stop_hit = (
                 in_position
                 and stop_loss_pct is not None
-                and price <= entry_price * (1 - float(stop_loss_pct))
+                and (
+                    price <= entry_price * (1 - float(stop_loss_pct))
+                    if position_side == "long"
+                    else price >= entry_price * (1 + float(stop_loss_pct))
+                )
             )
             target_hit = (
                 in_position
                 and take_profit_pct is not None
-                and price >= entry_price * (1 + float(take_profit_pct))
+                and (
+                    price >= entry_price * (1 + float(take_profit_pct))
+                    if position_side == "long"
+                    else price <= entry_price * (1 - float(take_profit_pct))
+                )
             )
 
             if (
@@ -96,7 +123,11 @@ class RuleSpecStrategy(StrategyPlugin):
                     _signal(
                         candles[index],
                         "entry",
-                        SignalDirection.LONG,
+                        (
+                            SignalDirection.SHORT
+                            if position_side == "short"
+                            else SignalDirection.LONG
+                        ),
                         _rule_confidence(entry_rules, refs, index),
                         "custom rule-spec entry conditions passed",
                         _rule_features(entry_rules, refs, index),
@@ -141,12 +172,12 @@ def validate_rule_spec(spec: dict[str, Any]) -> dict[str, Any]:
     seen_refs: set[str] = set()
 
     position_side = str(spec.get("position_side", "long")).lower()
-    if position_side != "long":
+    if position_side not in {"long", "short"}:
         missing.append(
             {
                 "kind": "position_side",
                 "value": position_side,
-                "reason": "The native research ledger currently supports long-only rule specs.",
+                "reason": "position_side must be either long or short.",
             }
         )
 
@@ -258,6 +289,7 @@ def validate_rule_spec(spec: dict[str, Any]) -> dict[str, Any]:
         "supported_indicators": sorted(SUPPORTED_INDICATORS),
         "supported_operators": sorted(SUPPORTED_OPERATORS),
         "supported_data_fields": sorted(SUPPORTED_DATA_FIELDS),
+        "supported_position_sides": ["long", "short"],
         "indicator_refs": sorted(ref for ref in refs if ref not in SUPPORTED_DATA_FIELDS),
         "missing_capabilities": missing,
         "requires_human_review": bool(missing),

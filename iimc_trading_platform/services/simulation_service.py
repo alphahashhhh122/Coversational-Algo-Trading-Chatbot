@@ -18,6 +18,7 @@ class SimulatedFill:
 class ResearchLedger:
     starting_equity: float
     position_quantity: int = 0
+    position_side: str = "long"
     entry_price: float = 0.0
     entry_fee: float = 0.0
     cumulative_pnl: float = 0.0
@@ -38,33 +39,44 @@ class ResearchLedger:
         fee_bps: float,
         slippage_bps: float,
         timestamp: Any = None,
+        direction: Any = "long",
     ) -> SimulatedFill | None:
         if signal_type == "entry" and self.position_quantity > 0:
             return None
         if signal_type == "exit" and self.position_quantity <= 0:
             return None
 
+        side = _direction_value(direction)
+        if signal_type == "entry" and side not in {"long", "short"}:
+            raise ValueError("Entry direction must be long or short")
+        active_side = side if signal_type == "entry" else self.position_side
         slippage_rate = slippage_bps / 10_000
         fill_price = (
-            market_price * (1 + slippage_rate)
-            if signal_type == "entry"
-            else market_price * (1 - slippage_rate)
+            market_price * (1 - slippage_rate)
+            if (signal_type == "entry" and active_side == "short")
+            or (signal_type == "exit" and active_side == "long")
+            else market_price * (1 + slippage_rate)
         )
         fee = fill_price * quantity * (fee_bps / 10_000)
         if signal_type == "entry":
             self.entry_price = fill_price
             self.position_quantity = quantity
+            self.position_side = active_side
             self.entry_fee = fee
             realized_pnl = -fee
         else:
+            multiplier = 1 if self.position_side == "long" else -1
             gross_pnl = (
-                fill_price - self.entry_price
-            ) * self.position_quantity
+                (fill_price - self.entry_price)
+                * self.position_quantity
+                * multiplier
+            )
             realized_pnl = gross_pnl - fee
             closed_pnl = gross_pnl - self.entry_fee - fee
             self.closed_trade_pnls.append(closed_pnl)
             self.closed_trade_records.append((timestamp, closed_pnl))
             self.position_quantity = 0
+            self.position_side = "long"
             self.entry_price = 0.0
             self.entry_fee = 0.0
 
@@ -116,6 +128,7 @@ def screen_signals(
             fee_bps=fee_bps,
             slippage_bps=slippage_bps,
             timestamp=signal.timestamp,
+            direction=getattr(signal.direction, "value", signal.direction),
         )
     drawdown = max_drawdown(ledger.equity_curve)
     return {
@@ -131,6 +144,10 @@ def screen_signals(
         "total_fees": round(ledger.total_fees, 6),
         **ledger.metrics(),
     }
+
+
+def _direction_value(direction: Any) -> str:
+    return str(getattr(direction, "value", direction)).lower()
 
 
 def max_drawdown(equity_curve: list[float]) -> float:

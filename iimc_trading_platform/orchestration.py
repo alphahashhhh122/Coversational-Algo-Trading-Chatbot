@@ -805,6 +805,28 @@ class OfflineOrchestrator:
                 arguments,
             )
         if (
+            "get_custom_strategy_capabilities" in tool_names
+            and "strateg" in text
+            and any(
+                word in text
+                for word in (
+                    "support",
+                    "capability",
+                    "indicator",
+                    "rule",
+                    "available",
+                    "can i",
+                )
+            )
+            and not any(
+                word in text for word in ("create", "draft", "backtest")
+            )
+        ):
+            return OrchestrationDecision(
+                "get_custom_strategy_capabilities",
+                {},
+            )
+        if (
             "create_custom_strategy_spec" in tool_names
             and any(word in text for word in ("custom", "combine", "combined"))
             and "strateg" in text
@@ -1226,6 +1248,7 @@ def _custom_strategy_spec_arguments(message: str) -> dict[str, Any]:
         "entry_rules": entry_rules,
         "exit_rules": exit_rules,
         "risk": {"max_position_size": 1, "stop_loss_pct": 0.02},
+        "position_side": "short" if re.search(r"\bshort\b", text) else "long",
         "created_by": "chat_user",
     }
 

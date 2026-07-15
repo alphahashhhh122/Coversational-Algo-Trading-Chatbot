@@ -1251,14 +1251,31 @@ function customStrategyTemplate(template) {
 
 function customStrategyPayloadFromForm() {
   const template = customStrategyTemplate($("#custom-strategy-template").value);
+  const rawRules = $("#custom-strategy-rules").value.trim();
+  const rules = rawRules ? JSON.parse(rawRules) : template;
+  if (!rules || typeof rules !== "object" || Array.isArray(rules)) {
+    throw new Error("Rules must be a JSON object");
+  }
   return {
     name: $("#custom-strategy-name").value.trim(),
     description: $("#custom-strategy-description").value.trim(),
     symbol: $("#custom-strategy-symbol").value.trim(),
     timeframe: $("#custom-strategy-timeframe").value.trim(),
     ...template,
+    ...rules,
+    position_side: $("#custom-strategy-side").value,
     created_by: state.principal?.username || "local_ui",
   };
+}
+
+function syncCustomStrategyRules() {
+  const editor = $("#custom-strategy-rules");
+  if (!editor) return;
+  editor.value = JSON.stringify(
+    customStrategyTemplate($("#custom-strategy-template").value),
+    null,
+    2,
+  );
 }
 
 function renderCustomStrategyControls() {
@@ -1324,6 +1341,28 @@ async function submitCustomStrategySpec(event) {
     toast(`Custom strategy ${created.spec_id} stored`);
   } catch (error) {
     toast(error.message);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function validateCustomStrategySpec() {
+  const button = $("#validate-custom-strategy");
+  const status = $("#custom-strategy-status");
+  button.disabled = true;
+  try {
+    const result = await api("/custom-strategy-specs/validate", {
+      method: "POST",
+      body: JSON.stringify(customStrategyPayloadFromForm()),
+    });
+    const missing = result.missing_capabilities || [];
+    status.textContent = missing.length
+      ? `Requires review: ${missing.map((item) => item.value || item.kind).join(", ")}`
+      : "Rules are executable by the native deterministic runtime.";
+    status.className = `custom-strategy-status ${missing.length ? "attention" : "ready"}`;
+  } catch (error) {
+    status.textContent = error.message;
+    status.className = "custom-strategy-status attention";
   } finally {
     button.disabled = false;
   }
@@ -2487,13 +2526,16 @@ function wireEvents() {
   );
   $("#backtest-form").addEventListener("submit", submitBacktest);
   $("#custom-strategy-form").addEventListener("submit", submitCustomStrategySpec);
+  $("#validate-custom-strategy").addEventListener("click", validateCustomStrategySpec);
   $("#run-custom-strategy").addEventListener("click", runSelectedCustomStrategySpec);
   $("#custom-strategy-spec-select").addEventListener("change", renderSelectedCustomStrategySpec);
   $("#custom-strategy-template").addEventListener("change", () => {
     $("#custom-strategy-description").value = (
       `Local governed ${$("#custom-strategy-template").selectedOptions[0].textContent} strategy.`
     );
+    syncCustomStrategyRules();
   });
+  syncCustomStrategyRules();
   $("#paper-intent-form").addEventListener("submit", submitPaperIntent);
   $("#paper-run").addEventListener("change", (event) => {
     if (event.target.value) loadPaperDecisions(event.target.value);

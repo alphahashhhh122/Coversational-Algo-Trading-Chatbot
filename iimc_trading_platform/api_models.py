@@ -127,6 +127,7 @@ class LocalOhlcvDatasetInput(BaseModel):
         "equity",
         "index",
         "futures",
+        "options",
         "commodity",
         "crypto",
     ]

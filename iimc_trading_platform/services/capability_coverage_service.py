@@ -109,8 +109,10 @@ class CapabilityCoverageService:
             "commodity": "commodity_ohlcv",
             "crypto": "crypto_ohlcv",
         }.get(asset_class)
-        storage_table = (
-            "options_ohlcv" if asset_class == "options" else "market_ohlcv"
+        storage_tables = (
+            ["options_ohlcv", "market_ohlcv"]
+            if asset_class == "options"
+            else ["market_ohlcv", "not_applicable"]
         )
         con = connect(self.db_path)
         try:
@@ -122,7 +124,7 @@ class CapabilityCoverageService:
                 WHERE UPPER(symbol) = UPPER(?)
                   AND UPPER(exchange) = UPPER(?)
                   AND (? IS NULL OR data_type = ?)
-                  AND storage_table = ?
+                  AND storage_table IN (?, ?)
                   AND (interval = ? OR ? = '')
                 ORDER BY updated_at DESC
                 LIMIT 1
@@ -132,7 +134,8 @@ class CapabilityCoverageService:
                     exchange,
                     data_type,
                     data_type,
-                    storage_table,
+                    storage_tables[0],
+                    storage_tables[1],
                     interval,
                     interval,
                 ],

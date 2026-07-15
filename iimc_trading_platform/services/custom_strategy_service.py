@@ -8,7 +8,8 @@ from typing import Any
 
 from ..db import connect
 from ..domain import ExecutionMode
-from ..strategies.rule_spec import validate_rule_spec
+from ..strategies.rule_spec import rule_spec_capabilities, validate_rule_spec
+from .market_data_ingestion_service import SUPPORTED_ASSET_CLASSES
 from .backtest_service import BacktestService
 
 
@@ -31,6 +32,7 @@ class CustomStrategyService:
         entry_rules: list[dict[str, Any]],
         exit_rules: list[dict[str, Any]],
         risk: dict[str, Any] | None = None,
+        position_side: str = "long",
         created_by: str = "chat_user",
     ) -> dict[str, Any]:
         spec = {
@@ -42,6 +44,7 @@ class CustomStrategyService:
             "entry_rules": entry_rules,
             "exit_rules": exit_rules,
             "risk": risk or {},
+            "position_side": position_side.lower(),
         }
         validation = self._validate_spec(spec)
         missing = validation["missing_capabilities"]
@@ -87,6 +90,41 @@ class CustomStrategyService:
                 "runtime when validation passes. Unsupported primitives remain "
                 "requires_review; arbitrary LLM-generated code is not executed."
             ),
+        }
+
+    def capabilities(self) -> dict[str, Any]:
+        return {
+            **rule_spec_capabilities(),
+            "data_contracts": {
+                "rule_backtesting": {
+                    "required_fields": [
+                        "timestamp",
+                        "open",
+                        "high",
+                        "low",
+                        "close",
+                        "volume",
+                    ],
+                    "supported_asset_classes": sorted(
+                        SUPPORTED_ASSET_CLASSES
+                    ),
+                    "storage_paths": ["market_ohlcv", "options_ohlcv"],
+                },
+                "plain_options_ohlcv": {
+                    "supported": True,
+                    "notes": (
+                        "Plain option premium OHLCV can run rule strategies; "
+                        "IV/OI/expiry/strike surface features require the "
+                        "specialized options ingestion workflow."
+                    ),
+                },
+                "unsupported_without_new_implementation": [
+                    "arbitrary Python or generated strategy code",
+                    "IV/OI/option-surface indicator rules from plain OHLCV",
+                    "fundamental, news, or alternative-data rules without "
+                    "an explicit governed feature adapter",
+                ],
+            },
         }
 
     def list_specs(self, limit: int = 50) -> dict[str, Any]:
@@ -166,6 +204,40 @@ class CustomStrategyService:
 
     def _validate_spec(self, spec: dict[str, Any]) -> dict[str, Any]:
         return validate_rule_spec(spec)
+
+    def validate_spec(
+        self,
+        *,
+        name: str,
+        description: str,
+        symbol: str,
+        timeframe: str,
+        indicators: list[dict[str, Any]],
+        entry_rules: list[dict[str, Any]],
+        exit_rules: list[dict[str, Any]],
+        risk: dict[str, Any] | None = None,
+        position_side: str = "long",
+    ) -> dict[str, Any]:
+        spec = {
+            "name": name,
+            "description": description,
+            "symbol": symbol.upper(),
+            "timeframe": timeframe,
+            "indicators": indicators,
+            "entry_rules": entry_rules,
+            "exit_rules": exit_rules,
+            "risk": risk or {},
+            "position_side": position_side.lower(),
+        }
+        validation = self._validate_spec(spec)
+        return {
+            "spec": spec,
+            "validation": validation,
+            "missing_capabilities": validation["missing_capabilities"],
+            "can_execute_without_new_code": validation[
+                "can_execute_without_new_code"
+            ],
+        }
 
 
 def _spec_from_row(row: tuple[Any, ...]) -> dict[str, Any]:

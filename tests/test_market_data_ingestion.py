@@ -115,6 +115,32 @@ class MarketDataIngestionTest(unittest.TestCase):
             con.close()
         self.assertEqual(count, 0)
 
+    def test_plain_options_ohlcv_is_importable_for_rule_backtesting(self) -> None:
+        imported = MarketDataIngestionService(self.db_path).import_ohlcv(
+            dataset_id="nifty_call_5m_local",
+            asset_class="options",
+            symbol="NIFTY26JUL25000CE",
+            exchange="NFO",
+            interval="5m",
+            candles=_candles(),
+            source_name="nifty_call_5m.json",
+        )
+        status = CapabilityCoverageService(
+            self.db_path,
+            _AlwaysUnavailableReadiness(),
+        ).platform_status(
+            symbol="NIFTY26JUL25000CE",
+            exchange="NFO",
+            asset_class="options",
+            interval="5m",
+            start_date="2026-01-01",
+            end_date="2026-01-02",
+        )
+
+        self.assertEqual(imported["asset_class"], "options")
+        self.assertTrue(status["local_dataset_exists"])
+        self.assertEqual(status["local_dataset"]["dataset_id"], imported["dataset_id"])
+
     def test_api_import_has_audit_evidence_and_readiness_finds_dataset(self) -> None:
         client = TestClient(
             create_app(
@@ -159,6 +185,41 @@ class MarketDataIngestionTest(unittest.TestCase):
         )
         self.assertTrue(status["local_dataset_exists"])
         self.assertEqual(status["local_dataset"]["dataset_id"], "btc_1h_local")
+
+    def test_api_validates_custom_rules_without_persisting_them(self) -> None:
+        client = TestClient(
+            create_app(
+                AppConfig(
+                    database_path=self.db_path,
+                    artifacts_dir=self.root / "artifacts",
+                    openalgo_root=self.root,
+                )
+            )
+        )
+        response = client.post(
+            "/custom-strategy-specs/validate",
+            json={
+                "name": "unsupported_option_surface",
+                "description": "Require option IV surface data.",
+                "symbol": "NIFTY",
+                "timeframe": "5m",
+                "position_side": "short",
+                "indicators": [{"type": "IV_SKEW", "period": 14, "source": "iv"}],
+                "entry_rules": [{"left": "IV_SKEW_14", "operator": ">", "right": 0}],
+                "exit_rules": [{"left": "IV_SKEW_14", "operator": "<", "right": 0}],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertFalse(payload["can_execute_without_new_code"])
+        self.assertTrue(payload["missing_capabilities"])
+        con = connect(self.db_path)
+        try:
+            count = con.execute("SELECT COUNT(*) FROM custom_strategy_specs").fetchone()[0]
+        finally:
+            con.close()
+        self.assertEqual(count, 0)
 
 
 class _AlwaysUnavailableReadiness:

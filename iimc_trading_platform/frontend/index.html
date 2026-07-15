@@ -328,10 +328,19 @@
               <span>Dataset</span>
               <select id="custom-strategy-dataset" required></select>
             </label>
+            <label>
+              <span>Position side</span>
+              <select id="custom-strategy-side"><option value="long">Long</option><option value="short">Short</option></select>
+            </label>
             <label class="custom-strategy-description">
               <span>Description</span>
               <textarea id="custom-strategy-description" rows="3" required>Local governed rule-spec strategy.</textarea>
             </label>
+            <label class="custom-strategy-description">
+              <span>Rules (editable JSON)</span>
+              <textarea id="custom-strategy-rules" rows="13" required></textarea>
+            </label>
+            <button type="button" class="secondary-button" id="validate-custom-strategy">Validate rules</button>
             <button type="submit" class="primary-button" id="create-custom-strategy">Create spec</button>
             <button type="button" class="secondary-button" id="run-custom-strategy">Backtest selected</button>
           </form>
@@ -489,12 +498,12 @@
           <div class="section-heading">
             <div>
               <h2>Local OHLCV Import</h2>
-              <p>Validated equity, index, futures, commodity, and crypto candles for governed research.</p>
+              <p>Validated equity, index, futures, options, commodity, and crypto candles for governed research.</p>
             </div>
           </div>
           <form class="knowledge-search-form" id="ohlcv-import-form">
             <label><span>Dataset ID</span><input id="ohlcv-dataset-id" required></label>
-            <label><span>Asset class</span><select id="ohlcv-asset-class"><option value="equity">Equity</option><option value="index">Index</option><option value="futures">Futures</option><option value="commodity">Commodity</option><option value="crypto">Crypto</option></select></label>
+            <label><span>Asset class</span><select id="ohlcv-asset-class"><option value="equity">Equity</option><option value="index">Index</option><option value="futures">Futures</option><option value="options">Options OHLCV</option><option value="commodity">Commodity</option><option value="crypto">Crypto</option></select></label>
             <label><span>Symbol</span><input id="ohlcv-symbol" required></label>
             <label><span>Exchange</span><input id="ohlcv-exchange" required></label>
             <label><span>Interval</span><input id="ohlcv-interval" value="5m" required></label>

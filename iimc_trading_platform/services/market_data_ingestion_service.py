@@ -14,6 +14,7 @@ SUPPORTED_ASSET_CLASSES = {
     "equity",
     "index",
     "futures",
+    "options",
     "commodity",
     "crypto",
 }
@@ -44,8 +45,7 @@ class MarketDataIngestionService:
         if normalized_asset not in SUPPORTED_ASSET_CLASSES:
             raise ValueError(
                 "Generic OHLCV import supports equity, index, futures, "
-                "commodity, and crypto. Options use the specialized "
-                "options_ohlcv ingestion path."
+                "options, commodity, and crypto."
             )
         normalized = self._validate_candles(candles)
         canonical = {

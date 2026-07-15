@@ -57,6 +57,7 @@ from .services import (
     AuthService,
     BackupService,
     CapabilityCoverageService,
+    CustomStrategyService,
     DashboardPreferenceService,
     build_job_service,
     build_task_service,
@@ -1071,6 +1072,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         )
         return execute_tool("list_custom_strategy_specs", payload)
 
+    @app.get("/custom-strategy-capabilities")
+    def custom_strategy_capabilities(
+        principal: Principal = Depends(viewer),
+    ) -> dict[str, Any]:
+        return execute_tool("get_custom_strategy_capabilities", {})
+
     @app.post("/custom-strategy-specs")
     def create_custom_strategy_spec(
         request: CreateCustomStrategySpecInput,
@@ -1079,6 +1086,17 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         payload = request.model_dump(mode="json")
         payload["created_by"] = principal.username
         return execute_tool("create_custom_strategy_spec", payload)
+
+    @app.post("/custom-strategy-specs/validate")
+    def validate_custom_strategy_spec(
+        request: CreateCustomStrategySpecInput,
+        principal: Principal = Depends(researcher),
+    ) -> dict[str, Any]:
+        payload = request.model_dump(mode="json")
+        payload.pop("created_by", None)
+        return CustomStrategyService(active_config.database_path).validate_spec(
+            **payload
+        )
 
     @app.post("/custom-strategy-specs/{spec_id}/backtest")
     def run_custom_strategy_spec(

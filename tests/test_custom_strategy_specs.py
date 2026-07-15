@@ -104,6 +104,28 @@ class CustomStrategySpecTest(unittest.TestCase):
         self.assertEqual(result["status"], "draft_executable")
         self.assertIn("arbitrary LLM-generated code is not executed", result["execution_policy"])
 
+    def test_capability_question_returns_current_rule_vocabulary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "platform.duckdb"
+            initialize_database(db_path)
+            registry = build_default_tool_registry(db_path)
+            decision = OfflineOrchestrator().select_tool(
+                "What custom strategy indicators and rules are supported?",
+                [],
+                registry,
+            )
+            result = registry.call(decision.tool_name, decision.arguments)
+
+        self.assertEqual(decision.tool_name, "get_custom_strategy_capabilities")
+        self.assertIn("MACD", result["supported_indicators"])
+        self.assertEqual(result["supported_position_sides"], ["long", "short"])
+        self.assertIn(
+            "options",
+            result["data_contracts"]["rule_backtesting"][
+                "supported_asset_classes"
+            ],
+        )
+
     def test_common_ohlcv_indicators_are_executable_without_generated_code(self) -> None:
         validation = validate_rule_spec(
             {
@@ -172,6 +194,53 @@ class CustomStrategySpecTest(unittest.TestCase):
         self.assertEqual(result["status"], "completed")
         self.assertIn("no generated code", result["execution_policy"])
         self.assertGreater(result["metrics"]["signal_count"], 0)
+
+    def test_short_custom_spec_uses_sell_to_open_and_buy_to_cover(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "platform.duckdb"
+            initialize_database(db_path)
+            dataset_id = _seed_trending_dataset(db_path)
+            service = CustomStrategyService(db_path)
+            created = service.create_spec(
+                name="short_mean_reversion",
+                description="Short when price falls below its short average.",
+                symbol="NIFTY",
+                timeframe="5m",
+                position_side="short",
+                indicators=[{"type": "SMA", "period": 3, "source": "price"}],
+                entry_rules=[
+                    {"left": "price", "operator": "<", "right": "SMA_3"}
+                ],
+                exit_rules=[
+                    {"left": "price", "operator": ">", "right": "SMA_3"}
+                ],
+            )
+            result = service.run_backtest(
+                spec_id=created["spec_id"],
+                dataset_id=dataset_id,
+                requested_quantity=1,
+            )
+            con = connect(db_path)
+            try:
+                sides = [
+                    row[0]
+                    for row in con.execute(
+                        """
+                        SELECT side FROM order_events
+                        WHERE run_id = ?
+                        ORDER BY created_at, order_id
+                        """,
+                        [result["run_id"]],
+                    ).fetchall()
+                ]
+            finally:
+                con.close()
+
+        self.assertEqual(created["status"], "draft_executable")
+        self.assertEqual(created["spec"]["position_side"], "short")
+        self.assertEqual(result["status"], "completed")
+        self.assertIn("SELL", sides)
+        self.assertIn("BUY", sides)
 
 def _seed_trending_dataset(db_path: Path) -> str:
     source_id = "source_custom_strategy"

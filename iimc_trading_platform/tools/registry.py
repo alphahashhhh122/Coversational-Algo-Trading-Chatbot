@@ -94,6 +94,7 @@ class CreateCustomStrategySpecInput(ToolInput):
     entry_rules: list[CustomRuleSpec] = Field(min_length=1, max_length=12)
     exit_rules: list[CustomRuleSpec] = Field(min_length=1, max_length=12)
     risk: CustomStrategyRiskSpec = Field(default_factory=CustomStrategyRiskSpec)
+    position_side: Literal["long", "short"] = "long"
     created_by: str = Field(default="chat_user", min_length=1, max_length=200)
 
 
@@ -819,6 +820,33 @@ def build_default_tool_registry(
                     actions=("list",),
                     execution_modes=("research",),
                     required_data=("strategy_registry",),
+                    risk_level="low",
+                ),
+            ),
+            ToolDefinition(
+                name="get_custom_strategy_capabilities",
+                description=(
+                    "Return the current deterministic custom-strategy rule "
+                    "vocabulary, position sides, risk controls, and execution "
+                    "policy so unsupported requests can be identified before "
+                    "a strategy draft is created."
+                ),
+                input_model=EmptyInput,
+                handler=lambda _: custom_strategies.capabilities(),
+                side_effects="read-only capability query",
+                retry_safe=True,
+                capabilities=ToolCapabilityMetadata(
+                    actions=("inspect_capabilities",),
+                    asset_classes=(
+                        "equity",
+                        "index",
+                        "futures",
+                        "options",
+                        "commodity",
+                        "crypto",
+                    ),
+                    execution_modes=("research",),
+                    required_data=("OHLCV",),
                     risk_level="low",
                 ),
             ),
