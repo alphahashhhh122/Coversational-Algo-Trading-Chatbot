@@ -13,6 +13,9 @@ from iimc_trading_platform.api import create_app
 from iimc_trading_platform.config import AppConfig
 from iimc_trading_platform.infrastructure import initialize_database
 from iimc_trading_platform.infrastructure.openalgo import OpenAlgoResponseError
+from iimc_trading_platform.services.execution_readiness_service import (
+    ExecutionReadinessService,
+)
 from iimc_trading_platform.services.openalgo_readiness_service import (
     OpenAlgoReadinessService,
 )
@@ -42,6 +45,30 @@ class _PartiallyFailingOpenAlgoClient:
         if snapshot_type == "orderbook":
             raise OpenAlgoResponseError("broker orderbook failed")
         return {"data": []}
+
+
+class _ReadyCapabilities:
+    def platform_status(self, **kwargs: str) -> dict:
+        return {
+            "symbol": kwargs["symbol"].upper(),
+            "exchange": kwargs["exchange"].upper(),
+            "asset_class": kwargs["asset_class"],
+            "interval": kwargs["interval"],
+            "local_dataset_exists": True,
+            "supported_by_architecture": True,
+        }
+
+
+class _ReadyOpenAlgo:
+    def monitor(self) -> dict:
+        return {
+            "configured": True,
+            "ok": True,
+            "status": "available",
+            "analyzer_mode": True,
+            "live_trading_enabled": False,
+            "safe_failure": False,
+        }
 
 
 class ReadinessAndNewsTest(unittest.TestCase):
@@ -79,6 +106,32 @@ class ReadinessAndNewsTest(unittest.TestCase):
         self.assertEqual(payload["status"], "unavailable")
         self.assertTrue(payload["safe_failure"])
         self.assertTrue(payload["no_synthetic_fallback"])
+
+    def test_paper_readiness_requires_a_current_risk_approved_signal(self) -> None:
+        service = ExecutionReadinessService(
+            AppConfig(
+                database_path=self.db_path,
+                artifacts_dir=self.artifacts_dir,
+                openalgo_root=self.root,
+                paper_signal_max_age_minutes=20,
+            ),
+            _ReadyCapabilities(),
+            _ReadyOpenAlgo(),
+        )
+
+        result = service.readiness(
+            symbol="RELIANCE",
+            exchange="NSE",
+            asset_class="equity",
+            interval="5m",
+            start_date="2026-07-01",
+            end_date="2026-07-15",
+        )
+        paper = next(stage for stage in result["stages"] if stage["stage"] == "paper_trading")
+
+        self.assertFalse(paper["can_start"])
+        self.assertIn("current_paper_signal_missing", paper["blockers"])
+        self.assertFalse(result["paper_signal"]["eligible"])
 
     def test_openalgo_monitor_reports_partial_account_degradation(self) -> None:
         service = OpenAlgoReadinessService(

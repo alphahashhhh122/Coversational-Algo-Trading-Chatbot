@@ -2208,6 +2208,13 @@ def _grounded_fallback_response(
             "No synthetic fallback was used."
         )
         data = result.get("data_readiness", {})
+        paper_signal = result.get("paper_signal", {})
+        if not paper_signal.get("eligible"):
+            return (
+                f"{summary} A current risk-approved paper signal is still "
+                "required before any OpenAlgo analyzer order can be prepared. "
+                f"{paper_signal.get('next_action', 'Refresh data and run the named strategy again.')}"
+            )
         if (
             not data.get("local_dataset_exists")
             and data.get("historical_available")
