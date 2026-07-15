@@ -110,6 +110,7 @@ class CustomStrategyBacktestRequest(BaseModel):
     starting_equity: float = Field(default=1_000_000.0, gt=0)
     fee_bps: float = Field(default=1.0, ge=0, le=1_000)
     slippage_bps: float = Field(default=0.0, ge=0, le=1_000)
+    instrument: dict[str, str | float] | None = None
 
 
 class LocalOhlcvCandleInput(BaseModel):

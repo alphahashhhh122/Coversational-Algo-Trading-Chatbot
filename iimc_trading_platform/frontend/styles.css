@@ -36,6 +36,21 @@ button { cursor: pointer; }
 .brand strong, .brand span { display: block; }
 .brand span { margin-top: 2px; color: var(--sidebar-muted); font-size: 12px; }
 nav { display: grid; gap: 4px; }
+.primary-nav > .nav-item[data-view="operator"],
+.primary-nav > .nav-item[data-view="experiments"],
+.primary-nav > .nav-item[data-view="portfolios"],
+.primary-nav > .nav-item[data-view="approvals"],
+.primary-nav > .nav-item[data-view="data"] { display: none; }
+.nav-more { margin-top: 8px; }
+.nav-more summary {
+  padding: 10px 12px; color: var(--sidebar-muted); cursor: pointer;
+  font-size: 12px; font-weight: 700; list-style: none;
+}
+.nav-more summary::-webkit-details-marker { display: none; }
+.nav-more summary::after { content: "+"; float: right; }
+.nav-more[open] summary { color: #fff; }
+.nav-more[open] summary::after { content: "-"; }
+.nav-more-content { display: grid; gap: 3px; padding-top: 4px; }
 .nav-item {
   width: 100%; min-height: 42px; padding: 0 12px; display: flex; align-items: center;
   gap: 10px; color: var(--sidebar-muted); background: transparent; border: 0; text-align: left;
@@ -104,6 +119,21 @@ h2 { margin-bottom: 4px; font-size: 16px; letter-spacing: 0; }
   background: var(--surface); border: 1px solid var(--line);
 }
 .chat-panel, .evidence-panel { min-height: 530px; display: flex; flex-direction: column; }
+.assistant-starters {
+  display: flex; flex-wrap: wrap; gap: 7px; padding: 0 16px 12px;
+}
+.assistant-starters button {
+  padding: 6px 9px; color: var(--green); border: 1px solid #b7dac8;
+  background: var(--green-soft); font-size: 12px; font-weight: 700;
+}
+.assistant-starters button:hover { background: #d8ede2; }
+.workspace-tools { margin-top: 18px; }
+.workspace-tools > summary {
+  padding: 11px 13px; border: 1px solid var(--line); background: var(--surface);
+  color: var(--muted); cursor: pointer; font-size: 13px; font-weight: 700;
+}
+.workspace-tools[open] > summary { color: var(--ink); }
+.workspace-tools-content { padding-top: 2px; }
 .panel-heading, .section-heading {
   display: flex; justify-content: space-between; align-items: center; gap: 18px;
 }

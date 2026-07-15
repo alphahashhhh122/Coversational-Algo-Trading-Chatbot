@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -19,12 +20,16 @@ from iimc_trading_platform.services.openalgo_readiness_service import (
     OpenAlgoReadinessService,
 )
 from iimc_trading_platform.orchestration import (
+    GroqToolOrchestrator,
     OfflineOrchestrator,
     OpenAIResponsesOrchestrator,
     OrchestrationDecision,
     ToolInvocation,
 )
 from iimc_trading_platform.services.chat_service import ChatService
+from iimc_trading_platform.services.instrument_discovery_service import (
+    InstrumentDiscoveryService,
+)
 from iimc_trading_platform.tools.registry import (
     DatasetFreshnessInput,
     EmptyInput,
@@ -78,6 +83,33 @@ class _Responses:
                 "output_text": "Found the governed dataset.",
             },
             )()
+
+
+class _GroqToolGenerationFailure:
+    def create(self, **kwargs):
+        raise RuntimeError(
+            "Error code: 400 - {'error': {'code': 'tool_use_failed', "
+            "'failed_generation': '<function=get_market_news'}}"
+        )
+
+
+class _GroqRateLimitThenFallback:
+    def __init__(self) -> None:
+        self.models: list[str] = []
+
+    def create(self, **kwargs):
+        self.models.append(kwargs["model"])
+        if kwargs["model"] == "primary-model":
+            raise RuntimeError(
+                "Error code: 429 - {'error': {'code': 'rate_limit_exceeded'}}"
+            )
+        message = type(
+            "Message",
+            (),
+            {"content": "Fallback model answer.", "tool_calls": []},
+        )()
+        choice = type("Choice", (), {"message": message})()
+        return type("Response", (), {"choices": [choice]})()
 
 
 class _FakeConversationService:
@@ -175,6 +207,312 @@ class OrchestrationContractsTest(unittest.TestCase):
 
         self.assertEqual(indicator["required"], ["type"])
         self.assertIn("default", indicator["properties"]["period"])
+
+    def test_groq_tool_generation_failure_uses_deterministic_news_routing(self) -> None:
+        registry = build_default_tool_registry(Path("unused.duckdb"))
+        orchestrator = GroqToolOrchestrator("test-key", "test-model")
+        orchestrator.client = type(
+            "Client",
+            (),
+            {
+                "chat": type(
+                    "Chat",
+                    (),
+                    {"completions": _GroqToolGenerationFailure()},
+                )()
+            },
+        )()
+
+        decision = orchestrator.select_tool(
+            "Tata Steel current scenario",
+            [],
+            registry,
+        )
+
+        self.assertEqual(decision.tool_name, "get_market_news")
+        self.assertEqual(decision.arguments["query"], "tata steel")
+
+    def test_groq_rate_limit_uses_configured_fallback_model(self) -> None:
+        registry = build_default_tool_registry(Path("unused.duckdb"))
+        orchestrator = GroqToolOrchestrator(
+            "test-key",
+            "primary-model",
+            "fallback-model",
+        )
+        completions = _GroqRateLimitThenFallback()
+        orchestrator.client = type(
+            "Client",
+            (),
+            {
+                "chat": type(
+                    "Chat",
+                    (),
+                    {"completions": completions},
+                )()
+            },
+        )()
+
+        decision = orchestrator.select_tool(
+            "How does diversification work?",
+            [],
+            registry,
+        )
+
+        self.assertIsNone(decision.tool_name)
+        self.assertEqual(decision.direct_response, "Fallback model answer.")
+        self.assertEqual(
+            completions.models,
+            ["primary-model", "fallback-model"],
+        )
+
+    def test_groq_routes_market_price_without_provider_request(self) -> None:
+        registry = build_default_tool_registry(Path("unused.duckdb"))
+        orchestrator = GroqToolOrchestrator("test-key", "test-model")
+        orchestrator.client = type(
+            "Client",
+            (),
+            {
+                "chat": type(
+                    "Chat",
+                    (),
+                    {"completions": _GroqToolGenerationFailure()},
+                )()
+            },
+        )()
+
+        decision = orchestrator.select_tool(
+            "whats market price of colgate",
+            [],
+            registry,
+        )
+
+        self.assertEqual(decision.tool_name, "get_market_quote")
+        self.assertEqual(
+            decision.arguments,
+            {"query": "colgate", "exchange": "NSE"},
+        )
+
+    def test_offline_router_corrects_market_intent_typos(self) -> None:
+        registry = build_default_tool_registry(Path("unused.duckdb"))
+
+        decision = OfflineOrchestrator().select_tool(
+            "whats shar prise of colgate",
+            [],
+            registry,
+        )
+
+        self.assertEqual(decision.tool_name, "get_market_quote")
+        self.assertEqual(
+            decision.arguments,
+            {"query": "colgate", "exchange": "NSE"},
+        )
+
+    def test_offline_router_keeps_market_quote_context_for_follow_ups(self) -> None:
+        registry = build_default_tool_registry(Path("unused.duckdb"))
+        history = [{"role": "user", "content": "What is the price of Colgate?"}]
+
+        another_symbol = OfflineOrchestrator().select_tool(
+            "and MRF?",
+            history,
+            registry,
+        )
+        pronoun = OfflineOrchestrator().select_tool(
+            "what is its price?",
+            history,
+            registry,
+        )
+
+        self.assertEqual(
+            another_symbol.arguments,
+            {"query": "mrf", "exchange": "NSE"},
+        )
+        self.assertEqual(
+            pronoun.arguments,
+            {"query": "colgate", "exchange": "NSE"},
+        )
+
+    def test_offline_router_routes_account_questions_to_openalgo(self) -> None:
+        registry = build_default_tool_registry(
+            Path("unused.duckdb"),
+            openalgo_base_url="http://127.0.0.1:5000",
+            openalgo_api_key="configured",
+        )
+
+        positions = OfflineOrchestrator().select_tool(
+            "shwo my posiitons",
+            [],
+            registry,
+        )
+        funds = OfflineOrchestrator().select_tool(
+            "show cash balnce",
+            [],
+            registry,
+        )
+
+        self.assertEqual(
+            (positions.tool_name, positions.arguments),
+            ("get_openalgo_snapshot", {"snapshot_type": "positionbook"}),
+        )
+        self.assertEqual(
+            (funds.tool_name, funds.arguments),
+            ("get_openalgo_snapshot", {"snapshot_type": "funds"}),
+        )
+
+    def test_market_status_routes_to_current_quote(self) -> None:
+        registry = build_default_tool_registry(Path("unused.duckdb"))
+
+        decision = OfflineOrchestrator().select_tool(
+            "what is market status of mrf tires",
+            [],
+            registry,
+        )
+
+        self.assertEqual(
+            decision.tool_name,
+            "get_market_quote",
+        )
+        self.assertEqual(
+            decision.arguments,
+            {"query": "mrf tires", "exchange": "NSE"},
+        )
+
+    def test_market_outlook_routes_to_provider_backed_research(self) -> None:
+        registry = build_default_tool_registry(Path("unused.duckdb"))
+
+        decision = OfflineOrchestrator().select_tool(
+            "which stocks are expected to rise next week",
+            [],
+            registry,
+        )
+
+        self.assertEqual(decision.tool_name, "get_market_news")
+        self.assertEqual(
+            decision.arguments,
+            {
+                "query": "NIFTY Indian stock market outlook",
+                "symbol": None,
+            },
+        )
+
+    def test_offline_router_accepts_an_explicit_plugin_strategy_and_parameters(self) -> None:
+        registry = build_default_tool_registry(Path("unused.duckdb"))
+
+        decision = OfflineOrchestrator().select_tool(
+            (
+                "Backtest strategy range_breakout on dataset equity_plugin_test "
+                'with parameters {"lookback": 10}'
+            ),
+            [],
+            registry,
+        )
+
+        self.assertEqual(decision.tool_name, "run_backtest")
+        self.assertEqual(decision.arguments["strategy_name"], "range_breakout")
+        self.assertEqual(decision.arguments["parameters"], {"lookback": 10})
+
+    def test_market_quote_resolves_a_contract_before_requesting_quote(self) -> None:
+        config = AppConfig(openalgo_api_key="configured")
+        service = InstrumentDiscoveryService(config)
+        service._client = lambda: type(
+            "Client",
+            (),
+            {
+                "search_symbols": lambda self, **kwargs: {
+                    "data": [
+                        {
+                            "symbol": "COLPAL",
+                            "name": "Colgate-Palmolive (India) Limited",
+                            "exchange": "NSE",
+                        }
+                    ]
+                },
+                "quote": lambda self, **kwargs: {
+                    "data": {"ltp": 2487.5, "close": 2460.0}
+                },
+            },
+        )()
+
+        result = service.quote(query="colgate", exchange="NSE")
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["resolved_symbol"], "COLPAL")
+        self.assertEqual(result["quote"]["ltp"], 2487.5)
+
+    def test_market_quote_retries_company_words_for_a_broker_symbol(self) -> None:
+        config = AppConfig(openalgo_api_key="configured")
+        service = InstrumentDiscoveryService(config)
+        requested_queries: list[str] = []
+
+        class Client:
+            def search_symbols(self, **kwargs):
+                requested_queries.append(kwargs["query"])
+                return {
+                    "data": (
+                        []
+                        if kwargs["query"] == "MRF TIRES"
+                        else [{"symbol": "MRF", "name": "MRF Limited"}]
+                    )
+                }
+
+            def quote(self, **kwargs):
+                return {"data": {"ltp": 150000.0}}
+
+        service._client = lambda: Client()
+
+        result = service.quote(query="mrf tires", exchange="NSE")
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(requested_queries[:2], ["MRF TIRES", "MRF"])
+        self.assertEqual(result["resolved_symbol"], "MRF")
+
+    def test_market_quote_corrects_entity_typos_from_local_contracts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            database_directory = root / "db"
+            database_directory.mkdir()
+            database_path = database_directory / "openalgo.db"
+            con = sqlite3.connect(database_path)
+            try:
+                con.execute(
+                    """
+                    CREATE TABLE symtoken (
+                        symbol TEXT, brsymbol TEXT, name TEXT, exchange TEXT,
+                        brexchange TEXT, instrumenttype TEXT, expiry TEXT,
+                        strike REAL, lotsize INTEGER, tick_size REAL
+                    )
+                    """
+                )
+                con.execute(
+                    """
+                    INSERT INTO symtoken VALUES (
+                        'COLPAL', 'COLPAL', 'COLGATE PALMOLIVE LTD.', 'NSE',
+                        'NSE_EQ', 'EQ', NULL, NULL, 1, 0.05
+                    )
+                    """
+                )
+                con.commit()
+            finally:
+                con.close()
+            service = InstrumentDiscoveryService(
+                AppConfig(openalgo_api_key="configured", openalgo_root=root)
+            )
+
+            class Client:
+                def search_symbols(self, **kwargs):
+                    return {"data": []}
+
+                def quote(self, **kwargs):
+                    return {"data": {"ltp": 2487.5}}
+
+            service._client = lambda: Client()
+            result = service.quote(query="colagte", exchange="NSE")
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["resolved_symbol"], "COLPAL")
+        self.assertEqual(
+            result["instrument_resolution"],
+            "local_contract_fuzzy_match",
+        )
 
     def test_openai_tool_descriptions_include_governance_context(self) -> None:
         registry = build_default_tool_registry(Path("unused.duckdb"))

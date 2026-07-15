@@ -78,6 +78,10 @@ class GroqAndPersonaTest(unittest.TestCase):
 
         self.assertEqual(visible["llm_provider"], "groq")
         self.assertTrue(visible["groq_api_key_configured"])
+        self.assertEqual(
+            visible["groq_fallback_model"],
+            "llama-3.1-8b-instant",
+        )
         self.assertTrue(visible["openai_api_key_configured"])
         self.assertNotIn("secret-groq", visible.values())
         self.assertNotIn("secret-openai", visible.values())

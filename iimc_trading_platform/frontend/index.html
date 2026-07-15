@@ -16,7 +16,7 @@
           <span>Trading Platform</span>
         </div>
       </div>
-      <nav aria-label="Workspace sections">
+      <nav class="primary-nav" aria-label="Workspace sections">
         <button class="nav-item active" data-view="workspace">
           <span aria-hidden="true">⌂</span> Workspace
         </button>
@@ -46,6 +46,16 @@
           <span aria-hidden="true">O</span> Operations
         </button>
       </nav>
+      <details class="nav-more">
+        <summary>More tools</summary>
+        <div class="nav-more-content">
+          <button class="nav-item" data-view="operator">Console</button>
+          <button class="nav-item" data-view="experiments">Experiments</button>
+          <button class="nav-item" data-view="portfolios">Portfolios</button>
+          <button class="nav-item" data-view="approvals">Controls</button>
+          <button class="nav-item" data-view="data">Data catalog</button>
+        </div>
+      </details>
       <div class="sidebar-footer">
         <div class="connection-row">
           <span class="status-dot" id="api-dot"></span>
@@ -58,8 +68,8 @@
     <main>
       <header class="topbar">
         <div>
-          <h1 id="view-title">Trading Research Workspace</h1>
-          <p id="view-subtitle">Grounded analysis, audited tools, controlled execution.</p>
+          <h1 id="view-title">Workspace</h1>
+          <p id="view-subtitle">Research, monitoring, and governed actions in one focused place.</p>
         </div>
         <div class="environment-badges">
           <span class="badge" id="user-badge">Local development</span>
@@ -82,19 +92,25 @@
             <div class="panel-heading">
               <div>
                 <h2>Trading Assistant</h2>
-                <p>Ask in natural language; the backend chooses governed tools.</p>
+                <p>Ask naturally. Market answers are tied to live providers or stored evidence.</p>
               </div>
               <button class="icon-button" id="new-session" title="Start new session" aria-label="Start new session">＋</button>
             </div>
             <div class="messages" id="messages" aria-live="polite">
               <article class="message assistant">
                 <div class="message-role">Assistant</div>
-                <p>Ask for research, backtests, data coverage, OpenAlgo status, risk checks, order timelines, or performance summaries.</p>
+                <p>Ask for a market outlook, a quote, account status, a backtest, or a research brief.</p>
               </article>
+            </div>
+            <div class="assistant-starters" aria-label="Suggested questions">
+              <button type="button" data-prompt="What is the market outlook for next week?">Market outlook</button>
+              <button type="button" data-prompt="What is the current price of Reliance?">Get a quote</button>
+              <button type="button" data-prompt="Show my positions">My positions</button>
+              <button type="button" data-prompt="List available strategies and datasets">Start research</button>
             </div>
             <form class="composer" id="chat-form">
               <label class="sr-only" for="chat-input">Message</label>
-              <textarea id="chat-input" rows="2" maxlength="4000" placeholder="Ask for a market check, backtest, risk review, or OpenAlgo status..." required></textarea>
+              <textarea id="chat-input" rows="2" maxlength="4000" placeholder="Ask about markets, a stock, your account, or a backtest..." required></textarea>
               <button type="submit" class="primary-button" id="send-button">Send</button>
             </form>
           </section>
@@ -113,6 +129,9 @@
           </aside>
         </div>
 
+        <details class="workspace-tools">
+          <summary>Workspace tools and platform status</summary>
+          <div class="workspace-tools-content">
         <section class="command-center">
           <div class="command-hero">
             <div>
@@ -223,6 +242,8 @@
             </div>
           </div>
         </section>
+          </div>
+        </details>
       </section>
 
       <section class="view" id="view-operator">
@@ -298,6 +319,10 @@
             <span>Slippage bps</span>
             <input id="backtest-slippage" type="number" min="0" max="1000" step="0.1" value="0.5">
           </label>
+          <label class="option-contract-picker hidden" id="backtest-option-contract-field">
+            <span>Option contract</span>
+            <select id="backtest-option-contract" disabled></select>
+          </label>
           <button type="submit" class="primary-button" id="run-backtest">Run IIMC backtest</button>
         </form>
         <pre class="json-view hidden" id="backtest-result-json"></pre>
@@ -332,6 +357,10 @@
             <label>
               <span>Position side</span>
               <select id="custom-strategy-side"><option value="long">Long</option><option value="short">Short</option></select>
+            </label>
+            <label class="option-contract-picker hidden" id="custom-option-contract-field">
+              <span>Option contract</span>
+              <select id="custom-option-contract" disabled></select>
             </label>
             <label class="custom-strategy-description">
               <span>Description</span>

@@ -1,0 +1,31 @@
+from iimc_trading_platform.domain import SignalDirection
+from iimc_trading_platform.strategies import RawSignal, StrategyPlugin
+
+
+class RangeBreakoutStrategy(StrategyPlugin):
+    name = "range_breakout"
+    version = "1.0.0"
+    description = "Long when price breaks above its recent range."
+    supported_asset_classes = ("equity", "futures", "options")
+    parameter_schema = {
+        "lookback": {"type": "integer", "default": 20, "minimum": 2, "maximum": 500},
+    }
+
+    def generate(self, candles, parameters):
+        lookback = parameters["lookback"]
+        signals = []
+        in_position = False
+        for index in range(lookback, len(candles)):
+            price = float(candles[index]["price"])
+            prior_high = max(float(item["high"]) for item in candles[index - lookback:index])
+            if not in_position and price > prior_high:
+                in_position = True
+                signals.append(RawSignal(
+                    candles[index]["timestamp"], candles[index]["symbol"], "entry",
+                    SignalDirection.LONG, price, 1.0, "range breakout", {"prior_high": prior_high},
+                ))
+        return signals
+
+
+def build_strategy():
+    return RangeBreakoutStrategy()

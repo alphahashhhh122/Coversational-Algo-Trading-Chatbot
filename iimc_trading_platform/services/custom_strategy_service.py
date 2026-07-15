@@ -192,6 +192,7 @@ class CustomStrategyService:
         starting_equity: float = 1_000_000.0,
         fee_bps: float = 1.0,
         slippage_bps: float = 0.0,
+        instrument: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         record = self.get_spec(spec_id)
         validation = self._validate_spec(record["spec"])
@@ -211,6 +212,7 @@ class CustomStrategyService:
             starting_equity=starting_equity,
             fee_bps=fee_bps,
             slippage_bps=slippage_bps,
+            instrument=instrument,
         )
         return {
             **result,

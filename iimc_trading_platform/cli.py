@@ -313,6 +313,7 @@ def main() -> None:
                     else None
                 ),
                 groq_model=config.groq_model,
+                groq_fallback_model=config.groq_fallback_model,
                 require_real_llm=(args.mode == "configured"),
             ),
             model=configured_model if args.mode == "configured" else None,

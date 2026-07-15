@@ -12,11 +12,13 @@ class AppConfig:
     log_level: str = "INFO"
     database_path: Path = Path("data/iimc_platform.duckdb")
     artifacts_dir: Path = Path("artifacts")
+    strategy_plugin_dir: Path = Path("strategy_plugins")
     openalgo_root: Path = Path.home() / "openalgo"
     openalgo_base_url: str = "http://127.0.0.1:5000"
     llm_provider: str = "groq"
     groq_api_key: str | None = None
     groq_model: str = "llama-3.3-70b-versatile"
+    groq_fallback_model: str | None = "llama-3.1-8b-instant"
     require_real_llm: bool = False
     openai_api_key: str | None = None
     openai_model: str = "gpt-5.5"
@@ -55,6 +57,9 @@ def load_config() -> AppConfig:
             os.getenv("IIMC_DATABASE_PATH", "data/iimc_platform.duckdb")
         ),
         artifacts_dir=Path(os.getenv("IIMC_ARTIFACTS_DIR", "artifacts")),
+        strategy_plugin_dir=Path(
+            os.getenv("IIMC_STRATEGY_PLUGIN_DIR", "strategy_plugins")
+        ),
         openalgo_root=Path(
             os.getenv("OPENALGO_ROOT", str(Path.home() / "openalgo"))
         ),
@@ -64,6 +69,10 @@ def load_config() -> AppConfig:
         llm_provider=os.getenv("IIMC_LLM_PROVIDER", "groq").strip().lower(),
         groq_api_key=os.getenv("GROQ_API_KEY"),
         groq_model=os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
+        groq_fallback_model=(
+            os.getenv("GROQ_FALLBACK_MODEL", "llama-3.1-8b-instant").strip()
+            or None
+        ),
         require_real_llm=os.getenv(
             "IIMC_REQUIRE_REAL_LLM", "false"
         ).lower()
@@ -132,11 +141,13 @@ def public_config(config: AppConfig) -> dict[str, object]:
         "log_level": config.log_level,
         "database_path": str(config.database_path),
         "artifacts_dir": str(config.artifacts_dir),
+        "strategy_plugin_dir": str(config.strategy_plugin_dir),
         "openalgo_root": str(config.openalgo_root),
         "openalgo_base_url": config.openalgo_base_url,
         "llm_provider": config.llm_provider,
         "groq_api_key_configured": bool(config.groq_api_key),
         "groq_model": config.groq_model,
+        "groq_fallback_model": config.groq_fallback_model,
         "require_real_llm": config.require_real_llm,
         "openai_api_key_configured": bool(config.openai_api_key),
         "openai_model": config.openai_model,

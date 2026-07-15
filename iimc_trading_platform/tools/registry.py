@@ -111,6 +111,12 @@ class ListCustomStrategySpecsInput(ToolInput):
     limit: int = Field(default=50, ge=1, le=200)
 
 
+class OptionContractSelection(ToolInput):
+    expiry: str | None = Field(default=None, min_length=1, max_length=80)
+    strike: float | None = Field(default=None, gt=0)
+    option_type: Literal["CALL", "PUT", "CE", "PE"] | None = None
+
+
 class RunCustomStrategySpecInput(ToolInput):
     spec_id: str = Field(min_length=1)
     dataset_id: str = Field(min_length=1)
@@ -119,17 +125,19 @@ class RunCustomStrategySpecInput(ToolInput):
     starting_equity: float = Field(default=1_000_000.0, gt=0)
     fee_bps: float = Field(default=1.0, ge=0, le=1_000)
     slippage_bps: float = Field(default=0.0, ge=0, le=1_000)
+    instrument: OptionContractSelection | None = None
 
 
 class RunBacktestInput(ToolInput):
     strategy_name: str = "ema_crossover"
     dataset_id: str | None = None
-    parameters: StrategyParameters = Field(default_factory=StrategyParameters)
+    parameters: dict[str, Any] = Field(default_factory=dict)
     execution_mode: ExecutionMode = ExecutionMode.RESEARCH
     requested_quantity: int = Field(default=1, ge=1, le=100_000)
     starting_equity: float = Field(default=1_000_000.0, gt=0)
     fee_bps: float = Field(default=1.0, ge=0, le=1_000)
     slippage_bps: float = Field(default=0.0, ge=0, le=1_000)
+    instrument: OptionContractSelection | None = None
 
 
 class RunIdInput(ToolInput):
@@ -180,6 +188,11 @@ class OpenAlgoSnapshotInput(ToolInput):
 class InstrumentSearchInput(ToolInput):
     query: str = Field(min_length=1, max_length=200)
     exchange: Literal["NSE", "BSE", "NFO", "BFO", "CDS", "BCD", "MCX"]
+
+
+class MarketQuoteInput(ToolInput):
+    query: str = Field(min_length=1, max_length=200)
+    exchange: Literal["NSE", "BSE", "NFO", "BFO", "CDS", "BCD", "MCX"] = "NSE"
 
 
 class SymbolValidationInput(ToolInput):
@@ -430,6 +443,7 @@ def build_default_tool_registry(
     )
     backtests = BacktestService(
         db_path,
+        strategy_plugin_dir=active_config.strategy_plugin_dir,
         allow_live_trading=allow_live_trading,
     )
     freshness = FreshnessService(db_path)
@@ -474,12 +488,16 @@ def build_default_tool_registry(
         return backtests.run(
             strategy_name=request.strategy_name,
             dataset_id=dataset_id,
-            parameters=request.parameters.values_for_strategy(),
+            parameters=request.parameters,
             execution_mode=request.execution_mode,
             requested_quantity=request.requested_quantity,
             starting_equity=request.starting_equity,
             fee_bps=request.fee_bps,
             slippage_bps=request.slippage_bps,
+            instrument=(
+                request.instrument.model_dump(exclude_none=True)
+                if request.instrument else None
+            ),
         )
 
     def submit_robustness_tool(value: ToolInput) -> dict[str, Any]:
@@ -742,6 +760,28 @@ def build_default_tool_registry(
                 ),
                 side_effects="read-only OpenAlgo symbol validation",
                 retry_safe=True,
+            ),
+            ToolDefinition(
+                name="get_market_quote",
+                description=(
+                    "Resolve an equity, index, futures, or option query and "
+                    "return its current provider-backed OpenAlgo quote."
+                ),
+                input_model=MarketQuoteInput,
+                handler=lambda value: instruments.quote(
+                    **MarketQuoteInput.model_validate(
+                        value.model_dump()
+                    ).model_dump()
+                ),
+                side_effects="read-only OpenAlgo quote request",
+                retry_safe=True,
+                capabilities=ToolCapabilityMetadata(
+                    actions=("quote",),
+                    asset_classes=("equity", "index", "futures", "options", "commodity"),
+                    execution_modes=("research", "paper", "live"),
+                    required_providers=("openalgo",),
+                    risk_level="low",
+                ),
             ),
             ToolDefinition(
                 name="resolve_option_symbol",

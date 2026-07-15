@@ -64,6 +64,7 @@ class ChatService:
     _DETERMINISTIC_RESPONSE_TOOLS = {
         "get_execution_readiness",
         "get_openalgo_monitor",
+        "get_openalgo_snapshot",
         "get_custom_strategy_capabilities",
         "create_custom_strategy_spec",
         "check_platform_readiness",
@@ -72,6 +73,8 @@ class ChatService:
         "prepare_sandbox_order_intent",
         "prepare_live_order_intent",
         "list_sandbox_intents",
+        "get_market_news",
+        "get_market_quote",
     }
 
     def answer(

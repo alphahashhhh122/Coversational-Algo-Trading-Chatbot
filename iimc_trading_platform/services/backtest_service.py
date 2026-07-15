@@ -27,6 +27,15 @@ def utc_now() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
+def _asset_class_from_dataset(data_type: Any) -> str:
+    value = str(data_type or "").lower()
+    if value.endswith("_ohlcv"):
+        return value.removesuffix("_ohlcv")
+    if value == "options_ohlcv":
+        return "options"
+    return value or "unknown"
+
+
 def _order_side_for_signal(raw_signal: Any, active_side: str) -> str:
     if raw_signal.signal_type == "entry":
         direction = str(
@@ -41,10 +50,13 @@ class BacktestService:
         self,
         db_path: Path,
         strategy_registry: StrategyRegistry | None = None,
+        strategy_plugin_dir: Path | None = None,
         allow_live_trading: bool = False,
     ) -> None:
         self.db_path = db_path
-        self.strategy_registry = strategy_registry or build_strategy_registry()
+        self.strategy_registry = strategy_registry or build_strategy_registry(
+            strategy_plugin_dir
+        )
         self.allow_live_trading = allow_live_trading
 
     def list_strategies(self) -> list[dict[str, Any]]:
@@ -95,6 +107,7 @@ class BacktestService:
         starting_equity: float = 1_000_000.0,
         fee_bps: float = 1.0,
         slippage_bps: float = 0.0,
+        instrument: dict[str, Any] | None = None,
         window_start: datetime | None = None,
         window_end: datetime | None = None,
     ) -> dict[str, Any]:
@@ -114,7 +127,9 @@ class BacktestService:
             dataset_id,
             window_start=window_start,
             window_end=window_end,
+            instrument=instrument,
         )
+        strategy.validate_dataset(dataset, candles)
         feature_lineage = self._attach_rule_features(
             dataset,
             candles,
@@ -139,6 +154,7 @@ class BacktestService:
                 "starting_equity": starting_equity,
                 "fee_bps": fee_bps,
                 "slippage_bps": slippage_bps,
+                "instrument": instrument,
                 "window_start": (
                     window_start.isoformat() if window_start else None
                 ),
@@ -159,6 +175,7 @@ class BacktestService:
                 "starting_equity": starting_equity,
                 "fee_bps": fee_bps,
                 "slippage_bps": slippage_bps,
+                "instrument": instrument,
                 "window_start": (
                     window_start.isoformat() if window_start else None
                 ),
@@ -289,6 +306,7 @@ class BacktestService:
         *,
         window_start: datetime | None = None,
         window_end: datetime | None = None,
+        instrument: dict[str, Any] | None = None,
     ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
         if (
             window_start is not None
@@ -301,7 +319,7 @@ class BacktestService:
             dataset_row = con.execute(
                 """
                 SELECT c.symbol, c.exchange, c.interval, c.storage_table,
-                       c.source_id, c.quality_status, r.sha256
+                       c.source_id, c.quality_status, r.sha256, c.data_type
                 FROM data_catalog AS c
                 JOIN raw_file_registry AS r ON r.source_id = c.source_id
                 WHERE dataset_id = ?
@@ -310,25 +328,31 @@ class BacktestService:
             ).fetchone()
             if dataset_row is None:
                 raise ValueError(f"Dataset not found: {dataset_id}")
+            asset_class = _asset_class_from_dataset(dataset_row[7])
             if dataset_row[3] == "options_ohlcv":
+                asset_class = "options"
+                contract = self._resolve_option_contract(
+                    con,
+                    source_id=dataset_row[4],
+                    instrument=instrument,
+                )
                 candle_rows = con.execute(
                     """
-                    SELECT timestamp,
-                           median(spot) AS price,
-                           median(open) AS open,
-                           median(high) AS high,
-                           median(low) AS low,
-                           median(close) AS close,
-                           median(volume) AS volume
+                    SELECT timestamp, close AS price, open, high, low, close, volume
                     FROM options_ohlcv
                     WHERE source_id = ?
+                      AND expiry = ?
+                      AND strike_price = ?
+                      AND option_type = ?
                       AND (? IS NULL OR timestamp >= ?)
                       AND (? IS NULL OR timestamp <= ?)
-                    GROUP BY timestamp
                     ORDER BY timestamp
                     """,
                     [
                         dataset_row[4],
+                        contract["expiry"],
+                        contract["strike"],
+                        contract["option_type"],
                         window_start,
                         window_start,
                         window_end,
@@ -336,6 +360,18 @@ class BacktestService:
                     ],
                 ).fetchall()
             elif dataset_row[3] == "market_ohlcv":
+                if asset_class in {"market_data", "unknown"}:
+                    asset_row = con.execute(
+                        """
+                        SELECT asset_class
+                        FROM market_ohlcv
+                        WHERE source_id = ?
+                        LIMIT 1
+                        """,
+                        [dataset_row[4]],
+                    ).fetchone()
+                    if asset_row is not None:
+                        asset_class = str(asset_row[0]).lower()
                 candle_rows = con.execute(
                     """
                     SELECT timestamp, close AS price, open, high, low, close,
@@ -383,14 +419,121 @@ class BacktestService:
                 "symbol": dataset_row[0],
                 "exchange": dataset_row[1],
                 "interval": dataset_row[2],
+                "asset_class": asset_class,
                 "quality_status": dataset_row[5],
                 "source_id": dataset_row[4],
                 "source_sha256": dataset_row[6],
+                "instrument": (
+                    contract if dataset_row[3] == "options_ohlcv" else None
+                ),
                 "window_start": window_start,
                 "window_end": window_end,
             },
             candles,
         )
+
+    def list_dataset_instruments(
+        self,
+        dataset_id: str,
+        *,
+        limit: int = 500,
+    ) -> dict[str, Any]:
+        """List option contracts when a chain dataset needs a tradeable series."""
+        if not 1 <= limit <= 2_000:
+            raise ValueError("limit must be between 1 and 2000")
+        con = connect(self.db_path)
+        try:
+            dataset = con.execute(
+                """
+                SELECT storage_table, source_id
+                FROM data_catalog
+                WHERE dataset_id = ?
+                """,
+                [dataset_id],
+            ).fetchone()
+            if dataset is None:
+                raise ValueError(f"Dataset not found: {dataset_id}")
+            if dataset[0] != "options_ohlcv":
+                return {
+                    "dataset_id": dataset_id,
+                    "requires_instrument_selection": False,
+                    "instruments": [],
+                }
+            rows = con.execute(
+                """
+                SELECT expiry, strike_price, option_type, count(*) AS candle_count,
+                       min(timestamp) AS start_ts, max(timestamp) AS end_ts
+                FROM options_ohlcv
+                WHERE source_id = ?
+                GROUP BY expiry, strike_price, option_type
+                ORDER BY candle_count DESC, expiry, strike_price, option_type
+                LIMIT ?
+                """,
+                [dataset[1], limit],
+            ).fetchall()
+        finally:
+            con.close()
+        return {
+            "dataset_id": dataset_id,
+            "requires_instrument_selection": len(rows) != 1,
+            "instruments": [
+                {
+                    "expiry": row[0],
+                    "strike": float(row[1]),
+                    "option_type": row[2],
+                    "candle_count": int(row[3]),
+                    "start_ts": row[4],
+                    "end_ts": row[5],
+                }
+                for row in rows
+            ],
+        }
+
+    @staticmethod
+    def _resolve_option_contract(
+        con: Any,
+        *,
+        source_id: str,
+        instrument: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        rows = con.execute(
+            """
+            SELECT DISTINCT expiry, strike_price, option_type
+            FROM options_ohlcv
+            WHERE source_id = ?
+            ORDER BY expiry, strike_price, option_type
+            """,
+            [source_id],
+        ).fetchall()
+        if not rows:
+            raise ValueError("Options dataset contains no contracts")
+        selection = instrument or {}
+        option_type = str(selection.get("option_type") or "").upper()
+        option_type = {"CE": "CALL", "PE": "PUT"}.get(option_type, option_type)
+        expiry = selection.get("expiry")
+        strike = selection.get("strike")
+        if not selection and len(rows) == 1:
+            expiry, strike, option_type = rows[0]
+        if not expiry or strike is None or option_type not in {"CALL", "PUT"}:
+            raise ValueError(
+                "This options chain has multiple contracts. Choose expiry, "
+                "strike, and CALL or PUT before running a backtest."
+            )
+        contract = {
+            "expiry": str(expiry),
+            "strike": float(strike),
+            "option_type": option_type,
+        }
+        if not any(
+            str(row[0]) == contract["expiry"]
+            and float(row[1]) == contract["strike"]
+            and str(row[2]).upper() == contract["option_type"]
+            for row in rows
+        ):
+            raise ValueError(
+                "Selected option contract is not available in this dataset."
+            )
+        return contract
 
     def _attach_rule_features(
         self,

@@ -40,6 +40,9 @@ provider calls remain optional external integrations.
 - Custom strategy draft specs for no-code strategy ideas, with validation of
   EMA, SMA, RSI, ROC, ATR, VWAP, Bollinger, and MACD rules; unsupported
   primitives are reported for review rather than executed as arbitrary code.
+- Trusted local strategy plugins with declared asset-class support and dynamic
+  parameter schemas. Drop a plugin module into `strategy_plugins/` to make it
+  available to the backtest API and Research view after restart.
   Rule definitions are editable JSON, validation-first, and support long or
   short deterministic research positions. They can also consume named
   point-in-time feature series, including IV/OI, earnings, fundamentals, and
@@ -163,7 +166,9 @@ Key settings:
 ```env
 IIMC_LLM_PROVIDER=groq
 GROQ_API_KEY=
+GROQ_FALLBACK_MODEL=llama-3.1-8b-instant
 IIMC_REQUIRE_REAL_LLM=true
+IIMC_STRATEGY_PLUGIN_DIR=strategy_plugins
 
 OPENALGO_BASE_URL=http://127.0.0.1:5000
 OPENALGO_API_KEY=
@@ -177,6 +182,21 @@ IIMC_REQUIRE_PAPER_APPROVAL=true
 ```
 
 ## Useful Commands
+
+### Add a local strategy plugin
+
+Use [strategy_plugins/README.md](strategy_plugins/README.md) and the adjacent
+`range_breakout.py.example` as the contract. Plugins are local trusted Python
+modules: after adding a `.py` module, restart the platform and select its
+declared strategy in Research. For conversational runs, use the explicit form:
+
+```text
+Backtest strategy range_breakout on dataset my_futures_5m with parameters {"lookback": 20}
+```
+
+Plain option-premium OHLCV behaves like any other dataset. For a chain ingested
+through the specialized options workflow, select an expiry, strike, and call or
+put contract before running the backtest.
 
 Run health and schema checks:
 

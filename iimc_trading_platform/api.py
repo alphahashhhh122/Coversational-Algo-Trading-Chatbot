@@ -154,6 +154,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             provider=active_config.llm_provider,
             groq_api_key=active_config.groq_api_key,
             groq_model=active_config.groq_model,
+            groq_fallback_model=active_config.groq_fallback_model,
             require_real_llm=active_config.require_real_llm,
         ),
         conversation_service,
@@ -504,6 +505,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 else None
             ),
             groq_model=active_config.groq_model,
+            groq_fallback_model=active_config.groq_fallback_model,
             require_real_llm=(request.mode == "configured"),
         )
         return ai_evaluation_service.run(
@@ -1006,6 +1008,20 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     @app.get("/datasets")
     def datasets(principal: Principal = Depends(viewer)) -> dict[str, Any]:
         return execute_tool("list_datasets", {})
+
+    @app.get("/datasets/{dataset_id}/instruments")
+    def dataset_instruments(
+        dataset_id: str,
+        limit: int = 500,
+        principal: Principal = Depends(viewer),
+    ) -> dict[str, Any]:
+        try:
+            return BacktestService(
+                active_config.database_path,
+                strategy_plugin_dir=active_config.strategy_plugin_dir,
+            ).list_dataset_instruments(dataset_id, limit=limit)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.post("/datasets/ohlcv")
     def import_local_ohlcv_dataset(

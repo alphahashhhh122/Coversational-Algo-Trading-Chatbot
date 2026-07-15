@@ -64,6 +64,13 @@ async function api(path, options = {}) {
       showLogin();
     }
     const detail = payload.detail;
+    if (path === "/chat" && typeof detail === "object") {
+      throw new Error(
+        "I could not complete that chat request right now. Try a quote, "
+        + "market update, funds, positions, orders, trades, backtest, or "
+        + "OpenAlgo status while the model connection recovers.",
+      );
+    }
     const message = typeof detail === "string"
       ? detail
       : [detail?.message, detail?.cause].filter(Boolean).join(" Cause: ")
@@ -190,20 +197,22 @@ function setAutoRefresh(enabled, persist = true) {
 
 function setView(view) {
   const labels = {
-    workspace: ["Trading Research Workspace", "Grounded analysis, audited tools, controlled execution."],
+    workspace: ["Workspace", "Research, monitoring, and governed actions in one focused place."],
     operator: ["Operator Console", "Signal, risk, order, fill, and performance evidence in one place."],
-    runs: ["Strategy Runs", "Deterministic execution and stored performance evidence."],
+    runs: ["Research & Backtests", "Run, compare, and inspect governed strategy research."],
     experiments: ["Strategy Experiments", "Chronological out-of-sample validation and parameter stability."],
     portfolios: ["Portfolio Risk", "Durable positions, exposure reservations, and operator controls."],
     approvals: ["Human Approvals", "Explicit control over external sandbox actions."],
     data: ["Data Catalog", "Governed coverage, quality, provenance, and freshness."],
-    openalgo: ["OpenAlgo Monitor", "Read-only analyzer, account state, and persisted reconciliation evidence."],
+    openalgo: ["Account & OpenAlgo", "Read-only account state and persisted reconciliation evidence."],
     operations: ["Platform Operations", "Readiness, scheduled maintenance, and failure visibility."],
   };
   document.querySelectorAll(".view").forEach((node) => node.classList.remove("active"));
   document.querySelectorAll(".nav-item").forEach((node) => node.classList.remove("active"));
   $(`#view-${view}`).classList.add("active");
-  $(`.nav-item[data-view="${view}"]`).classList.add("active");
+  document.querySelectorAll(`.nav-item[data-view="${view}"]`).forEach((node) => {
+    node.classList.add("active");
+  });
   $("#view-title").textContent = labels[view][0];
   $("#view-subtitle").textContent = labels[view][1];
 }
@@ -1144,6 +1153,10 @@ function renderBacktestControls() {
   `).join("");
   renderBacktestParameters(strategySelect.value);
   strategySelect.onchange = () => renderBacktestParameters(strategySelect.value);
+  datasetSelect.onchange = () => {
+    void loadOptionContracts(datasetSelect.value, "backtest");
+  };
+  void loadOptionContracts(datasetSelect.value, "backtest");
   renderCustomStrategyControls();
 }
 
@@ -1315,6 +1328,10 @@ function renderCustomStrategyControls() {
     <option value="${escapeHtml(dataset.dataset_id)}">${escapeHtml(dataset.dataset_id)}</option>
   `).join("");
   if (currentDataset) datasetSelect.value = currentDataset;
+  datasetSelect.onchange = () => {
+    void loadOptionContracts(datasetSelect.value, "custom");
+  };
+  void loadOptionContracts(datasetSelect.value, "custom");
 
   const currentSpec = specSelect.value;
   specSelect.innerHTML = state.customStrategySpecs.length
@@ -1415,6 +1432,7 @@ async function runSelectedCustomStrategySpec() {
         execution_mode: "research",
         requested_quantity: 1,
         slippage_bps: Number($("#backtest-slippage").value || 0.5),
+        instrument: optionContractPayload("custom"),
       }),
     });
     resultBox.textContent = JSON.stringify({
@@ -1450,12 +1468,39 @@ function renderBacktestParameters(strategyName) {
   const entries = Object.entries(schema);
   container.innerHTML = entries.length
     ? entries.map(([name, meta]) => {
-      const step = meta.type === "integer" ? "1" : "0.001";
+      const type = meta.type || "string";
+      const common = `class="backtest-parameter" data-parameter-name="${escapeHtml(name)}" data-parameter-type="${escapeHtml(type)}"`;
+      if (Array.isArray(meta.enum)) {
+        return `
+          <label>
+            <span>${escapeHtml(name.replaceAll("_", " "))}</span>
+            <select ${common}>
+              ${meta.enum.map((value) => `<option value="${escapeHtml(value)}" ${value === meta.default ? "selected" : ""}>${escapeHtml(value)}</option>`).join("")}
+            </select>
+          </label>
+        `;
+      }
+      if (type === "boolean") {
+        return `
+          <label>
+            <span>${escapeHtml(name.replaceAll("_", " "))}</span>
+            <input ${common} type="checkbox" ${meta.default ? "checked" : ""}>
+          </label>
+        `;
+      }
+      if (type === "string") {
+        return `
+          <label>
+            <span>${escapeHtml(name.replaceAll("_", " "))}</span>
+            <input ${common} type="text" value="${escapeHtml(meta.default ?? "")}" required>
+          </label>
+        `;
+      }
+      const step = type === "integer" ? "1" : "0.001";
       return `
         <label>
           <span>${escapeHtml(name.replaceAll("_", " "))}</span>
-          <input class="backtest-parameter"
-            data-parameter-name="${escapeHtml(name)}"
+          <input ${common}
             type="number"
             step="${escapeHtml(step)}"
             min="${escapeHtml(meta.minimum ?? "")}"
@@ -1466,6 +1511,49 @@ function renderBacktestParameters(strategyName) {
       `;
     }).join("")
     : `<div class="empty-state">No configurable parameters.</div>`;
+}
+
+async function loadOptionContracts(datasetId, prefix) {
+  const field = $(`#${prefix}-option-contract-field`);
+  const select = $(`#${prefix}-option-contract`);
+  if (!field || !select || !datasetId) return;
+  select.dataset.datasetId = datasetId;
+  select.disabled = true;
+  field.classList.add("hidden");
+  try {
+    const result = await api(`/datasets/${encodeURIComponent(datasetId)}/instruments?limit=500`);
+    if (select.dataset.datasetId !== datasetId) return;
+    const instruments = result.instruments || [];
+    if (!result.requires_instrument_selection || !instruments.length) {
+      select.innerHTML = "";
+      return;
+    }
+    select.innerHTML = instruments.map((instrument) => {
+      const value = escapeHtml(JSON.stringify({
+        expiry: instrument.expiry,
+        strike: instrument.strike,
+        option_type: instrument.option_type,
+      }));
+      const label = `${instrument.expiry} ${formatNumber(instrument.strike, 2)} ${instrument.option_type} (${formatNumber(instrument.candle_count, 0)} candles)`;
+      return `<option value="${value}">${escapeHtml(label)}</option>`;
+    }).join("");
+    select.disabled = false;
+    field.classList.remove("hidden");
+  } catch (error) {
+    if (select.dataset.datasetId !== datasetId) return;
+    select.innerHTML = "";
+    console.warn("Option contract list unavailable", error);
+  }
+}
+
+function optionContractPayload(prefix) {
+  const selected = $(`#${prefix}-option-contract`)?.value;
+  if (!selected) return null;
+  try {
+    return JSON.parse(selected);
+  } catch {
+    throw new Error("The selected option contract is invalid. Refresh the dataset and try again.");
+  }
 }
 
 async function submitExperiment(event) {
@@ -1627,6 +1715,13 @@ async function submitChat(event) {
     });
     appendMessage("assistant", payload.answer);
     renderEvidence(payload);
+    if (["get_openalgo_snapshot", "get_openalgo_monitor"].includes(payload.intent)) {
+      try {
+        await loadOpenAlgoHistory();
+      } catch (error) {
+        toast(`OpenAlgo view refresh paused: ${error.message}`);
+      }
+    }
   } catch (error) {
     appendMessage("assistant", error.message, "error");
   } finally {
@@ -1678,10 +1773,13 @@ async function submitBacktest(event) {
   try {
     const strategyName = $("#backtest-strategy").value;
     const parameters = Object.fromEntries(
-      [...document.querySelectorAll(".backtest-parameter")].map((input) => [
-        input.dataset.parameterName,
-        Number(input.value),
-      ]),
+      [...document.querySelectorAll(".backtest-parameter")].map((input) => {
+        const type = input.dataset.parameterType;
+        const value = type === "boolean"
+          ? input.checked
+          : (type === "integer" || type === "number" ? Number(input.value) : input.value);
+        return [input.dataset.parameterName, value];
+      }),
     );
     const payload = await api("/platform/backtest/run", {
       method: "POST",
@@ -1691,6 +1789,7 @@ async function submitBacktest(event) {
         execution_mode: $("#backtest-mode").value,
         parameters,
         slippage_bps: Number($("#backtest-slippage").value),
+        instrument: optionContractPayload("backtest"),
       }),
     });
     resultBox.textContent = JSON.stringify({
@@ -2606,6 +2705,12 @@ function wireEvents() {
     button.addEventListener("click", () => setView(button.dataset.view));
   });
   $("#chat-form").addEventListener("submit", submitChat);
+  document.querySelectorAll("[data-prompt]").forEach((button) => {
+    button.addEventListener("click", () => {
+      $("#chat-input").value = button.dataset.prompt;
+      $("#chat-form").requestSubmit();
+    });
+  });
   $("#readiness-form").addEventListener("submit", submitReadiness);
   $("#market-news-form").addEventListener("submit", submitMarketNews);
   $("#create-research-brief").addEventListener("click", createResearchBrief);

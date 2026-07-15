@@ -242,6 +242,12 @@ class TradingRuntimeTest(unittest.TestCase):
                 + math.sin(index / 29.0) * 80
                 + index * 0.2
             )
+            premium = (
+                100
+                + math.sin(index / 8.0) * 18
+                + math.sin(index / 29.0) * 8
+                + index * 0.02
+            )
             rows.append(
                 [
                     "NIFTY",
@@ -252,10 +258,10 @@ class TradingRuntimeTest(unittest.TestCase):
                     "ATM",
                     25_000.0,
                     "CALL",
-                    100.0,
-                    105.0,
-                    95.0,
-                    101.0,
+                    premium - 1.0,
+                    premium + 4.0,
+                    premium - 4.0,
+                    premium,
                     1000,
                     5000,
                     15.0,

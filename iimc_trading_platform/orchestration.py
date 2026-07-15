@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from dataclasses import dataclass, field
 from datetime import date, timedelta
+from difflib import get_close_matches
 from typing import Any, Protocol
 
 from .tools.registry import ToolRegistry
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -51,7 +56,12 @@ def grounded_tool_response(tool_name: str, result: dict[str, Any]) -> str:
 class OpenAIResponsesOrchestrator:
     mode = "openai_responses"
 
-    def __init__(self, api_key: str, model: str) -> None:
+    def __init__(
+        self,
+        api_key: str,
+        model: str,
+        fallback_model: str | None = "llama-3.1-8b-instant",
+    ) -> None:
         try:
             from openai import OpenAI
         except ImportError as exc:
@@ -147,7 +157,12 @@ class OpenAIResponsesOrchestrator:
 class GroqToolOrchestrator:
     mode = "groq_chat_completions"
 
-    def __init__(self, api_key: str, model: str) -> None:
+    def __init__(
+        self,
+        api_key: str,
+        model: str,
+        fallback_model: str | None = "llama-3.1-8b-instant",
+    ) -> None:
         try:
             from openai import OpenAI
         except ImportError as exc:
@@ -159,6 +174,12 @@ class GroqToolOrchestrator:
             base_url="https://api.groq.com/openai/v1",
         )
         self.model = model
+        self.fallback_model = (
+            fallback_model
+            if fallback_model and fallback_model != model
+            else None
+        )
+        self._primary_rate_limited = False
 
     def select_tool(
         self,
@@ -166,17 +187,39 @@ class GroqToolOrchestrator:
         history: list[dict[str, str]],
         registry: ToolRegistry,
     ) -> OrchestrationDecision:
-        messages = _chat_messages(message, history)
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {"role": "system", "content": _ROUTER_SYSTEM_PROMPT},
-                *messages,
-            ],
-            tools=_chat_completion_tools(registry),
-            tool_choice="auto",
-            temperature=0,
+        deterministic_decision = OfflineOrchestrator().select_tool(
+            message,
+            history,
+            registry,
         )
+        if deterministic_decision.tool_name is not None:
+            return deterministic_decision
+        messages = _chat_messages(message, history)
+        if self._primary_rate_limited:
+            fallback_decision = self._fallback_plain_decision(message, history)
+            return fallback_decision or deterministic_decision
+        try:
+            response = self._routing_response(self.model, messages, registry)
+        except Exception as exc:
+            if _is_groq_rate_limited(exc) and self.fallback_model:
+                self._primary_rate_limited = True
+                logger.warning(
+                    "Groq primary routing is rate-limited; using fallback model",
+                    extra={"error_type": type(exc).__name__},
+                )
+                fallback_decision = self._fallback_plain_decision(
+                    message,
+                    history,
+                )
+                return fallback_decision or deterministic_decision
+            elif not _is_groq_routing_failure(exc):
+                raise
+            else:
+                logger.warning(
+                    "Groq routing unavailable; using deterministic routing",
+                    extra={"error_type": type(exc).__name__},
+                )
+                return deterministic_decision
         choice = response.choices[0].message
         tool_calls = getattr(choice, "tool_calls", None) or []
         if tool_calls:
@@ -220,6 +263,65 @@ class GroqToolOrchestrator:
             direct_response=choice.content or None,
         )
 
+    def _routing_response(
+        self,
+        model: str,
+        messages: list[dict[str, str]],
+        registry: ToolRegistry,
+    ) -> Any:
+        return self.client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": _ROUTER_SYSTEM_PROMPT},
+                *messages,
+            ],
+            tools=_chat_completion_tools(registry),
+            tool_choice="auto",
+            temperature=0,
+        )
+
+    def _fallback_plain_decision(
+        self,
+        message: str,
+        history: list[dict[str, str]],
+    ) -> OrchestrationDecision | None:
+        if not self.fallback_model:
+            return None
+        try:
+            response = self.client.chat.completions.create(
+                model=self.fallback_model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are a concise assistant for a governed local "
+                            "trading platform. Answer conceptual and workflow "
+                            "questions clearly. Do not invent current prices, "
+                            "news, broker state, P&L, risk decisions, or trading "
+                            "outcomes. Explain that live orders require explicit "
+                            "human approval."
+                        ),
+                    },
+                    *_chat_messages(message, history),
+                ],
+                temperature=0,
+                max_tokens=400,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Groq fallback conversational model unavailable",
+                extra={"error_type": type(exc).__name__},
+            )
+            return None
+        answer = response.choices[0].message.content
+        if not answer or not answer.strip():
+            return None
+        return OrchestrationDecision(
+            tool_name=None,
+            arguments={},
+            direct_response=answer.strip(),
+        )
+
     def compose_response(
         self,
         message: str,
@@ -227,30 +329,43 @@ class GroqToolOrchestrator:
         tool_result: dict[str, Any],
     ) -> str:
         if decision.call_id is None:
-            return decision.direct_response or "No tool was selected."
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "Explain the tool result accurately and concisely. "
-                        "Do not invent prices, P&L, broker state, or missing "
-                        "evidence. State historical simulation limits when "
-                        "the result is a backtest."
-                    ),
-                },
-                {"role": "user", "content": message},
-                *decision.provider_items,
-                {
-                    "role": "tool",
-                    "tool_call_id": decision.call_id,
-                    "content": json.dumps(tool_result, default=str),
-                },
-            ],
-            temperature=0,
-        )
-        return response.choices[0].message.content or ""
+            return _grounded_fallback_response(
+                decision.tool_name or "unknown",
+                tool_result,
+            )
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "Explain the tool result accurately and concisely. "
+                            "Do not invent prices, P&L, broker state, or missing "
+                            "evidence. State historical simulation limits when "
+                            "the result is a backtest."
+                        ),
+                    },
+                    {"role": "user", "content": message},
+                    *decision.provider_items,
+                    {
+                        "role": "tool",
+                        "tool_call_id": decision.call_id,
+                        "content": json.dumps(tool_result, default=str),
+                    },
+                ],
+                temperature=0,
+            )
+            return response.choices[0].message.content or ""
+        except Exception as exc:
+            logger.warning(
+                "Groq response composition failed; using grounded tool response",
+                extra={"error_type": type(exc).__name__},
+            )
+            return _grounded_fallback_response(
+                decision.tool_name or "unknown",
+                tool_result,
+            )
 
 
 class OfflineOrchestrator:
@@ -269,7 +384,7 @@ class OfflineOrchestrator:
         history: list[dict[str, str]],
         registry: ToolRegistry,
     ) -> OrchestrationDecision:
-        text = message.lower()
+        text = _normalize_intent_text(message)
         run_id = _extract_identifier(message, "run_")
         run_ids = _extract_identifiers(message, "run_")
         dataset_id = _dataset_from_text(message)
@@ -324,6 +439,30 @@ class OfflineOrchestrator:
             and any(word in text for word in ("monitor", "status", "ready", "check"))
         ):
             return OrchestrationDecision("get_openalgo_monitor", {})
+        sandbox_intent_request = _is_sandbox_intent_request(text)
+        snapshot_types = _openalgo_snapshot_types(text)
+        if "get_openalgo_monitor" in tool_names and (
+            len(snapshot_types) > 1
+            or any(
+                phrase in text
+                for phrase in (
+                    "my account",
+                    "account status",
+                    "trading account",
+                    "broker status",
+                )
+            )
+        ):
+            return OrchestrationDecision("get_openalgo_monitor", {})
+        if (
+            "get_openalgo_snapshot" in tool_names
+            and not sandbox_intent_request
+            and len(snapshot_types) == 1
+        ):
+            return OrchestrationDecision(
+                "get_openalgo_snapshot",
+                {"snapshot_type": snapshot_types[0]},
+            )
         if (
             "search_instruments" in tool_names
             and any(
@@ -365,8 +504,59 @@ class OfflineOrchestrator:
                 },
             )
         if (
+            "get_market_quote" in tool_names
+            and "market status" in text
+        ):
+            return OrchestrationDecision(
+                "get_market_quote",
+                {
+                    "query": _market_query_for_request(message, history),
+                    "exchange": _exchange_from_text(message, default="NSE"),
+                },
+            )
+        if (
+            "get_market_quote" in tool_names
+            and (
+                _is_market_price_request(text)
+                or _is_market_quote_follow_up(text, history)
+            )
+        ):
+            return OrchestrationDecision(
+                "get_market_quote",
+                {
+                    "query": _market_query_for_request(message, history),
+                    "exchange": _exchange_from_text(message, default="NSE"),
+                },
+            )
+        if (
             "get_market_news" in tool_names
-            and any(word in text for word in ("news", "headline", "research update"))
+            and _is_market_outlook_request(text)
+        ):
+            outlook_symbol = _market_outlook_symbol(message)
+            return OrchestrationDecision(
+                "get_market_news",
+                {
+                    "query": _market_outlook_query(message, outlook_symbol),
+                    "symbol": outlook_symbol,
+                },
+            )
+        if (
+            "get_market_news" in tool_names
+            and any(
+                phrase in text
+                for phrase in (
+                    "news",
+                    "headline",
+                    "research update",
+                    "market update",
+                    "market status",
+                    "market scenario",
+                    "market view",
+                    "current scenario",
+                    "current view",
+                    "outlook",
+                )
+            )
             and not (
                 "custom" in text
                 and "strateg" in text
@@ -380,7 +570,7 @@ class OfflineOrchestrator:
             return OrchestrationDecision(
                 "get_market_news",
                 {
-                    "query": message,
+                    "query": _market_query_from_text(message),
                     "symbol": symbol,
                 },
             )
@@ -509,17 +699,7 @@ class OfflineOrchestrator:
             return OrchestrationDecision("list_pending_approvals", {})
         if (
             "prepare_sandbox_order_intent" in tool_names
-            and any(word in text for word in ("prepare", "create", "draft"))
-            and any(
-                phrase in text
-                for phrase in (
-                    "sandbox order",
-                    "paper order",
-                    "paper trading order",
-                    "openalgo intent",
-                    "sandbox intent",
-                )
-            )
+            and sandbox_intent_request
         ):
             decision_id = _extract_identifier(message, "risk_")
             if not decision_id:
@@ -756,16 +936,13 @@ class OfflineOrchestrator:
                     "Please provide the run_id for the order timeline."
                 ),
             )
-        if any(word in text for word in ("performance", "drawdown", "equity")) and run_id:
+        if _contains_any_word(text, ("performance", "drawdown", "equity")) and run_id:
             return OrchestrationDecision(
                 "get_performance",
                 {"run_id": run_id},
             )
         if (
-            any(
-                word in text
-                for word in ("performance", "drawdown", "equity")
-            )
+            _contains_any_word(text, ("performance", "drawdown", "equity"))
             and not run_id
         ):
             return OrchestrationDecision(
@@ -887,10 +1064,9 @@ class OfflineOrchestrator:
             tool_name=None,
             arguments={},
             direct_response=(
-                "I can inspect datasets, list strategies, run research "
-                "backtests, and retrieve stored performance, risk, or order "
-                "evidence. Configure a supported LLM key for model-based "
-                "routing."
+                "I could not map that request to a governed action yet. Try "
+                "asking for a quote, market news, account funds, positions, "
+                "orders, trades, a backtest, or OpenAlgo status."
             ),
         )
 
@@ -913,13 +1089,18 @@ def build_orchestrator(
     provider: str = "openai",
     groq_api_key: str | None = None,
     groq_model: str = "llama-3.3-70b-versatile",
+    groq_fallback_model: str | None = "llama-3.1-8b-instant",
     require_real_llm: bool = False,
 ) -> Orchestrator:
     normalized_provider = provider.strip().lower()
     if normalized_provider == "groq":
         active_key = groq_api_key or api_key
         if active_key:
-            return GroqToolOrchestrator(active_key, groq_model)
+            return GroqToolOrchestrator(
+                active_key,
+                groq_model,
+                groq_fallback_model,
+            )
         if require_real_llm:
             raise RuntimeError(
                 "GROQ_API_KEY is required when IIMC_REQUIRE_REAL_LLM=true"
@@ -975,6 +1156,239 @@ def _chat_completion_tools(registry: ToolRegistry) -> list[dict[str, Any]]:
         }
         for tool in registry.openai_tools(strict=False)
     ]
+
+
+def _is_groq_routing_failure(exc: Exception) -> bool:
+    """Identify provider failures for which local routing is safe."""
+    message = str(exc).lower()
+    return "tool_use_failed" in message or "rate_limit_exceeded" in message
+
+
+def _is_groq_rate_limited(exc: Exception) -> bool:
+    return "rate_limit_exceeded" in str(exc).lower()
+
+
+_INTENT_TERMS = frozenset(
+    {
+        "account",
+        "balance",
+        "backtest",
+        "cash",
+        "current",
+        "dataset",
+        "funds",
+        "headline",
+        "latest",
+        "margin",
+        "market",
+        "monitor",
+        "news",
+        "openalgo",
+        "order",
+        "orders",
+        "outlook",
+        "paper",
+        "performance",
+        "position",
+        "positions",
+        "price",
+        "quote",
+        "quotes",
+        "research",
+        "risk",
+        "scenario",
+        "share",
+        "status",
+        "stock",
+        "strategy",
+        "trade",
+        "trades",
+        "trading",
+    }
+)
+
+
+def _normalize_intent_text(message: str) -> str:
+    """Correct only close matches to known intent words, never entities."""
+    normalized = message.lower().replace("p&l", "performance")
+    aliases = {
+        "holdings": "positions",
+        "ltp": "price",
+        "quotation": "quote",
+        "rate": "price",
+    }
+
+    def normalize(match: re.Match[str]) -> str:
+        token = match.group(0)
+        if token in aliases:
+            return aliases[token]
+        if len(token) < 4 or token in _INTENT_TERMS:
+            return token
+        close = get_close_matches(token, _INTENT_TERMS, n=1, cutoff=0.8)
+        return close[0] if close else token
+
+    return re.sub(r"[a-z]+", normalize, normalized)
+
+
+def _contains_any_word(text: str, words: tuple[str, ...]) -> bool:
+    return any(
+        re.search(rf"\b{re.escape(word)}\b", text, flags=re.IGNORECASE)
+        for word in words
+    )
+
+
+def _openalgo_snapshot_types(text: str) -> list[str]:
+    categories = (
+        ("positionbook", ("position", "positions", "holding", "holdings")),
+        ("orderbook", ("orderbook", "open order", "orders", "order")),
+        ("tradebook", ("tradebook", "trades", "trade", "fills", "fill")),
+        (
+            "funds",
+            (
+                "funds",
+                "cash",
+                "balance",
+                "collateral",
+                "margin",
+                "available cash",
+            ),
+        ),
+    )
+    return [
+        snapshot_type
+        for snapshot_type, phrases in categories
+        if any(phrase in text for phrase in phrases)
+    ]
+
+
+def _is_sandbox_intent_request(text: str) -> bool:
+    return (
+        any(word in text for word in ("prepare", "create", "draft"))
+        and any(
+            phrase in text
+            for phrase in (
+                "sandbox order",
+                "paper order",
+                "paper trading order",
+                "openalgo intent",
+                "sandbox intent",
+            )
+        )
+    )
+
+
+def _is_market_price_request(text: str) -> bool:
+    return any(
+        phrase in text
+        for phrase in (
+            "price",
+            "market price",
+            "share price",
+            "stock price",
+            "trading price",
+            "current price",
+            "latest price",
+            "live price",
+            "quote",
+            "quotes",
+            "ltp",
+            "what price",
+            "what's price",
+            "whats price",
+        )
+    )
+
+
+def _is_market_outlook_request(text: str) -> bool:
+    """Recognize forward-looking research requests before model routing."""
+    return any(
+        phrase in text
+        for phrase in (
+            "expected to rise",
+            "expected to fall",
+            "likely to rise",
+            "likely to fall",
+            "stocks to buy",
+            "stocks to sell",
+            "stock picks",
+            "next week",
+            "next month",
+            "weekly outlook",
+        )
+    )
+
+
+def _market_outlook_symbol(message: str) -> str | None:
+    symbol = _symbol_from_text(message)
+    if symbol in {
+        "EXPECTED",
+        "LIKELY",
+        "MONTH",
+        "NEXT",
+        "RISE",
+        "SHOULD",
+        "STOCK",
+        "STOCKS",
+        "WEEK",
+        "WHICH",
+    }:
+        return None
+    return symbol
+
+
+def _market_outlook_query(message: str, symbol: str | None) -> str:
+    if symbol:
+        return f"{symbol} stock outlook"
+    # This query maps to Event Registry's India-market handling and avoids
+    # turning a request for a forward prediction into a synthetic stock pick.
+    return "NIFTY Indian stock market outlook"
+
+
+def _is_market_quote_follow_up(
+    text: str,
+    history: list[dict[str, str]],
+) -> bool:
+    if not any(
+        phrase in text
+        for phrase in ("and ", "what about", "how about", "then ")
+    ):
+        return False
+    previous = _last_user_message(history)
+    return previous is not None and _is_market_price_request(
+        _normalize_intent_text(previous)
+    )
+
+
+def _market_query_for_request(
+    message: str,
+    history: list[dict[str, str]],
+) -> str:
+    query = _market_query_from_text(message)
+    if query not in {"it", "its", "that", "this"}:
+        return query
+    previous = _last_user_message(history)
+    return _market_query_from_text(previous) if previous else query
+
+
+def _last_user_message(history: list[dict[str, str]]) -> str | None:
+    for item in reversed(history):
+        if item.get("role") == "user" and item.get("content"):
+            return str(item["content"])
+    return None
+
+
+def _market_query_from_text(message: str) -> str:
+    normalized_message = _normalize_intent_text(message)
+    without_request_words = re.sub(
+        r"\b(what|is|the|market|status|scenario|price|share|stock|current|"
+        r"latest|live|quote|quotes|ltp|rate|of|for|please|tell|me|whats|what's|"
+        r"and|about|how|then)\b",
+        " ",
+        normalized_message,
+        flags=re.IGNORECASE,
+    )
+    query = re.sub(r"\s+", " ", without_request_words).strip(" ?,.!:")
+    return query[:200] or message[:200]
 
 
 def _tool_arguments(raw_arguments: str | None) -> dict[str, Any]:
@@ -1048,6 +1462,16 @@ def _clean_identifier(value: str) -> str:
 
 
 def _strategy_from_text(text: str) -> str:
+    explicit = re.search(
+        r"\b(?:strategy(?:[_\s-]*name)?|plugin)\s*(?:[:=]|named)?\s*"
+        r"([a-z][a-z0-9_.-]{1,100})\b",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if explicit:
+        candidate = explicit.group(1).lower()
+        if candidate not in {"backtest", "run", "test", "strategy"}:
+            return candidate
     if "rsi" in text:
         return "rsi_mean_reversion"
     if "sma" in text:
@@ -1070,6 +1494,18 @@ def _persona_from_text(text: str) -> str | None:
 
 
 def _strategy_parameters(text: str, strategy_name: str) -> dict[str, Any]:
+    parameter_block = re.search(
+        r"\bparameters?\s*[:=]?\s*(\{.*\})",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if parameter_block:
+        try:
+            parsed = json.loads(parameter_block.group(1))
+        except json.JSONDecodeError:
+            parsed = None
+        if isinstance(parsed, dict):
+            return parsed
     numbers = [int(value) for value in re.findall(r"\b\d+\b", text)]
     if strategy_name in {"ema_crossover", "sma_crossover"} and len(numbers) >= 2:
         return {
@@ -1688,6 +2124,31 @@ def _grounded_fallback_response(
             f"Configured: {result['configured']}; live trading enabled: "
             f"{result['live_trading_enabled']}."
         )
+    if tool_name == "get_openalgo_snapshot":
+        snapshot_type = result.get("snapshot_type", "account")
+        data = result.get("data")
+        if snapshot_type == "funds" and isinstance(data, dict):
+            fields = [
+                f"{name}={data[name]}"
+                for name in (
+                    "availablecash",
+                    "collateral",
+                    "utiliseddebits",
+                    "m2munrealized",
+                    "m2mrealized",
+                )
+                if name in data
+            ]
+            return (
+                "OpenAlgo funds snapshot captured: "
+                f"{', '.join(fields) or 'no balance fields returned'}."
+            )
+        if isinstance(data, list):
+            return (
+                f"OpenAlgo {snapshot_type} snapshot captured with "
+                f"{len(data)} record(s)."
+            )
+        return f"OpenAlgo {snapshot_type} snapshot captured for audit."
     if tool_name == "search_instruments":
         return (
             f"OpenAlgo instrument search status: {result.get('status')}. "
@@ -1715,9 +2176,71 @@ def _grounded_fallback_response(
                 f"Market news unavailable: {result.get('message')}. "
                 "No fake news was generated."
             )
+        articles = result.get("articles", [])
+        if not articles:
+            return (
+                "I could not find recent provider-backed catalysts for that "
+                "outlook, so I will not label any stock as likely to rise next "
+                "week. Ask about a named stock for its current quote and news, "
+                "or run a backtest on a defined universe. "
+                f"Evidence: {result.get('fetch_id')}."
+            )
+        unique_headlines: list[str] = []
+        seen_titles: set[str] = set()
+        for item in articles:
+            if not isinstance(item, dict):
+                continue
+            title = str(item.get("title") or "Untitled").strip()
+            normalized_title = re.sub(r"\s+", " ", title.lower())
+            if normalized_title in seen_titles:
+                continue
+            seen_titles.add(normalized_title)
+            unique_headlines.append(
+                f"{title} ({item.get('source', 'source unavailable')})"
+            )
+            if len(unique_headlines) == 3:
+                break
+        headlines = "; ".join(unique_headlines)
         return (
-            f"Fetched {result.get('article_count', 0)} provider-backed "
-            f"market news article(s). Evidence: {result.get('fetch_id')}."
+            "This is a current catalyst snapshot, not a prediction of next "
+            "week's winners. The returned evidence does not support a "
+            "validated stock-level ranking. Recent provider-backed headlines: "
+            f"{headlines or 'none'}. "
+            f"Fetched {result.get('article_count', 0)} article(s). "
+            f"Evidence: {result.get('fetch_id')}."
+        )
+    if tool_name == "get_market_quote":
+        if not result.get("ok"):
+            return (
+                f"Market quote unavailable: "
+                f"{str(result.get('message') or '').rstrip('.')}. "
+                "No synthetic price was generated."
+            )
+        quote = result.get("quote", {})
+        fields = [
+            f"{field}={quote[field]}"
+            for field in (
+                "ltp",
+                "last_price",
+                "close",
+                "open",
+                "high",
+                "low",
+                "volume",
+                "timestamp",
+            )
+            if field in quote
+        ]
+        return (
+            f"Provider-backed quote for {result.get('resolved_symbol')} on "
+            f"{result.get('resolved_exchange')}: "
+            f"{', '.join(fields) or 'no quote fields returned'}."
+            + (
+                " Resolved from the local OpenAlgo master contract."
+                if result.get("instrument_resolution")
+                == "local_contract_fuzzy_match"
+                else ""
+            )
         )
     if tool_name == "list_strategy_personas":
         personas = result.get("personas", [])
