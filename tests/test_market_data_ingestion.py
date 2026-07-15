@@ -221,6 +221,236 @@ class MarketDataIngestionTest(unittest.TestCase):
             con.close()
         self.assertEqual(count, 0)
 
+    def test_point_in_time_features_drive_a_custom_strategy_without_lookahead(self) -> None:
+        ingestion = MarketDataIngestionService(self.db_path)
+        prices = ingestion.import_ohlcv(
+            dataset_id="reliance_feature_prices",
+            asset_class="equity",
+            symbol="RELIANCE",
+            exchange="NSE",
+            interval="5m",
+            candles=_candles(),
+            source_name="reliance_prices.json",
+        )
+        timestamps = [item["timestamp"] for item in _candles()]
+        features = ingestion.import_features(
+            dataset_id="reliance_news_features",
+            symbol="RELIANCE",
+            exchange="NSE",
+            observations=[
+                {
+                    "feature_name": "news_sentiment",
+                    "observed_at": timestamps[0],
+                    "available_at": timestamps[0],
+                    "value": -0.4,
+                    "metadata": {"provider": "local_archive"},
+                },
+                {
+                    "feature_name": "news_sentiment",
+                    "observed_at": timestamps[5],
+                    "available_at": timestamps[5],
+                    "value": 0.7,
+                    "metadata": {"provider": "local_archive"},
+                },
+                {
+                    "feature_name": "news_sentiment",
+                    "observed_at": timestamps[12],
+                    "available_at": timestamps[12],
+                    "value": -0.5,
+                    "metadata": {"provider": "local_archive"},
+                },
+            ],
+            source_name="reliance_news_features.json",
+        )
+        service = CustomStrategyService(self.db_path)
+        created = service.create_spec(
+            name="news_sentiment_breakout",
+            description="Trade only after published news sentiment improves.",
+            symbol="RELIANCE",
+            timeframe="5m",
+            indicators=[],
+            feature_inputs=[
+                {
+                    "name": "news_sentiment",
+                    "dataset_id": features["dataset_id"],
+                    "feature_name": "news_sentiment",
+                    "alignment": "asof",
+                    "max_age_hours": 1,
+                }
+            ],
+            entry_rules=[
+                {"left": "news_sentiment", "operator": ">", "right": 0.2}
+            ],
+            exit_rules=[
+                {"left": "news_sentiment", "operator": "<", "right": 0.0}
+            ],
+        )
+        result = service.run_backtest(
+            spec_id=created["spec_id"],
+            dataset_id=prices["dataset_id"],
+        )
+
+        con = connect(self.db_path)
+        try:
+            first_signal = con.execute(
+                """
+                SELECT min(timestamp)
+                FROM strategy_signals
+                WHERE run_id = ? AND signal_type = 'entry'
+                """,
+                [result["run_id"]],
+            ).fetchone()[0]
+            parameters = con.execute(
+                """
+                SELECT parameters_json
+                FROM strategy_runs
+                WHERE run_id = ?
+                """,
+                [result["run_id"]],
+            ).fetchone()[0]
+        finally:
+            con.close()
+
+        self.assertEqual(features["storage_table"], "market_features")
+        self.assertTrue(features["point_in_time_safe"])
+        self.assertEqual(created["status"], "draft_executable")
+        self.assertGreaterEqual(first_signal, timestamps[5])
+        self.assertIn("external_feature_lineage", parameters)
+
+    def test_feature_import_rejects_ambiguous_availability_time(self) -> None:
+        timestamp = datetime(2026, 1, 2, 9, 15)
+        with self.assertRaisesRegex(ValueError, "available_at"):
+            MarketDataIngestionService(self.db_path).import_features(
+                dataset_id="invalid_features",
+                symbol="RELIANCE",
+                exchange="NSE",
+                observations=[
+                    {
+                        "feature_name": "open_interest",
+                        "observed_at": timestamp,
+                        "available_at": timestamp - timedelta(minutes=1),
+                        "value": 100.0,
+                    }
+                ],
+                source_name="invalid_features.json",
+            )
+
+    def test_api_imports_feature_series_and_validates_feature_rule(self) -> None:
+        client = TestClient(
+            create_app(
+                AppConfig(
+                    database_path=self.db_path,
+                    artifacts_dir=self.root / "artifacts",
+                    openalgo_root=self.root,
+                )
+            )
+        )
+        timestamp = datetime(2026, 1, 2, 9, 15).isoformat()
+        imported = client.post(
+            "/datasets/features",
+            json={
+                "dataset_id": "api_open_interest",
+                "symbol": "RELIANCE",
+                "exchange": "NSE",
+                "observations": [
+                    {
+                        "feature_name": "open_interest",
+                        "observed_at": timestamp,
+                        "available_at": timestamp,
+                        "value": 125000,
+                    }
+                ],
+            },
+        )
+        validated = client.post(
+            "/custom-strategy-specs/validate",
+            json={
+                "name": "oi_rule",
+                "description": "Use imported open-interest observations.",
+                "symbol": "RELIANCE",
+                "timeframe": "5m",
+                "indicators": [],
+                "feature_inputs": [
+                    {
+                        "name": "open_interest",
+                        "dataset_id": "api_open_interest",
+                        "feature_name": "open_interest",
+                        "alignment": "asof",
+                        "max_age_hours": 1,
+                    }
+                ],
+                "entry_rules": [
+                    {"left": "open_interest", "operator": ">", "right": 100000}
+                ],
+                "exit_rules": [
+                    {"left": "open_interest", "operator": "<", "right": 100000}
+                ],
+            },
+        )
+
+        self.assertEqual(imported.status_code, 200)
+        self.assertTrue(imported.json()["audit_id"].startswith("audit_"))
+        self.assertEqual(validated.status_code, 200)
+        self.assertTrue(validated.json()["can_execute_without_new_code"])
+
+    def test_saved_feature_draft_becomes_executable_after_import(self) -> None:
+        service = CustomStrategyService(self.db_path)
+        created = service.create_spec(
+            name="late_feature_data",
+            description="Feature data can arrive after a draft is reviewed.",
+            symbol="RELIANCE",
+            timeframe="5m",
+            indicators=[],
+            feature_inputs=[
+                {
+                    "name": "earnings_surprise",
+                    "dataset_id": "reliance_earnings",
+                    "feature_name": "earnings_surprise",
+                    "alignment": "asof",
+                    "max_age_hours": 72,
+                }
+            ],
+            entry_rules=[
+                {"left": "earnings_surprise", "operator": ">", "right": 0}
+            ],
+            exit_rules=[
+                {"left": "earnings_surprise", "operator": "<", "right": 0}
+            ],
+        )
+        ingestion = MarketDataIngestionService(self.db_path)
+        prices = ingestion.import_ohlcv(
+            dataset_id="late_feature_prices",
+            asset_class="equity",
+            symbol="RELIANCE",
+            exchange="NSE",
+            interval="5m",
+            candles=_candles(),
+            source_name="late_feature_prices.json",
+        )
+        first_timestamp = _candles()[0]["timestamp"]
+        ingestion.import_features(
+            dataset_id="reliance_earnings",
+            symbol="RELIANCE",
+            exchange="NSE",
+            observations=[
+                {
+                    "feature_name": "earnings_surprise",
+                    "observed_at": first_timestamp,
+                    "available_at": first_timestamp,
+                    "value": 1.0,
+                }
+            ],
+            source_name="reliance_earnings.json",
+        )
+        result = service.run_backtest(
+            spec_id=created["spec_id"],
+            dataset_id=prices["dataset_id"],
+        )
+
+        self.assertEqual(created["status"], "requires_review")
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(service.get_spec(created["spec_id"])["status"], "draft_executable")
+
 
 class _AlwaysUnavailableReadiness:
     def readiness(self, **_: str) -> dict[str, object]:

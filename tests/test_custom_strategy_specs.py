@@ -91,7 +91,7 @@ class CustomStrategySpecTest(unittest.TestCase):
         self.assertIn("indicator", missing)
         self.assertIn("data_field", missing)
 
-    def test_unsupported_draft_response_names_its_governed_adapter_path(self) -> None:
+    def test_unsupported_draft_response_names_its_governed_feature_path(self) -> None:
         answer = grounded_tool_response(
             "create_custom_strategy_spec",
             {
@@ -106,9 +106,9 @@ class CustomStrategySpecTest(unittest.TestCase):
         )
 
         self.assertIn("not executable", answer)
-        self.assertIn("specialized options-chain data", answer)
-        self.assertIn("fundamentals adapter", answer)
-        self.assertIn("news/sentiment adapter", answer)
+        self.assertIn("/datasets/features", answer)
+        self.assertIn("fundamentals feature series", answer)
+        self.assertIn("news/sentiment numeric feature series", answer)
 
     def test_custom_strategy_tool_routes_and_stores_draft(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

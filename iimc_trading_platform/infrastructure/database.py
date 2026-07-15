@@ -179,6 +179,28 @@ def initialize_database(db_path: Path) -> None:
         )
         con.execute(
             """
+            CREATE TABLE IF NOT EXISTS market_features (
+                source_id VARCHAR NOT NULL,
+                symbol VARCHAR NOT NULL,
+                exchange VARCHAR NOT NULL,
+                feature_name VARCHAR NOT NULL,
+                observed_at TIMESTAMP NOT NULL,
+                available_at TIMESTAMP NOT NULL,
+                value DOUBLE NOT NULL,
+                metadata_json VARCHAR NOT NULL,
+                quality_status VARCHAR NOT NULL,
+                created_at TIMESTAMP NOT NULL,
+                PRIMARY KEY (
+                    source_id,
+                    feature_name,
+                    observed_at,
+                    available_at
+                )
+            )
+            """
+        )
+        con.execute(
+            """
             CREATE TABLE IF NOT EXISTS data_catalog (
                 dataset_id VARCHAR PRIMARY KEY,
                 data_domain VARCHAR NOT NULL,

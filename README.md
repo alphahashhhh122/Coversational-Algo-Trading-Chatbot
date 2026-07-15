@@ -26,7 +26,9 @@ by default, but can be explicitly enabled for approval-gated live order intents.
   EMA, SMA, RSI, ROC, ATR, VWAP, Bollinger, and MACD rules; unsupported
   primitives are reported for review rather than executed as arbitrary code.
   Rule definitions are editable JSON, validation-first, and support long or
-  short deterministic research positions.
+  short deterministic research positions. They can also consume named
+  point-in-time feature series, including IV/OI, earnings, fundamentals, and
+  news/sentiment values, without generated code.
 - Local governed OHLCV import for equity, index, futures, options, commodity,
   and crypto datasets, with candle validation, provenance hash, quality
   evidence, catalog visibility, and deterministic backtesting. Rich options
@@ -121,6 +123,20 @@ used by standard and governed custom-strategy backtests.
 Plain options OHLCV is supported here. IV, OI, expiry, strike, and
 option-surface research use the specialized options ingestion workflow; those
 fields are intentionally not inferred from plain candles.
+
+## Point-in-Time Feature Import
+
+Use **Data Catalog > Point-in-Time Feature Import** or `POST /datasets/features`
+to store any numeric feature series for a symbol and exchange. Each observation
+requires `feature_name`, `observed_at`, `available_at`, and `value`; optional
+metadata records source, revision, contract, or provider details. The platform
+only aligns a feature after `available_at`, never from future observations.
+
+Custom rule JSON declares each feature under `feature_inputs` with its dataset,
+stored feature name, `alignment: "asof"`, and a positive `max_age_hours`. This
+supports governed IV/OI, fundamentals, earnings, sentiment, and other numeric
+alternative data while preserving source hashes and feature lineage in every
+backtest manifest.
 
 ## Configuration
 

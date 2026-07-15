@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import json
 import hashlib
+import math
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -114,6 +115,16 @@ class BacktestService:
             window_start=window_start,
             window_end=window_end,
         )
+        feature_lineage = self._attach_rule_features(
+            dataset,
+            candles,
+            validated_parameters,
+        )
+        if feature_lineage:
+            validated_parameters = {
+                **validated_parameters,
+                "external_feature_lineage": feature_lineage,
+            }
         run_id = f"run_{uuid.uuid4().hex[:12]}"
         started_at = utc_now()
 
@@ -379,6 +390,147 @@ class BacktestService:
                 "window_end": window_end,
             },
             candles,
+        )
+
+    def _attach_rule_features(
+        self,
+        dataset: dict[str, Any],
+        candles: list[dict[str, Any]],
+        parameters: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        spec = parameters.get("spec")
+        if not isinstance(spec, dict):
+            return []
+        inputs = spec.get("feature_inputs") or []
+        if not inputs:
+            return []
+        if not isinstance(inputs, list):
+            raise ValueError("feature_inputs must be a list")
+
+        lineage: list[dict[str, Any]] = []
+        for input_spec in inputs:
+            if not isinstance(input_spec, dict):
+                raise ValueError("feature_inputs must contain objects")
+            name = input_spec.get("name")
+            feature_dataset_id = input_spec.get("dataset_id")
+            feature_name = input_spec.get("feature_name")
+            max_age_hours = input_spec.get("max_age_hours")
+            if not all(
+                isinstance(value, str) and value
+                for value in (name, feature_dataset_id, feature_name)
+            ):
+                raise ValueError("Feature input has an invalid mapping")
+            try:
+                max_age = timedelta(hours=float(max_age_hours))
+            except (OverflowError, TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"Feature input {name!r} requires max_age_hours"
+                ) from exc
+            if not math.isfinite(float(max_age_hours)) or max_age <= timedelta(0):
+                raise ValueError(
+                    f"Feature input {name!r} requires positive max_age_hours"
+                )
+            feature_dataset, observations = self._load_feature_observations(
+                feature_dataset_id,
+                feature_name,
+                dataset,
+            )
+            point = 0
+            latest: tuple[datetime, float] | None = None
+            matched = 0
+            for candle in candles:
+                timestamp = candle["timestamp"]
+                while (
+                    point < len(observations)
+                    and observations[point][0] <= timestamp
+                ):
+                    latest = observations[point]
+                    point += 1
+                if latest is None or timestamp - latest[0] > max_age:
+                    continue
+                candle.setdefault("features", {})[name] = latest[1]
+                matched += 1
+            if matched == 0:
+                raise ValueError(
+                    f"Feature input {name!r} has no point-in-time values "
+                    f"within its max_age_hours over the selected price dataset"
+                )
+            lineage.append(
+                {
+                    "name": name,
+                    "dataset_id": feature_dataset_id,
+                    "feature_name": feature_name,
+                    "source_id": feature_dataset["source_id"],
+                    "source_sha256": feature_dataset["source_sha256"],
+                    "alignment": "asof",
+                    "max_age_hours": float(max_age_hours),
+                    "aligned_candle_count": matched,
+                    "candle_count": len(candles),
+                    "coverage_pct": round(100 * matched / len(candles), 4),
+                }
+            )
+        return lineage
+
+    def _load_feature_observations(
+        self,
+        feature_dataset_id: str,
+        feature_name: str,
+        price_dataset: dict[str, Any],
+    ) -> tuple[dict[str, str], list[tuple[datetime, float]]]:
+        con = connect(self.db_path)
+        try:
+            dataset = con.execute(
+                """
+                SELECT c.symbol, c.exchange, c.storage_table, c.source_id,
+                       c.quality_status, r.sha256
+                FROM data_catalog AS c
+                JOIN raw_file_registry AS r ON r.source_id = c.source_id
+                WHERE c.dataset_id = ?
+                """,
+                [feature_dataset_id],
+            ).fetchone()
+            if dataset is None:
+                raise ValueError(
+                    f"Feature dataset not found: {feature_dataset_id}"
+                )
+            if dataset[2] != "market_features" or dataset[4] != "clean":
+                raise ValueError(
+                    f"Dataset {feature_dataset_id!r} is not a clean governed "
+                    "feature-series dataset"
+                )
+            if (
+                str(dataset[0]).upper() != str(price_dataset["symbol"]).upper()
+                or str(dataset[1]).upper()
+                != str(price_dataset["exchange"]).upper()
+            ):
+                raise ValueError(
+                    f"Feature dataset {feature_dataset_id!r} does not match "
+                    "the price dataset symbol and exchange"
+                )
+            rows = con.execute(
+                """
+                SELECT available_at, value
+                FROM market_features
+                WHERE source_id = ?
+                  AND feature_name = ?
+                  AND quality_status = 'clean'
+                ORDER BY available_at, observed_at
+                """,
+                [dataset[3], feature_name],
+            ).fetchall()
+        finally:
+            con.close()
+        if not rows:
+            raise ValueError(
+                f"Feature {feature_name!r} is not present in dataset "
+                f"{feature_dataset_id!r}"
+            )
+        return (
+            {
+                "source_id": str(dataset[3]),
+                "source_sha256": str(dataset[5]),
+            },
+            [(row[0], float(row[1])) for row in rows],
         )
 
     def _start_run(

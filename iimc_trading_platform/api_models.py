@@ -138,6 +138,29 @@ class LocalOhlcvDatasetInput(BaseModel):
     source_name: str = Field(default="local_ohlcv.json", min_length=1, max_length=200)
 
 
+class LocalFeatureObservationInput(BaseModel):
+    feature_name: str = Field(min_length=1, max_length=80)
+    observed_at: datetime
+    available_at: datetime
+    value: float
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class LocalFeatureDatasetInput(BaseModel):
+    dataset_id: str = Field(min_length=1, max_length=160)
+    symbol: str = Field(min_length=1, max_length=80)
+    exchange: str = Field(min_length=1, max_length=40)
+    observations: list[LocalFeatureObservationInput] = Field(
+        min_length=1,
+        max_length=250_000,
+    )
+    source_name: str = Field(
+        default="local_features.json",
+        min_length=1,
+        max_length=200,
+    )
+
+
 class CreatePortfolioRequest(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     starting_cash: float = Field(gt=0)

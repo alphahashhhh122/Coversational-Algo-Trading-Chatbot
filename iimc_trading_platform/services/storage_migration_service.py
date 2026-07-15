@@ -12,7 +12,7 @@ from typing import Any
 from ..db import connect
 
 
-ANALYTICAL_TABLES = {"market_ohlcv", "options_ohlcv"}
+ANALYTICAL_TABLES = {"market_features", "market_ohlcv", "options_ohlcv"}
 ARCHIVE_PREFIXES = ("legacy_",)
 
 
@@ -168,6 +168,10 @@ INDEXES: dict[str, list[tuple[str, ...]]] = {
     ],
     "job_runs": [("job_id", "started_at"), ("status", "started_at")],
     "market_news_articles": [("symbol", "retrieved_at"), ("sha256",)],
+    "market_features": [
+        ("symbol", "exchange", "feature_name", "available_at"),
+        ("source_id", "available_at"),
+    ],
     "market_news_fetches": [("provider", "retrieved_at")],
     "openalgo_snapshots": [("snapshot_type", "captured_at")],
     "operational_alerts": [("status", "severity", "last_seen_at")],

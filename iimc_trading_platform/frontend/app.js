@@ -39,6 +39,13 @@ const state = {
 const $ = (selector) => document.querySelector(selector);
 const DEFAULT_DASHBOARD_WIDGETS = ["research", "assets", "backtests", "openalgo", "risk", "execution"];
 
+function marketDatasets() {
+  return state.datasets.filter((dataset) => (
+    dataset.storage_table === "market_ohlcv"
+    || dataset.storage_table === "options_ohlcv"
+  ));
+}
+
 async function api(path, options = {}) {
   const authHeaders = state.token
     ? { Authorization: `Bearer ${state.token}` }
@@ -1104,7 +1111,7 @@ function renderExperiments() {
   strategySelect.innerHTML = state.strategies.map((strategy) => `
     <option value="${escapeHtml(strategy.name)}">${escapeHtml(strategy.name)}</option>
   `).join("");
-  datasetSelect.innerHTML = state.datasets.map((dataset) => `
+  datasetSelect.innerHTML = marketDatasets().map((dataset) => `
     <option value="${escapeHtml(dataset.dataset_id)}">${escapeHtml(dataset.dataset_id)}</option>
   `).join("");
   const table = $("#experiments-table");
@@ -1129,7 +1136,7 @@ function renderBacktestControls() {
   const datasetSelect = $("#backtest-dataset");
   const strategySelect = $("#backtest-strategy");
   if (!datasetSelect || !strategySelect) return;
-  datasetSelect.innerHTML = state.datasets.map((dataset) => `
+  datasetSelect.innerHTML = marketDatasets().map((dataset) => `
     <option value="${escapeHtml(dataset.dataset_id)}">${escapeHtml(dataset.dataset_id)}</option>
   `).join("");
   strategySelect.innerHTML = state.strategies.map((strategy) => `
@@ -1141,6 +1148,27 @@ function renderBacktestControls() {
 }
 
 function customStrategyTemplate(template) {
+  if (template === "external_feature") {
+    return {
+      indicators: [],
+      feature_inputs: [
+        {
+          name: "news_sentiment",
+          dataset_id: "replace_with_feature_dataset_id",
+          feature_name: "news_sentiment",
+          alignment: "asof",
+          max_age_hours: 24,
+        },
+      ],
+      entry_rules: [
+        { left: "news_sentiment", operator: ">", right: 0.2, joiner: "AND" },
+      ],
+      exit_rules: [
+        { left: "news_sentiment", operator: "<", right: 0, joiner: "OR" },
+      ],
+      risk: { max_position_size: 1, stop_loss_pct: 0.02, take_profit_pct: 0.05 },
+    };
+  }
   if (template === "sma_cross") {
     return {
       indicators: [
@@ -1283,7 +1311,7 @@ function renderCustomStrategyControls() {
   const specSelect = $("#custom-strategy-spec-select");
   if (!datasetSelect || !specSelect) return;
   const currentDataset = datasetSelect.value;
-  datasetSelect.innerHTML = state.datasets.map((dataset) => `
+  datasetSelect.innerHTML = marketDatasets().map((dataset) => `
     <option value="${escapeHtml(dataset.dataset_id)}">${escapeHtml(dataset.dataset_id)}</option>
   `).join("");
   if (currentDataset) datasetSelect.value = currentDataset;
@@ -2512,6 +2540,35 @@ async function submitOhlcvImport(event) {
   }
 }
 
+async function submitFeatureImport(event) {
+  event.preventDefault();
+  const button = $("#import-features");
+  const resultBox = $("#feature-import-result");
+  button.disabled = true;
+  resultBox.classList.remove("hidden");
+  try {
+    const observations = JSON.parse($("#feature-observations").value);
+    if (!Array.isArray(observations)) throw new Error("Observations must be a JSON array");
+    const result = await api("/datasets/features", {
+      method: "POST",
+      body: JSON.stringify({
+        dataset_id: $("#feature-dataset-id").value.trim(),
+        symbol: $("#feature-symbol").value.trim(),
+        exchange: $("#feature-exchange").value.trim(),
+        observations,
+      }),
+    });
+    resultBox.textContent = JSON.stringify(result, null, 2);
+    toast(`Imported ${result.row_count} point-in-time feature observations`);
+    await loadOverview();
+  } catch (error) {
+    resultBox.textContent = JSON.stringify({ ok: false, message: error.message }, null, 2);
+    toast(error.message);
+  } finally {
+    button.disabled = false;
+  }
+}
+
 function wireEvents() {
   document.querySelectorAll(".nav-item").forEach((button) => {
     button.addEventListener("click", () => setView(button.dataset.view));
@@ -2542,6 +2599,7 @@ function wireEvents() {
   });
   $("#knowledge-search-form").addEventListener("submit", submitKnowledgeSearch);
   $("#ohlcv-import-form").addEventListener("submit", submitOhlcvImport);
+  $("#feature-import-form").addEventListener("submit", submitFeatureImport);
   $("#login-form").addEventListener("submit", submitLogin);
   $("#logout-button").addEventListener("click", logout);
   $("#compare-runs").addEventListener("click", compareSelectedRuns);

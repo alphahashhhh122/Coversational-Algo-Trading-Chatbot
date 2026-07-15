@@ -31,6 +31,7 @@ class CustomStrategyService:
         indicators: list[dict[str, Any]],
         entry_rules: list[dict[str, Any]],
         exit_rules: list[dict[str, Any]],
+        feature_inputs: list[dict[str, Any]] | None = None,
         risk: dict[str, Any] | None = None,
         position_side: str = "long",
         created_by: str = "chat_user",
@@ -43,6 +44,7 @@ class CustomStrategyService:
             "indicators": indicators,
             "entry_rules": entry_rules,
             "exit_rules": exit_rules,
+            "feature_inputs": feature_inputs or [],
             "risk": risk or {},
             "position_side": position_side.lower(),
         }
@@ -118,11 +120,27 @@ class CustomStrategyService:
                         "specialized options ingestion workflow."
                     ),
                 },
+                "governed_feature_series": {
+                    "supported": True,
+                    "storage_path": "market_features",
+                    "point_in_time_alignment": "asof only",
+                    "required_feature_input": [
+                        "name",
+                        "dataset_id",
+                        "feature_name",
+                        "max_age_hours",
+                    ],
+                    "examples": [
+                        "iv_skew",
+                        "open_interest",
+                        "earnings_surprise",
+                        "news_sentiment",
+                    ],
+                },
                 "unsupported_without_new_implementation": [
                     "arbitrary Python or generated strategy code",
-                    "IV/OI/option-surface indicator rules from plain OHLCV",
-                    "fundamental, news, or alternative-data rules without "
-                    "an explicit governed feature adapter",
+                    "raw unstructured documents without a governed numeric "
+                    "feature transform",
                 ],
             },
         }
@@ -176,7 +194,9 @@ class CustomStrategyService:
         slippage_bps: float = 0.0,
     ) -> dict[str, Any]:
         record = self.get_spec(spec_id)
-        validation = record["validation"]
+        validation = self._validate_spec(record["spec"])
+        if validation != record["validation"]:
+            self._refresh_validation(spec_id, validation)
         if validation["missing_capabilities"]:
             raise ValueError(
                 "Custom strategy spec requires review before execution: "
@@ -203,7 +223,70 @@ class CustomStrategyService:
         }
 
     def _validate_spec(self, spec: dict[str, Any]) -> dict[str, Any]:
-        return validate_rule_spec(spec)
+        validation = validate_rule_spec(spec)
+        missing = list(validation["missing_capabilities"])
+        for feature in validation.get("external_feature_inputs", []):
+            dataset_id = feature.get("dataset_id")
+            if not isinstance(dataset_id, str) or not dataset_id:
+                continue
+            if not self._feature_dataset_exists(dataset_id):
+                missing.append(
+                    {
+                        "kind": "feature_dataset",
+                        "value": dataset_id,
+                        "reason": "Import this governed feature-series dataset before execution.",
+                    }
+                )
+        return {
+            **validation,
+            "well_formed": not missing,
+            "missing_capabilities": missing,
+            "requires_human_review": bool(missing),
+            "can_execute_without_new_code": not missing,
+        }
+
+    def _feature_dataset_exists(self, dataset_id: str) -> bool:
+        con = connect(self.db_path)
+        try:
+            row = con.execute(
+                """
+                SELECT 1
+                FROM data_catalog
+                WHERE dataset_id = ?
+                  AND storage_table = 'market_features'
+                  AND quality_status = 'clean'
+                """,
+                [dataset_id],
+            ).fetchone()
+        finally:
+            con.close()
+        return row is not None
+
+    def _refresh_validation(
+        self,
+        spec_id: str,
+        validation: dict[str, Any],
+    ) -> None:
+        missing = validation["missing_capabilities"]
+        con = connect(self.db_path)
+        try:
+            con.execute(
+                """
+                UPDATE custom_strategy_specs
+                SET status = ?, validation_json = ?, missing_capabilities_json = ?,
+                    updated_at = ?
+                WHERE spec_id = ?
+                """,
+                [
+                    "draft_executable" if not missing else "requires_review",
+                    json.dumps(validation, sort_keys=True),
+                    json.dumps(missing, sort_keys=True),
+                    utc_now(),
+                    spec_id,
+                ],
+            )
+        finally:
+            con.close()
 
     def validate_spec(
         self,
@@ -215,6 +298,7 @@ class CustomStrategyService:
         indicators: list[dict[str, Any]],
         entry_rules: list[dict[str, Any]],
         exit_rules: list[dict[str, Any]],
+        feature_inputs: list[dict[str, Any]] | None = None,
         risk: dict[str, Any] | None = None,
         position_side: str = "long",
     ) -> dict[str, Any]:
@@ -226,6 +310,7 @@ class CustomStrategyService:
             "indicators": indicators,
             "entry_rules": entry_rules,
             "exit_rules": exit_rules,
+            "feature_inputs": feature_inputs or [],
             "risk": risk or {},
             "position_side": position_side.lower(),
         }

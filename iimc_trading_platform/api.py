@@ -22,6 +22,7 @@ from .api_models import (
     CustomStrategyBacktestRequest,
     DashboardPreferencesRequest,
     LoginRequest,
+    LocalFeatureDatasetInput,
     LocalOhlcvDatasetInput,
     PortfolioControlRequest,
     PortfolioFillRequest,
@@ -1027,6 +1028,33 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 "asset_class": result["asset_class"],
                 "row_count": result["row_count"],
                 "source_sha256": result["source_sha256"],
+            },
+        )
+        return {**result, "audit_id": audit.audit_id}
+
+    @app.post("/datasets/features")
+    def import_local_feature_dataset(
+        request: LocalFeatureDatasetInput,
+        principal: Principal = Depends(researcher),
+    ) -> dict[str, Any]:
+        try:
+            result = market_data_ingestion_service.import_features(
+                **request.model_dump(),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        audit = AuditService(
+            DuckDBAuditRepository(active_config.database_path)
+        ).record(
+            entity_type="dataset",
+            entity_id=result["dataset_id"],
+            action="local_feature_series_imported",
+            actor=principal.username,
+            payload={
+                "feature_names": result["feature_names"],
+                "row_count": result["row_count"],
+                "source_sha256": result["source_sha256"],
+                "point_in_time_safe": True,
             },
         )
         return {**result, "audit_id": audit.audit_id}

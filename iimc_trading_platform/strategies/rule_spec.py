@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+import re
 from typing import Any
 
 from ..domain import SignalDirection
@@ -29,6 +31,7 @@ SUPPORTED_OPERATORS = {
     "crosses_below",
 }
 SUPPORTED_DATA_FIELDS = {"open", "high", "low", "close", "volume", "price"}
+_FEATURE_REFERENCE_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,79}$")
 
 
 def rule_spec_capabilities() -> dict[str, Any]:
@@ -42,6 +45,17 @@ def rule_spec_capabilities() -> dict[str, Any]:
             "stop_loss_pct",
             "take_profit_pct",
         ],
+        "external_feature_inputs": {
+            "supported": True,
+            "contract": {
+                "name": "strategy reference name",
+                "dataset_id": "governed feature-series dataset",
+                "feature_name": "stored numeric feature name",
+                "alignment": "asof",
+                "max_age_hours": "positive point-in-time freshness limit",
+            },
+            "examples": ["iv_skew", "open_interest", "earnings_surprise", "news_sentiment"],
+        },
         "execution_policy": (
             "Native deterministic rule-spec execution only; unsupported "
             "primitives are preserved for review and never executed as code."
@@ -170,6 +184,22 @@ def validate_rule_spec(spec: dict[str, Any]) -> dict[str, Any]:
     refs = set(SUPPORTED_DATA_FIELDS)
     max_period = 1
     seen_refs: set[str] = set()
+    feature_inputs = _feature_inputs(spec, missing)
+    for feature in feature_inputs:
+        reference = feature.get("name")
+        if not isinstance(reference, str):
+            continue
+        if reference in seen_refs or reference in SUPPORTED_DATA_FIELDS:
+            missing.append(
+                {
+                    "kind": "feature_reference",
+                    "value": reference,
+                    "reason": "Feature input names must be unique and not shadow OHLCV fields.",
+                }
+            )
+            continue
+        seen_refs.add(reference)
+        refs.add(reference)
 
     position_side = str(spec.get("position_side", "long")).lower()
     if position_side not in {"long", "short"}:
@@ -181,14 +211,6 @@ def validate_rule_spec(spec: dict[str, Any]) -> dict[str, Any]:
             }
         )
 
-    if not indicators:
-        missing.append(
-            {
-                "kind": "indicator",
-                "value": "none",
-                "reason": "At least one indicator is required.",
-            }
-        )
     if not entry_rules:
         missing.append(
             {
@@ -208,7 +230,7 @@ def validate_rule_spec(spec: dict[str, Any]) -> dict[str, Any]:
 
     for indicator in indicators:
         indicator_type = str(indicator.get("type", "")).upper()
-        source = str(indicator.get("source", "close")).lower()
+        source = _reference_name(indicator.get("source", "close"))
         period = int(indicator.get("period") or 1)
         fast_period = int(indicator.get("fast_period") or 12)
         slow_period = int(indicator.get("slow_period") or 26)
@@ -221,12 +243,12 @@ def validate_rule_spec(spec: dict[str, Any]) -> dict[str, Any]:
                     "reason": "Indicator is not supported by the rule-spec runtime.",
                 }
             )
-        if source not in SUPPORTED_DATA_FIELDS:
+        if source not in refs:
             missing.append(
                 {
                     "kind": "data_field",
                     "value": source,
-                    "reason": "Required source field is not in supported OHLCV fields.",
+                    "reason": "Required source field is not an OHLCV field or declared feature input.",
                 }
             )
         if indicator_type in SUPPORTED_INDICATORS and period < 1:
@@ -274,7 +296,7 @@ def validate_rule_spec(spec: dict[str, Any]) -> dict[str, Any]:
         for side in ("left", "right"):
             value = rule.get(side)
             if isinstance(value, str) and not _is_numeric(value):
-                ref = value.lower() if value.lower() in SUPPORTED_DATA_FIELDS else value
+                ref = _reference_name(value)
                 if ref not in refs:
                     missing.append(
                         {
@@ -289,6 +311,7 @@ def validate_rule_spec(spec: dict[str, Any]) -> dict[str, Any]:
         "supported_indicators": sorted(SUPPORTED_INDICATORS),
         "supported_operators": sorted(SUPPORTED_OPERATORS),
         "supported_data_fields": sorted(SUPPORTED_DATA_FIELDS),
+        "external_feature_inputs": feature_inputs,
         "supported_position_sides": ["long", "short"],
         "indicator_refs": sorted(ref for ref in refs if ref not in SUPPORTED_DATA_FIELDS),
         "missing_capabilities": missing,
@@ -308,10 +331,20 @@ def _build_reference_series(
     }
     refs["close"] = [float(candle.get("close", candle["price"])) for candle in candles]
     refs["price"] = [float(candle["price"]) for candle in candles]
+    for feature in spec.get("feature_inputs") or []:
+        if not isinstance(feature, dict):
+            continue
+        name = feature.get("name")
+        if not isinstance(name, str):
+            continue
+        refs[name] = [
+            float(candle.get("features", {}).get(name, math.nan))
+            for candle in candles
+        ]
 
     for indicator in spec.get("indicators") or []:
         indicator_type = str(indicator["type"]).upper()
-        source = str(indicator.get("source", "close")).lower()
+        source = _reference_name(indicator.get("source", "close"))
         period = int(indicator.get("period") or 1)
         source_values = refs[source]
         if indicator_type == "EMA":
@@ -412,8 +445,7 @@ def _value(value: Any, refs: dict[str, list[float]], index: int) -> float:
         return float(value)
     if isinstance(value, str) and _is_numeric(value):
         return float(value)
-    key = str(value)
-    key = key.lower() if key.lower() in SUPPORTED_DATA_FIELDS else key
+    key = _reference_name(value)
     return float(refs[key][index])
 
 
@@ -438,7 +470,7 @@ def _rule_features(
         for side in ("left", "right"):
             value = rule.get(side)
             if isinstance(value, str) and not _is_numeric(value):
-                key = value.lower() if value.lower() in SUPPORTED_DATA_FIELDS else value
+                key = _reference_name(value)
                 if key in refs:
                     features[key] = refs[key][index]
     return features
@@ -501,6 +533,102 @@ def _is_numeric(value: str) -> bool:
     except ValueError:
         return False
     return True
+
+
+def _reference_name(value: Any) -> str:
+    reference = str(value)
+    return (
+        reference.lower()
+        if reference.lower() in SUPPORTED_DATA_FIELDS
+        else reference
+    )
+
+
+def _feature_inputs(
+    spec: dict[str, Any],
+    missing: list[dict[str, str]],
+) -> list[dict[str, Any]]:
+    raw_inputs = spec.get("feature_inputs") or []
+    if not isinstance(raw_inputs, list):
+        missing.append(
+            {
+                "kind": "feature_inputs",
+                "value": str(raw_inputs),
+                "reason": "feature_inputs must be a list of governed feature mappings.",
+            }
+        )
+        return []
+    normalized: list[dict[str, Any]] = []
+    for index, raw in enumerate(raw_inputs):
+        if not isinstance(raw, dict):
+            missing.append(
+                {
+                    "kind": "feature_input",
+                    "value": str(raw),
+                    "reason": "Each feature input must be an object.",
+                }
+            )
+            continue
+        name = raw.get("name")
+        dataset_id = raw.get("dataset_id")
+        feature_name = raw.get("feature_name")
+        alignment = str(raw.get("alignment", "asof")).lower()
+        max_age_hours = raw.get("max_age_hours")
+        if not isinstance(name, str) or not _FEATURE_REFERENCE_PATTERN.fullmatch(name):
+            missing.append(
+                {
+                    "kind": "feature_name",
+                    "value": str(name),
+                    "reason": "Feature input name must be an identifier using letters, numbers, and underscores.",
+                }
+            )
+        if not isinstance(dataset_id, str) or not dataset_id.strip():
+            missing.append(
+                {
+                    "kind": "feature_dataset",
+                    "value": str(dataset_id),
+                    "reason": "Feature inputs require a governed dataset_id.",
+                }
+            )
+        if not isinstance(feature_name, str) or not _FEATURE_REFERENCE_PATTERN.fullmatch(feature_name):
+            missing.append(
+                {
+                    "kind": "feature_source",
+                    "value": str(feature_name),
+                    "reason": "feature_name must identify a stored numeric feature.",
+                }
+            )
+        if alignment != "asof":
+            missing.append(
+                {
+                    "kind": "feature_alignment",
+                    "value": alignment,
+                    "reason": "Only point-in-time asof feature alignment is supported.",
+                }
+            )
+        try:
+            normalized_age = float(max_age_hours)
+        except (TypeError, ValueError):
+            normalized_age = 0.0
+        if not math.isfinite(normalized_age) or normalized_age <= 0:
+            missing.append(
+                {
+                    "kind": "feature_freshness",
+                    "value": str(max_age_hours),
+                    "reason": "Feature inputs require a positive max_age_hours limit.",
+                }
+            )
+        normalized.append(
+            {
+                "name": name,
+                "dataset_id": dataset_id,
+                "feature_name": feature_name,
+                "alignment": alignment,
+                "max_age_hours": normalized_age,
+                "index": index,
+            }
+        )
+    return normalized
 
 
 def _ema(prices: list[float], period: int) -> list[float]:

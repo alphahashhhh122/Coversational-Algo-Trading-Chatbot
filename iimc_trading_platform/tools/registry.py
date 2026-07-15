@@ -65,7 +65,7 @@ class CustomIndicatorSpec(ToolInput):
     name: str | None = Field(default=None, min_length=1, max_length=80)
     type: str = Field(min_length=1, max_length=40)
     period: int | None = Field(default=None, ge=1, le=10_000)
-    source: str = Field(default="close", min_length=1, max_length=40)
+    source: str = Field(default="close", min_length=1, max_length=80)
     fast_period: int | None = Field(default=None, ge=1, le=10_000)
     slow_period: int | None = Field(default=None, ge=1, le=10_000)
     signal_period: int | None = Field(default=None, ge=1, le=10_000)
@@ -85,12 +85,21 @@ class CustomStrategyRiskSpec(ToolInput):
     take_profit_pct: float | None = Field(default=None, ge=0, le=10)
 
 
+class CustomFeatureInput(ToolInput):
+    name: str = Field(min_length=1, max_length=80)
+    dataset_id: str = Field(min_length=1, max_length=160)
+    feature_name: str = Field(min_length=1, max_length=80)
+    alignment: Literal["asof"] = "asof"
+    max_age_hours: float = Field(gt=0, le=8_760)
+
+
 class CreateCustomStrategySpecInput(ToolInput):
     name: str = Field(min_length=1, max_length=120)
     description: str = Field(min_length=1, max_length=1000)
     symbol: str = Field(min_length=1, max_length=80)
     timeframe: str = Field(min_length=1, max_length=20)
-    indicators: list[CustomIndicatorSpec] = Field(min_length=1, max_length=12)
+    indicators: list[CustomIndicatorSpec] = Field(default_factory=list, max_length=12)
+    feature_inputs: list[CustomFeatureInput] = Field(default_factory=list, max_length=24)
     entry_rules: list[CustomRuleSpec] = Field(min_length=1, max_length=12)
     exit_rules: list[CustomRuleSpec] = Field(min_length=1, max_length=12)
     risk: CustomStrategyRiskSpec = Field(default_factory=CustomStrategyRiskSpec)

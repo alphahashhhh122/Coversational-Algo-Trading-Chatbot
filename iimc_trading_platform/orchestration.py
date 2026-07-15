@@ -1717,8 +1717,9 @@ def _grounded_fallback_response(
             f"position sides: {', '.join(result.get('supported_position_sides', []))}; "
             "and OHLCV backtests for "
             f"{', '.join(rule_data.get('supported_asset_classes', []))}. "
-            "The capability response identifies data that needs a governed "
-            "adapter before it can be used in a rule."
+            "Numeric external data can be imported as governed point-in-time "
+            "feature series and declared in feature_inputs before it is used "
+            "in a rule."
         )
     if tool_name == "create_custom_strategy_spec":
         missing = result.get("missing_capabilities", [])
@@ -1733,7 +1734,7 @@ def _grounded_fallback_response(
                 f"Stored custom strategy draft {result['spec_id']} for review. "
                 "It is not executable by the native rule runtime because it "
                 f"requires: {missing_values or 'unsupported primitives'}. "
-                f"Next governed adapter: {guidance}"
+                f"Next governed data step: {guidance}"
             )
         return (
             f"Stored executable custom strategy draft {result['spec_id']}. "
@@ -1756,27 +1757,27 @@ def _missing_capability_guidance(
     guidance: list[str] = []
     if any(token in values for token in ("iv", "skew", "oi", "open_interest")):
         guidance.append(
-            "ingest specialized options-chain data with point-in-time IV/OI, "
-            "expiry, strike, and provenance, then add a governed options "
-            "feature adapter"
+            "import a point-in-time numeric feature series through "
+            "/datasets/features, then declare it in feature_inputs with an "
+            "asof freshness limit"
         )
     if any(
         token in values
         for token in ("earnings", "fundamental", "edgar", "quandl")
     ):
         guidance.append(
-            "add a point-in-time fundamentals adapter with source timestamps, "
-            "revision handling, and an explicit feature contract"
+            "import a point-in-time fundamentals feature series with source "
+            "timestamps and revision metadata, then declare it in feature_inputs"
         )
     if any(token in values for token in ("news", "sentiment", "newsapi")):
         guidance.append(
-            "add a provider-backed news/sentiment adapter with archived source "
-            "responses, timestamps, and an explicit feature contract"
+            "import an archived news/sentiment numeric feature series with "
+            "availability timestamps, then declare it in feature_inputs"
         )
     if not guidance:
         guidance.append(
-            "add a governed feature adapter with validated source data, "
-            "provenance, and a deterministic runtime implementation"
+            "import a governed numeric feature series with provenance and "
+            "availability timestamps, then declare it in feature_inputs"
         )
     return "; ".join(guidance)
 

@@ -322,6 +322,7 @@
                 <option value="macd">MACD crossover</option>
                 <option value="bollinger">Bollinger mid-band</option>
                 <option value="vwap">VWAP crossover</option>
+                <option value="external_feature">External feature signal</option>
               </select>
             </label>
             <label>
@@ -511,6 +512,22 @@
             <button type="submit" class="primary-button" id="import-ohlcv">Import OHLCV</button>
           </form>
           <pre class="json-view hidden" id="ohlcv-import-result"></pre>
+        </section>
+        <section class="rag-panel">
+          <div class="section-heading">
+            <div>
+              <h2>Point-in-Time Feature Import</h2>
+              <p>Import numeric IV/OI, fundamentals, sentiment, or alternative-data features with observed and available timestamps.</p>
+            </div>
+          </div>
+          <form class="knowledge-search-form" id="feature-import-form">
+            <label><span>Dataset ID</span><input id="feature-dataset-id" required></label>
+            <label><span>Symbol</span><input id="feature-symbol" required></label>
+            <label><span>Exchange</span><input id="feature-exchange" required></label>
+            <label class="experiment-grid-input"><span>Observations (JSON array)</span><textarea id="feature-observations" rows="7" required></textarea></label>
+            <button type="submit" class="primary-button" id="import-features">Import feature series</button>
+          </form>
+          <pre class="json-view hidden" id="feature-import-result"></pre>
         </section>
         <div class="dataset-list" id="dataset-list"></div>
         <section class="rag-panel">
