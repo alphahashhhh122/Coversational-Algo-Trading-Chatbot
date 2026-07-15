@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import threading
 import unittest
+from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -497,6 +498,58 @@ class SandboxExecutionTest(unittest.TestCase):
                 strategy_name="IIMC_Demo",
             )
 
+    def test_intent_symbol_must_match_the_risk_approved_symbol(self) -> None:
+        service = SandboxExecutionService(
+            self.db_path,
+            self.audit,
+            FakeSandboxBroker(),
+        )
+
+        with self.assertRaisesRegex(ValueError, "does not match the risk-approved"):
+            service.prepare_intent(
+                decision_id=self.decision_id,
+                symbol="RELIANCE",
+                exchange="NSE",
+                side="BUY",
+                product="MIS",
+                order_type="MARKET",
+                quantity=1,
+                strategy_name="IIMC_Demo",
+            )
+
+    def test_paper_intent_refuses_a_stale_strategy_signal(self) -> None:
+        timestamp = datetime.utcnow() - timedelta(minutes=21)
+        con = connect(self.db_path)
+        try:
+            con.execute(
+                """
+                INSERT INTO strategy_signals VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    "sig_sandbox",
+                    "run_sandbox",
+                    timestamp,
+                    "NHPC",
+                    "entry",
+                    "long",
+                    1.0,
+                    "Test signal",
+                    "{}",
+                    timestamp,
+                ],
+            )
+        finally:
+            con.close()
+        service = SandboxExecutionService(
+            self.db_path,
+            self.audit,
+            FakeSandboxBroker(),
+            max_signal_age_minutes=20,
+        )
+
+        with self.assertRaisesRegex(ValueError, "freshness window"):
+            self._prepare(service)
+
     def test_llm_tool_registry_cannot_approve_or_submit_requests(self) -> None:
         names = {
             tool["name"]
@@ -523,6 +576,7 @@ class SandboxExecutionTest(unittest.TestCase):
             artifacts_dir=Path(self.temp_dir.name) / "artifacts",
             openalgo_root=Path(self.temp_dir.name),
             openalgo_api_key="configured",
+            paper_signal_max_age_minutes=0,
         )
         config.artifacts_dir.mkdir()
         with patch(

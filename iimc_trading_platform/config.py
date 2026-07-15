@@ -42,10 +42,13 @@ class AppConfig:
     market_news_timeout_seconds: float = 10.0
     market_news_max_articles: int = 10
     require_paper_approval: bool = False
+    paper_signal_max_age_minutes: int = 20
 
     def __post_init__(self) -> None:
         if not 0.0 <= self.otel_sample_ratio <= 1.0:
             raise ValueError("otel_sample_ratio must be between 0 and 1")
+        if self.paper_signal_max_age_minutes < 0:
+            raise ValueError("paper_signal_max_age_minutes must be non-negative")
 
 
 def load_config() -> AppConfig:
@@ -131,6 +134,9 @@ def load_config() -> AppConfig:
             "IIMC_REQUIRE_PAPER_APPROVAL", "false"
         ).lower()
         in {"1", "true", "yes"},
+        paper_signal_max_age_minutes=int(
+            os.getenv("IIMC_PAPER_SIGNAL_MAX_AGE_MINUTES", "20")
+        ),
     )
 
 
@@ -173,6 +179,7 @@ def public_config(config: AppConfig) -> dict[str, object]:
         "market_news_api_key_configured": bool(config.market_news_api_key),
         "market_news_max_articles": config.market_news_max_articles,
         "require_paper_approval": config.require_paper_approval,
+        "paper_signal_max_age_minutes": config.paper_signal_max_age_minutes,
     }
 
 

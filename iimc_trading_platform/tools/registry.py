@@ -498,6 +498,7 @@ def build_default_tool_registry(
         None,
         require_approval=active_config.require_paper_approval,
         allow_live_trading=active_config.allow_live_trading,
+        max_signal_age_minutes=active_config.paper_signal_max_age_minutes,
     )
 
     def run_backtest_tool(value: ToolInput) -> dict[str, Any]:
@@ -1258,6 +1259,7 @@ def build_default_tool_registry(
             OpenAlgoClient(openalgo_base_url, openalgo_api_key),
             require_approval=active_config.require_paper_approval,
             allow_live_trading=active_config.allow_live_trading,
+            max_signal_age_minutes=active_config.paper_signal_max_age_minutes,
         )
         snapshots = OpenAlgoSnapshotService(
             db_path,

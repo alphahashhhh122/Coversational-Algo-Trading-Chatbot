@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -42,6 +43,7 @@ class SandboxExecutionService:
         require_approval: bool = False,
         allow_live_trading: bool = False,
         provider_readiness: Callable[[], dict[str, Any]] | None = None,
+        max_signal_age_minutes: int | None = None,
     ) -> None:
         self.db_path = db_path
         self.audit = audit_service
@@ -49,6 +51,7 @@ class SandboxExecutionService:
         self.require_approval = require_approval
         self.allow_live_trading = allow_live_trading
         self.provider_readiness = provider_readiness
+        self.max_signal_age_minutes = max_signal_age_minutes
         self.orders = OrderService(db_path)
 
     def prepare_intent(
@@ -71,6 +74,7 @@ class SandboxExecutionService:
         order_type = order_type.upper()
         product = product.upper()
         exchange = exchange.upper()
+        symbol = symbol.strip().upper()
         if execution_mode not in {ExecutionMode.SEMI_AUTO, ExecutionMode.LIVE}:
             raise ValueError("Order intents support semi_auto or live mode")
         is_live = execution_mode == ExecutionMode.LIVE
@@ -84,12 +88,31 @@ class SandboxExecutionService:
             raise ValueError("Unsupported product")
         if quantity <= 0:
             raise ValueError("quantity must be positive")
-        if order_type in {"LIMIT", "SL"} and not limit_price:
+        if order_type in {"LIMIT", "SL"} and not _valid_positive_price(limit_price):
             raise ValueError(f"{order_type} requires limit_price")
-        if order_type in {"SL", "SL-M"} and not trigger_price:
+        if order_type in {"SL", "SL-M"} and not _valid_positive_price(trigger_price):
             raise ValueError(f"{order_type} requires trigger_price")
 
         risk = self._approved_risk_decision(decision_id, execution_mode)
+        approved_symbol = risk["symbol"]
+        if symbol != approved_symbol:
+            raise ValueError(
+                "Intent symbol does not match the risk-approved symbol "
+                f"({approved_symbol})"
+            )
+        expected_exchange = self._run_exchange(risk["run_id"])
+        if expected_exchange is not None and exchange != expected_exchange:
+            raise ValueError(
+                "Intent exchange does not match the backtest dataset exchange "
+                f"({expected_exchange})"
+            )
+        expected_side = risk.get("expected_side")
+        if expected_side is not None and side != expected_side:
+            raise ValueError(
+                "Intent side does not match the risk-approved signal side "
+                f"({expected_side})"
+            )
+        self._assert_signal_is_current(risk)
         if quantity > int(risk["approved_quantity"]):
             raise ValueError(
                 "Intent quantity exceeds the risk-approved quantity"
@@ -748,6 +771,14 @@ class SandboxExecutionService:
         if row[2] is not True:
             raise ValueError("Risk decision was rejected")
         checks = json.loads(row[4])
+        approved_symbol = str(
+            checks.get("symbol_check", {}).get("symbol") or ""
+        ).upper()
+        if not approved_symbol:
+            raise ValueError(
+                "Risk decision has no approved symbol scope and cannot be "
+                "used for an order intent"
+            )
         evaluated_mode = (
             checks.get("execution_mode_check", {}).get("mode")
         )
@@ -756,13 +787,78 @@ class SandboxExecutionService:
                 f"{execution_mode.value} order intents require a risk "
                 f"decision evaluated in {execution_mode.value} mode"
             )
+        signal_scope = self._signal_scope(row[1])
+        signal_symbol = signal_scope.get("signal_symbol")
+        if signal_symbol is not None and signal_symbol != approved_symbol:
+            raise ValueError(
+                "Risk decision symbol scope does not match its persisted "
+                "strategy signal"
+            )
         return {
             "run_id": row[0],
             "signal_id": row[1],
+            "symbol": approved_symbol,
             "approved_quantity": row[3],
             "checks": checks,
             "risk_policy_version": row[5],
+            **signal_scope,
         }
+
+    def _signal_scope(self, signal_id: str) -> dict[str, Any]:
+        con = connect(self.db_path)
+        try:
+            row = con.execute(
+                """
+                SELECT timestamp, symbol, signal_type, direction
+                FROM strategy_signals
+                WHERE signal_id = ?
+                """,
+                [signal_id],
+            ).fetchone()
+        finally:
+            con.close()
+        if row is None:
+            return {}
+        signal_type = str(row[2]).lower()
+        return {
+            "signal_timestamp": row[0],
+            "signal_symbol": str(row[1]).upper(),
+            "expected_side": "BUY" if signal_type == "entry" else "SELL",
+        }
+
+    def _assert_signal_is_current(self, risk: dict[str, Any]) -> None:
+        if self.max_signal_age_minutes is None or self.max_signal_age_minutes == 0:
+            return
+        signal_timestamp = risk.get("signal_timestamp")
+        if not isinstance(signal_timestamp, datetime):
+            raise ValueError(
+                "Paper intent requires a persisted current strategy signal; "
+                "run the strategy on freshly imported market data first"
+            )
+        age_seconds = (utc_now() - signal_timestamp).total_seconds()
+        if age_seconds < -60 or age_seconds > self.max_signal_age_minutes * 60:
+            raise ValueError(
+                "Risk-approved signal is outside the paper-trading freshness "
+                f"window ({self.max_signal_age_minutes} minutes); refresh "
+                "OpenAlgo history and run the strategy again"
+            )
+
+    def _run_exchange(self, run_id: str) -> str | None:
+        """Return the governed dataset exchange when this is a stored backtest run."""
+        con = connect(self.db_path)
+        try:
+            row = con.execute(
+                """
+                SELECT c.exchange
+                FROM strategy_runs AS r
+                JOIN data_catalog AS c ON c.dataset_id = r.dataset_id
+                WHERE r.run_id = ?
+                """,
+                [run_id],
+            ).fetchone()
+        finally:
+            con.close()
+        return str(row[0]).upper() if row and row[0] else None
 
     def _find_intent_by_key(self, key: str) -> dict[str, Any] | None:
         con = connect(self.db_path)
@@ -855,3 +951,7 @@ def _broker_float(
     raise ValueError(
         f"OpenAlgo fill response omitted numeric field: {'/'.join(names)}"
     )
+
+
+def _valid_positive_price(value: float | None) -> bool:
+    return value is not None and math.isfinite(value) and value > 0

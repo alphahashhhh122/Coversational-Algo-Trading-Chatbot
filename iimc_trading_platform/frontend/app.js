@@ -2447,10 +2447,17 @@ async function loadPaperDecisions(runId) {
     const dataset = state.datasets.find((item) => item.dataset_id === run?.dataset_id);
     if (dataset?.exchange) $("#paper-exchange").value = dataset.exchange;
     const risk = await api(`/runs/${encodeURIComponent(runId)}/risk`);
+    const maxSignalAge = Number(state.platformSummary?.safety?.paper_signal_max_age_minutes || 0);
+    const latestTime = Date.now();
     const decisions = (risk.decisions || []).filter((decision) => (
       decision.approved
       && decision.checks?.execution_mode_check?.mode === "semi_auto"
       && Number(decision.approved_quantity || 0) > 0
+      && (!maxSignalAge || (
+        Number.isFinite(Date.parse(decision.timestamp))
+        && latestTime - Date.parse(decision.timestamp) <= maxSignalAge * 60 * 1000
+        && latestTime - Date.parse(decision.timestamp) >= -60 * 1000
+      ))
     ));
     select.innerHTML = decisions.length
       ? decisions.map((decision) => {
@@ -2466,7 +2473,9 @@ async function loadPaperDecisions(runId) {
     $("#prepare-paper-intent").disabled = !decisions.length || !hasRole("researcher");
     $("#paper-helper").textContent = decisions.length
       ? "Preparing an intent creates an analyzer-ready paper order from a risk-approved decision. Use a limit price for a deterministic analyzer submission."
-      : "This run has no approved semi-auto decisions. Run another semi-auto backtest or adjust strategy parameters.";
+      : (maxSignalAge
+        ? `No current paper-eligible decision. Refresh OpenAlgo history and run the strategy again; signals expire after ${maxSignalAge} minutes.`
+        : "This run has no approved semi-auto decisions. Run another semi-auto backtest or adjust strategy parameters.");
   } catch (error) {
     select.innerHTML = `<option value="">Could not load decisions</option>`;
     $("#paper-helper").textContent = error.message;
@@ -2517,6 +2526,48 @@ async function submitPaperIntent(event) {
     toast(error.message);
   } finally {
     button.disabled = !hasRole("researcher");
+  }
+}
+
+function paperQuotePrice(quote) {
+  for (const key of ["ltp", "last_price", "close"]) {
+    const value = Number(quote?.[key]);
+    if (Number.isFinite(value) && value > 0) return value;
+  }
+  return null;
+}
+
+function paperPriceWithTick(price, tickSize) {
+  const tick = Number(tickSize);
+  if (!Number.isFinite(tick) || tick <= 0) return String(price);
+  const rounded = Math.round(price / tick) * tick;
+  const decimals = Math.max(0, Math.min(6, String(tick).split(".")[1]?.length || 0));
+  return rounded.toFixed(decimals);
+}
+
+async function useCurrentPaperQuote() {
+  const option = $("#paper-decision").selectedOptions[0];
+  if (!option?.value || !option.dataset.symbol) {
+    toast("Select an approved risk decision first");
+    return;
+  }
+  const button = $("#paper-use-ltp");
+  button.disabled = true;
+  try {
+    const exchange = $("#paper-exchange").value;
+    const result = await api(
+      `/platform/instruments/quote?query=${encodeURIComponent(option.dataset.symbol)}&exchange=${encodeURIComponent(exchange)}`,
+    );
+    if (!result.ok) throw new Error(result.message || "Current provider quote is unavailable");
+    const price = paperQuotePrice(result.quote);
+    if (price === null) throw new Error("Provider quote did not include a usable price");
+    const tickSize = result.instrument?.tick_size;
+    $("#paper-limit-price").value = paperPriceWithTick(price, tickSize);
+    $("#paper-helper").textContent = `Current OpenAlgo LTP for ${result.resolved_symbol} is ${paperPriceWithTick(price, tickSize)}. Review the limit price before preparing the intent.`;
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    button.disabled = false;
   }
 }
 
@@ -2798,6 +2849,7 @@ function wireEvents() {
   $("#paper-run").addEventListener("change", (event) => {
     if (event.target.value) loadPaperDecisions(event.target.value);
   });
+  $("#paper-use-ltp").addEventListener("click", useCurrentPaperQuote);
   $("#knowledge-search-form").addEventListener("submit", submitKnowledgeSearch);
   $("#ohlcv-import-form").addEventListener("submit", submitOhlcvImport);
   $("#openalgo-history-import-form").addEventListener("submit", submitOpenAlgoHistoryImport);

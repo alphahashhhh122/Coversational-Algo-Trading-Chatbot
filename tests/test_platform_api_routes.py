@@ -54,6 +54,7 @@ class PlatformApiRoutesTest(unittest.TestCase):
         self.assertIn("/platform/openalgo/monitor", paths)
         self.assertIn("/platform/instruments/search", paths)
         self.assertIn("/platform/instruments/symbol", paths)
+        self.assertIn("/platform/instruments/quote", paths)
         self.assertIn("/platform/instruments/optionsymbol", paths)
         self.assertIn("/platform/backtest/run", paths)
         self.assertIn("/sandbox/intents", paths)

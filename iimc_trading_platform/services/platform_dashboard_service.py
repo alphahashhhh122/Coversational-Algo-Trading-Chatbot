@@ -103,6 +103,9 @@ class PlatformDashboardService:
                 "paper_submission_requires_approval": (
                     self.config.require_paper_approval
                 ),
+                "paper_signal_max_age_minutes": (
+                    self.config.paper_signal_max_age_minutes
+                ),
                 "live_submission_requires_approval": True,
                 "visible_in_openalgo_requires_openalgo_routed_activity": True,
             },

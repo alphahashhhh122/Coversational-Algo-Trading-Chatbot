@@ -998,7 +998,7 @@ tbody tr:hover { background: #f5f8f6; }
 }
 .paper-intent-form {
   display: grid;
-  grid-template-columns: 1.35fr 2fr repeat(5, minmax(110px, .75fr)) auto;
+  grid-template-columns: minmax(140px, 1.35fr) minmax(190px, 2fr) repeat(5, minmax(100px, .75fr)) auto auto;
   align-items: end;
   gap: 10px;
   padding: 14px;

@@ -103,6 +103,7 @@ from .tools.registry import (
     InstrumentSearchInput,
     KnowledgeSearchInput,
     ListCustomStrategySpecsInput,
+    MarketQuoteInput,
     OpenAlgoSnapshotInput,
     OptionSymbolInput,
     PrepareSandboxIntentInput,
@@ -179,6 +180,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         require_approval=active_config.require_paper_approval,
         allow_live_trading=active_config.allow_live_trading,
         provider_readiness=openalgo_readiness_service.monitor,
+        max_signal_age_minutes=active_config.paper_signal_max_age_minutes,
     )
     evidence_service = EvidenceService(
         active_config.database_path,
@@ -944,6 +946,24 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         return instrument_discovery_service.validate_symbol(
             **payload.model_dump()
         )
+
+    @app.get("/platform/instruments/quote")
+    def platform_instrument_quote(
+        query: str,
+        exchange: str = "NSE",
+        principal: Principal = Depends(viewer),
+    ) -> dict[str, Any]:
+        try:
+            payload = MarketQuoteInput(
+                query=query,
+                exchange=exchange,
+            ).model_dump(mode="json")
+        except ValidationError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=exc.errors(include_url=False),
+            ) from exc
+        return execute_tool("get_market_quote", payload)
 
     @app.get("/platform/instruments/optionsymbol")
     def platform_option_symbol(
