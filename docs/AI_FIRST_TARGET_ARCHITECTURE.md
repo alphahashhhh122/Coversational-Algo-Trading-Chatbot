@@ -45,12 +45,14 @@ because the local browser automation helper was unavailable on this host.
 
 ## Orchestration Decision
 
-The current production path uses the OpenAI Responses API with strict function
-tools. It is smaller, easier to test, and easier to explain than introducing a
-multi-agent framework before the tool contracts are stable.
+The current local operating path supports Groq tool calling through its
+OpenAI-compatible API, with the OpenAI Responses API available as an optional
+provider. Both paths use the same strict registered-tool contracts. The direct
+orchestrator remains smaller, easier to test, and easier to operate than adding
+a multi-agent framework before durable multi-step workflows require one.
 
-The offline router is a clearly labelled degraded mode for local tests and demos
-without an API key. It is not represented as the production AI system.
+The offline router is a clearly labelled degraded mode for local tests when an
+API key is unavailable. It is not represented as the normal operating AI path.
 
 Agents SDK, LangGraph, or another workflow framework becomes justified when the
 platform needs durable long-running workflows, independent specialist state,

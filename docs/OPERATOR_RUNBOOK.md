@@ -39,7 +39,7 @@ Current verified canonical run:
 
 ## Ten-Minute Flow
 
-1. Open `http://127.0.0.1:8000/`.
+1. Open `http://127.0.0.1:8001/`.
 2. Open Operator Console. Show the backend workflow and table-count evidence.
 3. Show the RELIANCE readiness check. Explain that the architecture supports
    multi-asset readiness validation, but each provider/symbol is verified per
@@ -84,7 +84,7 @@ They are read-only and safe without OpenAI or OpenAlgo keys.
 
 Manual browser QA should be done before a local operator session:
 
-- open `http://127.0.0.1:8000/`
+- open `http://127.0.0.1:8001/`
 - confirm Operator Console loads without console errors
 - confirm Strategy Runs table and run detail timeline are scrollable
 - confirm IIMC backtest form shows JSON result or structured safe failure
@@ -102,6 +102,6 @@ recorded in `docs/RESUME_EVIDENCE_TRACKER.md`.
 - Why are signals, risk decisions, orders, and fills separate tables?
 - How is an uncertain broker response reconciled without duplicate orders?
 - What does dataset freshness mean for historical research versus current data?
-- Why is DuckDB acceptable for this demonstration but not horizontal scale?
+- Why is DuckDB appropriate for a local single-user workspace but not horizontal scale?
 - How would PostgreSQL and a distributed worker queue replace the single-node
   deployment components?

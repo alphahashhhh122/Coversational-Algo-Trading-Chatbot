@@ -20,7 +20,7 @@ class EmaPoint:
 
 
 @dataclass
-class DemoResult:
+class BacktestResult:
     run_id: str
     dataset_id: str
     strategy_name: str
@@ -152,7 +152,7 @@ def approve_entry_quantity(
     return True, approved_qty, stop_loss_price, risk_per_lot, "entry approved"
 
 
-def run_ema_crossover_demo(
+def run_ema_crossover_backtest(
     db_path: Path = DEFAULT_DB_PATH,
     dataset_id: str | None = None,
     artifacts_dir: Path = Path("artifacts/backtests"),
@@ -165,11 +165,11 @@ def run_ema_crossover_demo(
     max_notional: float = 2_000_000.0,
     starting_equity: float = 1_000_000.0,
     fee_bps: float = 1.0,
-) -> DemoResult:
+) -> BacktestResult:
     initialize_database(db_path)
     con = connect(db_path)
-    run_id = f"ema_demo_{utc_now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
-    strategy_name = "EMA_CROSSOVER_SPOT_DEMO"
+    run_id = f"ema_backtest_{utc_now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+    strategy_name = "EMA_CROSSOVER_SPOT"
     dataset_id = dataset_id or fetch_latest_dataset_id(con)
     points = calculate_ema_points(load_spot_series(con, dataset_id), fast_period, slow_period)
     parameters = {
@@ -542,7 +542,7 @@ def run_ema_crossover_demo(
     finally:
         con.close()
 
-    result = DemoResult(
+    result = BacktestResult(
         run_id=run_id,
         dataset_id=dataset_id,
         strategy_name=strategy_name,
@@ -579,7 +579,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    result = run_ema_crossover_demo(
+    result = run_ema_crossover_backtest(
         db_path=args.db,
         dataset_id=args.dataset_id,
         artifacts_dir=args.artifacts,

@@ -255,7 +255,7 @@ class GroqToolOrchestrator:
 
 class OfflineOrchestrator:
     """
-    Explicit degraded mode for local tests and demos without an API key.
+    Explicit degraded mode for local tests without an API key.
 
     This is not presented as the production AI path. It keeps deterministic
     tools testable when external model access is unavailable.

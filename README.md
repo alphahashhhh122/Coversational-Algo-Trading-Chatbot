@@ -165,8 +165,8 @@ deploy/                    Docker/Kubernetes deployment references
 
 ## Scope and Limitations
 
-This repository demonstrates an AI-orchestrated trading research and controlled
-execution platform. It does not claim guaranteed profitability, autonomous live
-trading, or verified support for every broker instrument. Real provider behavior
-depends on configured credentials, broker availability, market hours, and the
-instrument coverage exposed by OpenAlgo.
+This is an AI-orchestrated trading research and controlled execution platform.
+It does not claim guaranteed profitability, autonomous live trading, or verified
+support for every broker instrument. Real provider behavior depends on configured
+credentials, broker availability, market hours, and the instrument coverage
+exposed by OpenAlgo.

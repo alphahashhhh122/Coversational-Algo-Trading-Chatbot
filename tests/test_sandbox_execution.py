@@ -98,12 +98,12 @@ class SandboxExecutionTest(unittest.TestCase):
         approved = service.decide(
             intent["approval_id"],
             approved=True,
-            decided_by="professor_demo_user",
+            decided_by="operator_user",
             reason="Reviewed quantity and sandbox destination",
         )
         submitted = service.submit(
             approved["intent_id"],
-            actor="professor_demo_user",
+            actor="operator_user",
         )
         reconciled = service.reconcile(submitted["intent_id"])
 
