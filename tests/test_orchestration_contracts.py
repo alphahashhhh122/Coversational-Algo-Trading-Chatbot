@@ -386,7 +386,7 @@ class OrchestrationContractsTest(unittest.TestCase):
         decision = OfflineOrchestrator().select_tool(
             (
                 "Prepare paper order for risk_abc123 BUY 2 NIFTY NFO "
-                "MIS market strategy ema_demo"
+                "MIS market strategy ema_crossover"
             ),
             [],
             registry,
@@ -400,6 +400,19 @@ class OrchestrationContractsTest(unittest.TestCase):
         self.assertEqual(decision.arguments["quantity"], 2)
         self.assertEqual(decision.arguments["product"], "MIS")
         self.assertEqual(decision.arguments["order_type"], "MARKET")
+
+    def test_offline_router_requests_dataset_id_for_conversational_freshness_question(self) -> None:
+        registry = build_default_tool_registry(Path("unused.duckdb"))
+
+        decision = OfflineOrchestrator().select_tool(
+            "Is this dataset fresh for current market use?",
+            [],
+            registry,
+        )
+
+        self.assertIsNone(decision.tool_name)
+        self.assertEqual(decision.arguments, {})
+        self.assertIn("dataset_id", decision.direct_response or "")
 
     def test_offline_router_refuses_to_prepare_sandbox_intent_without_decision_id(self) -> None:
         registry = build_default_tool_registry(

@@ -32,7 +32,7 @@ def main() -> None:
     stopped = service.set_trading_enabled(
         portfolio_id=portfolio["portfolio_id"],
         enabled=False,
-        reason="demonstrate operator kill switch",
+        reason="verify operator kill switch",
         changed_by="portfolio_workflow",
     )
     rejected = service.evaluate_and_reserve(

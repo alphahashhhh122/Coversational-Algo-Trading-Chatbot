@@ -987,7 +987,11 @@ def _dataset_from_text(text: str) -> str | None:
     if dataset_id:
         return _clean_identifier(dataset_id)
     match = re.search(
-        r"\bdataset(?:_id| id)?\s*[:=]?\s*([A-Za-z0-9_.-]+)",
+        r"\bdataset(?:_id| id)\s*[:=]?\s*([A-Za-z0-9_.-]+)",
+        text,
+        flags=re.IGNORECASE,
+    ) or re.search(
+        r"\bdataset\s*[:=]\s*([A-Za-z0-9_.-]+)",
         text,
         flags=re.IGNORECASE,
     )

@@ -52,7 +52,7 @@ How are idempotency, reproducibility, and security handled?
 
 Which automated tests prove it?
 
-Which command demonstrates it?
+Which command verifies it?
 
 Which stored rows or artifacts can be inspected?
 
@@ -88,4 +88,3 @@ Follow-up improvement:
 8. What alternatives did you reject?
 9. What breaks at scale?
 10. What would you change before production/live use?
-

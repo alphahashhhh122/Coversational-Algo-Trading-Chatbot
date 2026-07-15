@@ -57,7 +57,7 @@ class FoundationTest(unittest.TestCase):
 
     def test_catalog_service_uses_repository_contract(self) -> None:
         dataset = Dataset(
-            dataset_id="demo_dataset",
+            dataset_id="fixture_dataset",
             data_domain=DataDomain.MARKET_DATA,
             data_type="ohlcv",
             symbol="NIFTY",
@@ -77,7 +77,7 @@ class FoundationTest(unittest.TestCase):
         service = CatalogService(FakeDatasetRepository([dataset]))
 
         self.assertEqual(service.list_datasets(), [dataset])
-        self.assertEqual(service.get_dataset("demo_dataset"), dataset)
+        self.assertEqual(service.get_dataset("fixture_dataset"), dataset)
         self.assertIsNone(service.get_dataset("missing"))
         self.assertEqual(asdict(service.list_datasets()[0])["symbol"], "NIFTY")
 

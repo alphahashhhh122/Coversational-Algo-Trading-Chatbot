@@ -198,7 +198,7 @@ class ApiChatTest(unittest.TestCase):
             json={
                 "message": (
                     "Prepare paper order for risk_chat BUY 2 NIFTY NFO "
-                    "MIS market strategy ema_demo"
+                    "MIS market strategy ema_crossover"
                 ),
             },
         )
