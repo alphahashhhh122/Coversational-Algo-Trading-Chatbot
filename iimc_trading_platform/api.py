@@ -157,6 +157,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         conversation_service,
         ResponseEvaluator(),
     )
+    openalgo_readiness_service = OpenAlgoReadinessService(active_config)
     sandbox_service = SandboxExecutionService(
         active_config.database_path,
         AuditService(
@@ -172,6 +173,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         ),
         require_approval=active_config.require_paper_approval,
         allow_live_trading=active_config.allow_live_trading,
+        provider_readiness=openalgo_readiness_service.monitor,
     )
     evidence_service = EvidenceService(
         active_config.database_path,
@@ -223,7 +225,6 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     market_data_ingestion_service = MarketDataIngestionService(
         active_config.database_path
     )
-    openalgo_readiness_service = OpenAlgoReadinessService(active_config)
     capability_coverage_service = CapabilityCoverageService(
         active_config.database_path,
         openalgo_readiness_service,

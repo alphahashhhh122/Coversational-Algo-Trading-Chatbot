@@ -254,6 +254,40 @@ class SandboxExecutionTest(unittest.TestCase):
         self.assertEqual(stored, ("live", "live_123"))
         self.assertEqual(approval_action, ("submit_openalgo_live_order",))
 
+    def test_live_submission_refuses_degraded_provider_before_order_call(self) -> None:
+        broker = FakeSandboxBroker(analyze=False)
+        service = SandboxExecutionService(
+            self.db_path,
+            self.audit,
+            broker,
+            require_approval=False,
+            allow_live_trading=True,
+            provider_readiness=lambda: {
+                "ok": False,
+                "message": "Account position check failed",
+            },
+        )
+        intent = service.prepare_live_intent(
+            decision_id=self._approved_live_decision(),
+            symbol="NHPC",
+            exchange="NSE",
+            side="BUY",
+            product="MIS",
+            order_type="MARKET",
+            quantity=1,
+            strategy_name="IIMC_Live_Test",
+        )
+        service.decide(
+            intent["approval_id"],
+            approved=True,
+            decided_by="manual_approver",
+            reason="Live intent reviewed",
+        )
+
+        with self.assertRaisesRegex(ValueError, "readiness failed"):
+            service.submit(intent["intent_id"], actor="manual_approver")
+        self.assertEqual(broker.place_calls, 0)
+
     def test_submitted_intent_can_be_cancelled_and_audited(self) -> None:
         broker = FakeSandboxBroker()
         broker.status = "open"

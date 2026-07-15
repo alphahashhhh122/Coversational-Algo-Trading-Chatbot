@@ -4,7 +4,7 @@ import json
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 
 from ..db import connect
 from ..domain import ExecutionMode, OrderStatus
@@ -41,12 +41,14 @@ class SandboxExecutionService:
         *,
         require_approval: bool = False,
         allow_live_trading: bool = False,
+        provider_readiness: Callable[[], dict[str, Any]] | None = None,
     ) -> None:
         self.db_path = db_path
         self.audit = audit_service
         self.broker = broker
         self.require_approval = require_approval
         self.allow_live_trading = allow_live_trading
+        self.provider_readiness = provider_readiness
         self.orders = OrderService(db_path)
 
     def prepare_intent(
@@ -312,6 +314,8 @@ class SandboxExecutionService:
         is_live = execution_mode == ExecutionMode.LIVE
         if is_live and not self.allow_live_trading:
             raise PermissionError("Live trading is disabled by configuration")
+        if is_live:
+            self._assert_live_provider_ready()
         if not is_live:
             analyzer = self.broker.analyzer_status()
             if (
@@ -418,6 +422,29 @@ class SandboxExecutionService:
             },
         )
         return self.get_intent(intent_id)
+
+    def _assert_live_provider_ready(self) -> None:
+        if self.provider_readiness is not None:
+            readiness = self.provider_readiness()
+            if not readiness.get("ok"):
+                raise ValueError(
+                    "OpenAlgo live execution readiness failed: "
+                    f"{readiness.get('message', 'provider verification failed')}"
+                )
+            if readiness.get("analyzer_mode") is True:
+                raise ValueError(
+                    "OpenAlgo analyzer mode is active; live submission refused"
+                )
+            return
+
+        analyzer = self.broker.analyzer_status() if self.broker else {}
+        if (
+            analyzer.get("analyze_mode") is True
+            or analyzer.get("mode") == "analyze"
+        ):
+            raise ValueError(
+                "OpenAlgo analyzer mode is active; live submission refused"
+            )
 
     def _claim_submission(self, intent_id: str, order_id: str) -> bool:
         """Atomically reserve an approved intent before its broker call."""
