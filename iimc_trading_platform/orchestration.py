@@ -367,6 +367,14 @@ class OfflineOrchestrator:
         if (
             "get_market_news" in tool_names
             and any(word in text for word in ("news", "headline", "research update"))
+            and not (
+                "custom" in text
+                and "strateg" in text
+                and any(
+                    word in text
+                    for word in ("create", "draft", "spec", "using")
+                )
+            )
         ):
             symbol = _symbol_from_text(message)
             return OrchestrationDecision(
@@ -1080,11 +1088,41 @@ def _custom_strategy_spec_arguments(message: str) -> dict[str, Any]:
     indicators: list[dict[str, Any]] = []
     entry_rules: list[dict[str, Any]] = []
     exit_rules: list[dict[str, Any]] = []
+    feature_inputs: list[dict[str, Any]] = []
+    external_feature = _external_feature_from_text(text)
+    feature_dataset_id = _feature_dataset_id_from_text(message)
+
+    if external_feature and feature_dataset_id:
+        feature_inputs.append(
+            {
+                "name": external_feature,
+                "dataset_id": feature_dataset_id,
+                "feature_name": external_feature,
+                "alignment": "asof",
+                "max_age_hours": _feature_max_age_hours(external_feature),
+            }
+        )
+        entry_rules.append(
+            {
+                "left": external_feature,
+                "operator": ">",
+                "right": 0,
+                "joiner": "AND",
+            }
+        )
+        exit_rules.append(
+            {
+                "left": external_feature,
+                "operator": "<=",
+                "right": 0,
+                "joiner": "OR",
+            }
+        )
 
     if "ema" in text or not any(
         word in text
         for word in ("sma", "macd", "bollinger", "band", "vwap")
-    ):
+    ) and not external_feature:
         indicators.extend(
             [
                 {"type": "EMA", "period": 9, "source": "close"},
@@ -1220,10 +1258,21 @@ def _custom_strategy_spec_arguments(message: str) -> dict[str, Any]:
         entry_rules.append(
             {"left": "ATR_14", "operator": ">", "right": 0, "joiner": "AND"}
         )
-    if "iv" in text or "skew" in text:
-        indicators.append({"type": "IV_SKEW", "period": 14, "source": "iv"})
+    if external_feature and not feature_dataset_id:
+        indicators.append(
+            {
+                "type": external_feature.upper(),
+                "period": 1,
+                "source": external_feature,
+            }
+        )
         entry_rules.append(
-            {"left": "IV_SKEW_14", "operator": ">", "right": 0, "joiner": "AND"}
+            {
+                "left": f"{external_feature.upper()}_1",
+                "operator": ">",
+                "right": 0,
+                "joiner": "AND",
+            }
         )
 
     if not exit_rules:
@@ -1245,12 +1294,45 @@ def _custom_strategy_spec_arguments(message: str) -> dict[str, Any]:
         "symbol": _symbol_from_text(message) or "MARKET",
         "timeframe": _timeframe_from_text(text),
         "indicators": indicators,
+        "feature_inputs": feature_inputs,
         "entry_rules": entry_rules,
         "exit_rules": exit_rules,
         "risk": {"max_position_size": 1, "stop_loss_pct": 0.02},
         "position_side": "short" if re.search(r"\bshort\b", text) else "long",
         "created_by": "chat_user",
     }
+
+
+def _external_feature_from_text(text: str) -> str | None:
+    if "news" in text or "sentiment" in text:
+        return "news_sentiment"
+    if "earnings" in text:
+        return "earnings_surprise"
+    if "fundamental" in text or "valuation" in text:
+        return "fundamental_score"
+    if "open interest" in text or "open_interest" in text or re.search(r"\boi\b", text):
+        return "open_interest"
+    if "iv" in text or "skew" in text or "implied volatility" in text:
+        return "iv_skew"
+    return None
+
+
+def _feature_dataset_id_from_text(message: str) -> str | None:
+    match = re.search(
+        r"\b(?:feature(?:\s+(?:series|data))?\s+dataset|feature_dataset_id)"
+        r"\s*(?:is|=|:)?\s*([A-Za-z][A-Za-z0-9_-]{0,159})\b",
+        message,
+        flags=re.IGNORECASE,
+    )
+    return match.group(1) if match else None
+
+
+def _feature_max_age_hours(feature_name: str) -> float:
+    if feature_name in {"iv_skew", "open_interest"}:
+        return 1.0
+    if feature_name == "news_sentiment":
+        return 24.0
+    return 24.0 * 90
 
 
 def _custom_strategy_name(message: str) -> str:

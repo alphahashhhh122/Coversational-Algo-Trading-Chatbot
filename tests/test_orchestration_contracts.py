@@ -532,6 +532,38 @@ class OrchestrationContractsTest(unittest.TestCase):
         }
         self.assertEqual(indicator_types, {"EMA", "RSI"})
 
+    def test_offline_router_maps_named_feature_dataset_to_rule_spec(self) -> None:
+        registry = build_default_tool_registry(Path("unused.duckdb"))
+
+        decision = OfflineOrchestrator().select_tool(
+            (
+                "Create custom strategy called sentiment_reversal using news "
+                "sentiment feature dataset reliance_news_features for RELIANCE "
+                "5 minutes"
+            ),
+            [],
+            registry,
+        )
+
+        self.assertEqual(decision.tool_name, "create_custom_strategy_spec")
+        self.assertEqual(decision.arguments["indicators"], [])
+        self.assertEqual(
+            decision.arguments["feature_inputs"],
+            [
+                {
+                    "name": "news_sentiment",
+                    "dataset_id": "reliance_news_features",
+                    "feature_name": "news_sentiment",
+                    "alignment": "asof",
+                    "max_age_hours": 24.0,
+                }
+            ],
+        )
+        self.assertEqual(
+            decision.arguments["entry_rules"][0]["left"],
+            "news_sentiment",
+        )
+
     @patch("iimc_trading_platform.infrastructure.openalgo.urlopen")
     def test_openalgo_client_proves_analyzer_mode_before_order(
         self,
