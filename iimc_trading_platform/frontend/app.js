@@ -833,7 +833,25 @@ async function loadOpenAlgoHistory() {
       if (snapshot) renderOpenAlgoSnapshot(snapshot);
     });
   });
+  renderOpenAlgoPaperEvidence();
   renderDashboardWidgets(state.platformSummary?.latest_completed_run || state.runs[0]);
+}
+
+function renderOpenAlgoPaperEvidence() {
+  const table = $("#openalgo-paper-intents-table");
+  if (!table) return;
+  table.innerHTML = state.sandboxIntents.length
+    ? state.sandboxIntents.map((intent) => `
+      <tr>
+        <td>${escapeHtml(intent.intent_id)}<br><small>${escapeHtml(intent.run_id || "-")}</small></td>
+        <td>${escapeHtml(intent.symbol)} ${escapeHtml(intent.exchange)}</td>
+        <td>${escapeHtml(intent.side)} ${formatNumber(intent.quantity, 0)} ${escapeHtml(intent.order_type)}</td>
+        <td><span class="status-pill">${escapeHtml(intent.status)}</span></td>
+        <td>${escapeHtml(intent.broker_order_id || "-")}</td>
+        <td>${escapeHtml(intent.rejection_reason || "-")}</td>
+      </tr>
+    `).join("")
+    : `<tr><td colspan="6">No analyzer-paper intents are stored yet.</td></tr>`;
 }
 
 function renderOpenAlgoMonitor(monitor) {
@@ -2425,6 +2443,9 @@ async function loadPaperDecisions(runId) {
   const select = $("#paper-decision");
   select.innerHTML = `<option value="">Loading approved decisions...</option>`;
   try {
+    const run = state.runs.find((item) => item.run_id === runId);
+    const dataset = state.datasets.find((item) => item.dataset_id === run?.dataset_id);
+    if (dataset?.exchange) $("#paper-exchange").value = dataset.exchange;
     const risk = await api(`/runs/${encodeURIComponent(runId)}/risk`);
     const decisions = (risk.decisions || []).filter((decision) => (
       decision.approved
@@ -2444,7 +2465,7 @@ async function loadPaperDecisions(runId) {
       : `<option value="">No approved semi-auto decisions</option>`;
     $("#prepare-paper-intent").disabled = !decisions.length || !hasRole("researcher");
     $("#paper-helper").textContent = decisions.length
-      ? "Preparing an intent creates an analyzer-ready paper order from a risk-approved decision."
+      ? "Preparing an intent creates an analyzer-ready paper order from a risk-approved decision. Use a limit price for a deterministic analyzer submission."
       : "This run has no approved semi-auto decisions. Run another semi-auto backtest or adjust strategy parameters.";
   } catch (error) {
     select.innerHTML = `<option value="">Could not load decisions</option>`;
@@ -2461,6 +2482,18 @@ async function submitPaperIntent(event) {
   button.disabled = true;
   try {
     const orderType = $("#paper-order-type").value;
+    const limitPrice = $("#paper-limit-price").value
+      ? Number($("#paper-limit-price").value)
+      : null;
+    const triggerPrice = $("#paper-trigger-price").value
+      ? Number($("#paper-trigger-price").value)
+      : null;
+    if (["LIMIT", "SL"].includes(orderType) && !limitPrice) {
+      throw new Error(`${orderType} paper orders need a limit price`);
+    }
+    if (["SL", "SL-M"].includes(orderType) && !triggerPrice) {
+      throw new Error(`${orderType} paper orders need a trigger price`);
+    }
     const payload = {
       decision_id: option.value,
       symbol: option.dataset.symbol,
@@ -2470,8 +2503,8 @@ async function submitPaperIntent(event) {
       order_type: orderType,
       quantity: Number(option.dataset.quantity),
       strategy_name: option.dataset.strategy || "IIMC",
-      limit_price: $("#paper-limit-price").value ? Number($("#paper-limit-price").value) : null,
-      trigger_price: $("#paper-trigger-price").value ? Number($("#paper-trigger-price").value) : null,
+      limit_price: limitPrice,
+      trigger_price: triggerPrice,
       requested_by: state.principal?.username || "workspace_user",
     };
     const intent = await api("/sandbox/intents", {
@@ -2639,6 +2672,37 @@ async function submitOhlcvImport(event) {
   }
 }
 
+async function submitOpenAlgoHistoryImport(event) {
+  event.preventDefault();
+  const button = $("#import-openalgo-history");
+  const resultBox = $("#openalgo-history-import-result");
+  button.disabled = true;
+  resultBox.classList.remove("hidden");
+  try {
+    const result = await api("/datasets/openalgo-history", {
+      method: "POST",
+      body: JSON.stringify({
+        symbol: $("#openalgo-history-symbol").value.trim(),
+        exchange: $("#openalgo-history-exchange").value.trim(),
+        asset_class: $("#openalgo-history-asset").value,
+        interval: $("#openalgo-history-interval").value.trim(),
+        start_date: $("#openalgo-history-start").value,
+        end_date: $("#openalgo-history-end").value,
+        dataset_id: $("#openalgo-history-dataset").value.trim() || null,
+      }),
+    });
+    resultBox.textContent = JSON.stringify(result, null, 2);
+    toast(`Imported ${formatNumber(result.row_count, 0)} OpenAlgo candles`);
+    await loadOverview();
+    setView("runs");
+  } catch (error) {
+    resultBox.textContent = JSON.stringify({ ok: false, message: error.message }, null, 2);
+    toast(error.message);
+  } finally {
+    button.disabled = false;
+  }
+}
+
 async function submitFeatureImport(event) {
   event.preventDefault();
   const button = $("#import-features");
@@ -2736,6 +2800,7 @@ function wireEvents() {
   });
   $("#knowledge-search-form").addEventListener("submit", submitKnowledgeSearch);
   $("#ohlcv-import-form").addEventListener("submit", submitOhlcvImport);
+  $("#openalgo-history-import-form").addEventListener("submit", submitOpenAlgoHistoryImport);
   $("#feature-import-form").addEventListener("submit", submitFeatureImport);
   $("#options-feature-form").addEventListener("submit", submitOptionsFeatureDerivation);
   $("#login-form").addEventListener("submit", submitLogin);

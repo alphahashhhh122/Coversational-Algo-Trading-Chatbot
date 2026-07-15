@@ -139,6 +139,23 @@ class LocalOhlcvDatasetInput(BaseModel):
     source_name: str = Field(default="local_ohlcv.json", min_length=1, max_length=200)
 
 
+class OpenAlgoHistoryImportRequest(BaseModel):
+    symbol: str = Field(min_length=1, max_length=80)
+    exchange: str = Field(min_length=1, max_length=40)
+    asset_class: Literal[
+        "equity",
+        "index",
+        "futures",
+        "options",
+        "commodity",
+        "crypto",
+    ]
+    interval: str = Field(min_length=1, max_length=20)
+    start_date: str = Field(min_length=4, max_length=20)
+    end_date: str = Field(min_length=4, max_length=20)
+    dataset_id: str | None = Field(default=None, min_length=1, max_length=160)
+
+
 class LocalFeatureObservationInput(BaseModel):
     feature_name: str = Field(min_length=1, max_length=80)
     observed_at: datetime

@@ -828,6 +828,47 @@ class OrchestrationContractsTest(unittest.TestCase):
         self.assertIn("approved risk decision_id", decision.direct_response)
         self.assertIn("cannot approve or submit", decision.direct_response)
 
+    def test_offline_router_treats_a_paper_trade_request_as_readiness_not_tradebook(self) -> None:
+        registry = build_default_tool_registry(Path("unused.duckdb"))
+
+        decision = OfflineOrchestrator().select_tool(
+            "I want to paper trade my strategy on Reliance",
+            [],
+            registry,
+        )
+
+        self.assertEqual(decision.tool_name, "get_execution_readiness")
+        self.assertEqual(decision.arguments["symbol"], "RELIANCE")
+        self.assertEqual(decision.arguments["exchange"], "NSE")
+        self.assertEqual(decision.arguments["asset_class"], "equity")
+
+    def test_offline_router_can_import_named_symbol_history(self) -> None:
+        registry = build_default_tool_registry(Path("unused.duckdb"))
+
+        decision = OfflineOrchestrator().select_tool(
+            "Import 5 minute historical data for Reliance from OpenAlgo",
+            [],
+            registry,
+        )
+
+        self.assertEqual(decision.tool_name, "import_openalgo_history")
+        self.assertEqual(decision.arguments["symbol"], "RELIANCE")
+        self.assertEqual(decision.arguments["interval"], "5m")
+
+    def test_offline_router_keeps_a_named_symbol_with_a_paper_backtest(self) -> None:
+        registry = build_default_tool_registry(Path("unused.duckdb"))
+
+        decision = OfflineOrchestrator().select_tool(
+            "Paper backtest EMA strategy on Reliance",
+            [],
+            registry,
+        )
+
+        self.assertEqual(decision.tool_name, "run_backtest")
+        self.assertEqual(decision.arguments["execution_mode"], "semi_auto")
+        self.assertEqual(decision.arguments["symbol"], "RELIANCE")
+        self.assertEqual(decision.arguments["exchange"], "NSE")
+
     def test_offline_router_parses_generic_readiness_request(self) -> None:
         registry = build_default_tool_registry(Path("unused.duckdb"))
 

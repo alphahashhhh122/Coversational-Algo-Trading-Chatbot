@@ -500,12 +500,12 @@
             <label><span>Risk decision</span><select id="paper-decision" required></select></label>
             <label><span>Exchange</span><select id="paper-exchange"><option>NSE</option><option>NFO</option><option>BSE</option><option>MCX</option></select></label>
             <label><span>Product</span><select id="paper-product"><option>MIS</option><option>CNC</option><option>NRML</option></select></label>
-            <label><span>Order type</span><select id="paper-order-type"><option>MARKET</option><option>LIMIT</option><option>SL</option><option>SL-M</option></select></label>
+            <label><span>Order type</span><select id="paper-order-type"><option>LIMIT</option><option>MARKET</option><option>SL</option><option>SL-M</option></select></label>
             <label><span>Limit price</span><input id="paper-limit-price" type="number" min="0" step="0.05"></label>
             <label><span>Trigger price</span><input id="paper-trigger-price" type="number" min="0" step="0.05"></label>
             <button type="submit" class="primary-button" id="prepare-paper-intent">Prepare intent</button>
           </form>
-          <div class="paper-helper" id="paper-helper">Run a semi-auto backtest, then select an approved risk decision here.</div>
+          <div class="paper-helper" id="paper-helper">Run a semi-auto backtest, then select an approved risk decision. Limit orders need a price; analyzer orders require explicit approval when enabled.</div>
           <div class="table-wrap paper-intents-table">
             <table>
               <thead><tr><th>Intent</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Status</th><th>Broker order</th><th>Action</th></tr></thead>
@@ -541,6 +541,25 @@
             <button type="submit" class="primary-button" id="import-ohlcv">Import OHLCV</button>
           </form>
           <pre class="json-view hidden" id="ohlcv-import-result"></pre>
+        </section>
+        <section class="rag-panel">
+          <div class="section-heading">
+            <div>
+              <h2>OpenAlgo History Import</h2>
+              <p>Fetch verified provider candles into the governed catalog for backtesting and paper-trade preparation.</p>
+            </div>
+          </div>
+          <form class="knowledge-search-form" id="openalgo-history-import-form">
+            <label><span>Symbol</span><input id="openalgo-history-symbol" placeholder="RELIANCE" required></label>
+            <label><span>Exchange</span><input id="openalgo-history-exchange" value="NSE" required></label>
+            <label><span>Asset class</span><select id="openalgo-history-asset"><option value="equity">Equity</option><option value="index">Index</option><option value="futures">Futures</option><option value="options">Options</option><option value="commodity">Commodity</option><option value="crypto">Crypto</option></select></label>
+            <label><span>Interval</span><input id="openalgo-history-interval" value="5m" required></label>
+            <label><span>Start</span><input id="openalgo-history-start" type="date" required></label>
+            <label><span>End</span><input id="openalgo-history-end" type="date" required></label>
+            <label><span>Dataset ID</span><input id="openalgo-history-dataset" placeholder="Auto-generated when blank"></label>
+            <button type="submit" class="primary-button" id="import-openalgo-history">Import provider history</button>
+          </form>
+          <pre class="json-view hidden" id="openalgo-history-import-result"></pre>
         </section>
         <section class="rag-panel">
           <div class="section-heading">
@@ -629,6 +648,17 @@
             </div>
           </section>
         </div>
+        <section class="snapshot-history openalgo-paper-evidence">
+          <div class="panel-heading">
+            <div><h2>Paper Execution Evidence</h2><p>Backtests remain in Strategy Runs; analyzer order state below is the OpenAlgo-linked execution record.</p></div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Intent / run</th><th>Instrument</th><th>Order</th><th>Status</th><th>Broker order</th><th>Reason</th></tr></thead>
+              <tbody id="openalgo-paper-intents-table"></tbody>
+            </table>
+          </div>
+        </section>
       </section>
 
       <section class="view" id="view-operations">

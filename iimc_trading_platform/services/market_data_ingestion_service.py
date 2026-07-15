@@ -43,6 +43,8 @@ class MarketDataIngestionService:
         interval: str,
         candles: list[dict[str, Any]],
         source_name: str,
+        source_kind: str = "local_api",
+        data_source: str = "local_user_supplied",
     ) -> dict[str, Any]:
         normalized_asset = asset_class.lower()
         if normalized_asset not in SUPPORTED_ASSET_CLASSES:
@@ -101,7 +103,7 @@ class MarketDataIngestionService:
                 """,
                 [
                     source_id,
-                    "local_api",
+                    f"{source_kind}://{source_name}",
                     source_name,
                     digest,
                     len(encoded),
@@ -200,7 +202,7 @@ class MarketDataIngestionService:
             "source_sha256": digest,
             "quality_status": "clean",
             "quality_report_path": report_path,
-            "data_source": "local_user_supplied",
+            "data_source": data_source,
             "no_synthetic_fallback": True,
         }
 

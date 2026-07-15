@@ -16,6 +16,7 @@ from iimc_trading_platform.infrastructure import (
     DuckDBAuditRepository,
     initialize_database,
 )
+from iimc_trading_platform.infrastructure.openalgo import OpenAlgoResponseError
 from iimc_trading_platform.services import AuditService, RiskService
 from iimc_trading_platform.services.sandbox_execution_service import (
     SandboxExecutionService,
@@ -74,6 +75,12 @@ class UncertainSandboxBroker(FakeSandboxBroker):
     def place_sandbox_order(self, **kwargs) -> dict:
         self.place_calls += 1
         raise TimeoutError("response timed out")
+
+
+class RejectedSandboxBroker(FakeSandboxBroker):
+    def place_sandbox_order(self, **kwargs) -> dict:
+        self.place_calls += 1
+        raise OpenAlgoResponseError("Cannot place MARKET order without a price")
 
 
 class BlockingSandboxBroker(FakeSandboxBroker):
@@ -383,6 +390,28 @@ class SandboxExecutionTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "must be approved"):
             service.submit(intent["intent_id"], actor="user")
         self.assertEqual(broker.place_calls, 1)
+
+    def test_provider_rejection_is_failed_not_submission_uncertain(self) -> None:
+        broker = RejectedSandboxBroker()
+        service = SandboxExecutionService(
+            self.db_path,
+            self.audit,
+            broker,
+            require_approval=True,
+        )
+        intent = self._prepare(service)
+        service.decide(
+            intent["approval_id"],
+            approved=True,
+            decided_by="user",
+            reason="Sandbox test approved",
+        )
+
+        with self.assertRaisesRegex(ValueError, "No analyzer order was created"):
+            service.submit(intent["intent_id"], actor="user")
+        stored = service.get_intent(intent["intent_id"])
+        self.assertEqual(stored["status"], "failed")
+        self.assertIn("Cannot place MARKET", stored["rejection_reason"])
 
     def test_submission_claim_prevents_a_duplicate_broker_call(self) -> None:
         broker = BlockingSandboxBroker()

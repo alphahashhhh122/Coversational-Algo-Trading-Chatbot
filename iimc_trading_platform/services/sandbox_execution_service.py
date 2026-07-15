@@ -8,7 +8,7 @@ from typing import Any, Callable, Protocol
 
 from ..db import connect
 from ..domain import ExecutionMode, OrderStatus
-from ..infrastructure.openalgo import OpenAlgoClient
+from ..infrastructure.openalgo import OpenAlgoClient, OpenAlgoResponseError
 from .audit_service import AuditService
 from .order_service import OrderService
 
@@ -369,6 +369,28 @@ class SandboxExecutionService:
                 price=float(intent["limit_price"] or 0.0),
                 trigger_price=float(intent["trigger_price"] or 0.0),
             )
+        except OpenAlgoResponseError as exc:
+            self._set_intent_status(
+                intent_id,
+                "failed",
+                rejection_reason=str(exc),
+            )
+            self.orders.transition(
+                order.order_id,
+                OrderStatus.FAILED,
+                reason="OpenAlgo rejected the paper-order request",
+            )
+            self.audit.record(
+                entity_type="order_intent",
+                entity_id=intent_id,
+                action="submission_rejected",
+                actor=actor,
+                payload={"error_type": type(exc).__name__},
+            )
+            raise ValueError(
+                "OpenAlgo rejected this paper order before accepting it: "
+                f"{exc}. No analyzer order was created."
+            ) from exc
         except Exception as exc:
             self._set_intent_status(
                 intent_id,

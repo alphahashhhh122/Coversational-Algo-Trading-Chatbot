@@ -16,6 +16,7 @@ from .live_market_service import LiveMarketService
 from .market_news_service import MarketNewsService
 from .market_data_ingestion_service import MarketDataIngestionService
 from .openalgo_readiness_service import OpenAlgoReadinessService
+from .openalgo_history_import_service import OpenAlgoHistoryImportService
 from .task_service import TaskService
 from .operations_service import (
     build_job_service,
@@ -52,6 +53,7 @@ __all__ = [
     "MarketNewsService",
     "MarketDataIngestionService",
     "OpenAlgoReadinessService",
+    "OpenAlgoHistoryImportService",
     "ToolExecutionService",
     "TaskService",
     "foundation_health",

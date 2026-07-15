@@ -24,6 +24,7 @@ from .api_models import (
     LoginRequest,
     LocalFeatureDatasetInput,
     LocalOhlcvDatasetInput,
+    OpenAlgoHistoryImportRequest,
     OptionsFeatureDerivationInput,
     PortfolioControlRequest,
     PortfolioFillRequest,
@@ -69,6 +70,7 @@ from .services import (
     MarketNewsService,
     MarketDataIngestionService,
     OpenAlgoReadinessService,
+    OpenAlgoHistoryImportService,
     operational_summary,
     PersonaService,
     PlatformDashboardService,
@@ -227,6 +229,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     )
     market_data_ingestion_service = MarketDataIngestionService(
         active_config.database_path
+    )
+    openalgo_history_import_service = OpenAlgoHistoryImportService(
+        active_config
     )
     capability_coverage_service = CapabilityCoverageService(
         active_config.database_path,
@@ -1049,6 +1054,35 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         )
         return {**result, "audit_id": audit.audit_id}
 
+    @app.post("/datasets/openalgo-history")
+    def import_openalgo_history_dataset(
+        request: OpenAlgoHistoryImportRequest,
+        principal: Principal = Depends(researcher),
+    ) -> dict[str, Any]:
+        try:
+            result = openalgo_history_import_service.import_history(
+                **request.model_dump(),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        audit = AuditService(
+            DuckDBAuditRepository(active_config.database_path)
+        ).record(
+            entity_type="dataset",
+            entity_id=result["dataset_id"],
+            action="openalgo_history_imported",
+            actor=principal.username,
+            payload={
+                "provider": "openalgo",
+                "symbol": result["resolved_symbol"],
+                "exchange": result["resolved_exchange"],
+                "asset_class": result["asset_class"],
+                "row_count": result["row_count"],
+                "source_sha256": result["source_sha256"],
+            },
+        )
+        return {**result, "audit_id": audit.audit_id}
+
     @app.post("/datasets/features")
     def import_local_feature_dataset(
         request: LocalFeatureDatasetInput,
@@ -1277,7 +1311,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     ) -> dict[str, Any]:
         payload = request.model_dump()
         payload["requested_by"] = principal.username
-        return sandbox_service.prepare_intent(**payload)
+        try:
+            return sandbox_service.prepare_intent(**payload)
+        except (ValueError, PermissionError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.get("/sandbox/intents")
     def sandbox_intents(
@@ -1310,12 +1347,15 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         request: ApprovalDecisionRequest,
         principal: Principal = Depends(approver),
     ) -> dict[str, Any]:
-        return sandbox_service.decide(
-            approval_id,
-            approved=request.approved,
-            decided_by=principal.username,
-            reason=request.reason,
-        )
+        try:
+            return sandbox_service.decide(
+                approval_id,
+                approved=request.approved,
+                decided_by=principal.username,
+                reason=request.reason,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @app.post("/sandbox/intents/{intent_id}/submit")
     def submit_sandbox_intent(
@@ -1323,10 +1363,13 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         request: SandboxActionRequest,
         principal: Principal = Depends(researcher),
     ) -> dict[str, Any]:
-        return sandbox_service.submit(
-            intent_id,
-            actor=principal.username,
-        )
+        try:
+            return sandbox_service.submit(
+                intent_id,
+                actor=principal.username,
+            )
+        except (ValueError, PermissionError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @app.post("/sandbox/intents/{intent_id}/reconcile")
     def reconcile_sandbox_intent(
@@ -1334,10 +1377,13 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         request: SandboxActionRequest,
         principal: Principal = Depends(researcher),
     ) -> dict[str, Any]:
-        return sandbox_service.reconcile(
-            intent_id,
-            actor=principal.username,
-        )
+        try:
+            return sandbox_service.reconcile(
+                intent_id,
+                actor=principal.username,
+            )
+        except (ValueError, PermissionError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @app.post("/sandbox/intents/{intent_id}/cancel")
     def cancel_sandbox_intent(
@@ -1345,10 +1391,13 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         request: SandboxActionRequest,
         principal: Principal = Depends(researcher),
     ) -> dict[str, Any]:
-        return sandbox_service.cancel(
-            intent_id,
-            actor=principal.username,
-        )
+        try:
+            return sandbox_service.cancel(
+                intent_id,
+                actor=principal.username,
+            )
+        except (ValueError, PermissionError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @app.post("/backtests")
     def run_backtest(

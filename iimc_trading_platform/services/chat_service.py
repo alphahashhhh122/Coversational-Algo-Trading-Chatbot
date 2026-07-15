@@ -63,6 +63,7 @@ class ChatService:
 
     _DETERMINISTIC_RESPONSE_TOOLS = {
         "get_execution_readiness",
+        "import_openalgo_history",
         "get_openalgo_monitor",
         "get_openalgo_snapshot",
         "get_custom_strategy_capabilities",

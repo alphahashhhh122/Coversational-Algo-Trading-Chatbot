@@ -201,6 +201,8 @@ class MarketNewsService:
             "fetch_id": fetch_id,
             "raw_artifact_path": str(artifact_path),
             "retrieved_at": retrieved_at,
+            "query": query,
+            "symbol": symbol,
             "article_count": len(articles),
             "inserted_count": inserted,
             "articles": articles,

@@ -22,6 +22,7 @@ from ..services.instrument_discovery_service import InstrumentDiscoveryService
 from ..services.knowledge_service import KnowledgeService
 from ..services.market_news_service import MarketNewsService
 from ..services.openalgo_readiness_service import OpenAlgoReadinessService
+from ..services.openalgo_history_import_service import OpenAlgoHistoryImportService
 from ..services.openalgo_service import OpenAlgoSnapshotService
 from ..services.operations_service import build_task_service
 from ..services.order_service import get_order_timeline
@@ -138,6 +139,12 @@ class RunBacktestInput(ToolInput):
     fee_bps: float = Field(default=1.0, ge=0, le=1_000)
     slippage_bps: float = Field(default=0.0, ge=0, le=1_000)
     instrument: OptionContractSelection | None = None
+    symbol: str | None = Field(default=None, min_length=1, max_length=80)
+    exchange: str | None = Field(default=None, min_length=1, max_length=20)
+    asset_class: Literal[
+        "equity", "index", "futures", "options", "commodity", "crypto"
+    ] | None = None
+    interval: str | None = Field(default=None, min_length=1, max_length=20)
 
 
 class RunIdInput(ToolInput):
@@ -246,6 +253,18 @@ class PlatformReadinessInput(ToolInput):
     interval: str = Field(min_length=1, max_length=20)
     start_date: str = Field(min_length=4, max_length=20)
     end_date: str = Field(min_length=4, max_length=20)
+
+
+class OpenAlgoHistoryImportInput(ToolInput):
+    symbol: str = Field(min_length=1, max_length=80)
+    exchange: str = Field(min_length=1, max_length=20)
+    asset_class: Literal[
+        "equity", "index", "futures", "options", "commodity", "crypto"
+    ]
+    interval: str = Field(min_length=1, max_length=20)
+    start_date: str = Field(min_length=4, max_length=20)
+    end_date: str = Field(min_length=4, max_length=20)
+    dataset_id: str | None = Field(default=None, min_length=1, max_length=160)
 
 
 class MarketNewsInput(ToolInput):
@@ -456,6 +475,7 @@ def build_default_tool_registry(
     tasks = build_task_service(db_path)
     custom_strategies = CustomStrategyService(db_path)
     openalgo_readiness = OpenAlgoReadinessService(active_config)
+    openalgo_history_import = OpenAlgoHistoryImportService(active_config)
     capabilities = CapabilityCoverageService(db_path, openalgo_readiness)
     execution_readiness = ExecutionReadinessService(
         active_config,
@@ -482,7 +502,13 @@ def build_default_tool_registry(
 
     def run_backtest_tool(value: ToolInput) -> dict[str, Any]:
         request = RunBacktestInput.model_validate(value.model_dump())
-        dataset_id = request.dataset_id or _latest_dataset_id(db_path)
+        dataset_id = request.dataset_id or _dataset_for_request(
+            db_path,
+            symbol=request.symbol,
+            exchange=request.exchange,
+            asset_class=request.asset_class,
+            interval=request.interval,
+        )
         if dataset_id is None:
             raise ValueError("No cataloged dataset is available")
         return backtests.run(
@@ -1130,6 +1156,33 @@ def build_default_tool_registry(
                 required_role="researcher",
             ),
             ToolDefinition(
+                name="import_openalgo_history",
+                description=(
+                    "Fetch verified historical candles from OpenAlgo and store "
+                    "them as a governed local dataset for research and "
+                    "backtesting. This never submits an order."
+                ),
+                input_model=OpenAlgoHistoryImportInput,
+                handler=lambda value: openalgo_history_import.import_history(
+                    **OpenAlgoHistoryImportInput.model_validate(
+                        value.model_dump()
+                    ).model_dump()
+                ),
+                side_effects="imports provider history into the local governed catalog",
+                retry_safe=True,
+                required_role="researcher",
+                capabilities=ToolCapabilityMetadata(
+                    actions=("import_data", "backtest"),
+                    asset_classes=(
+                        "equity", "index", "futures", "options",
+                        "commodity", "crypto",
+                    ),
+                    execution_modes=("research", "paper"),
+                    required_providers=("openalgo",),
+                    risk_level="low",
+                ),
+            ),
+            ToolDefinition(
                 name="list_reports",
                 description="List persisted strategy evidence reports.",
                 input_model=EmptyInput,
@@ -1363,21 +1416,54 @@ def build_default_tool_registry(
     return ToolRegistry(tools)
 
 
-def _latest_dataset_id(db_path: Path) -> str | None:
+def _dataset_for_request(
+    db_path: Path,
+    *,
+    symbol: str | None = None,
+    exchange: str | None = None,
+    asset_class: str | None = None,
+    interval: str | None = None,
+) -> str | None:
     con = connect(db_path)
     try:
+        filters = ["quality_status NOT IN ('rejected', 'empty')"]
+        values: list[Any] = []
+        if symbol:
+            filters.append("UPPER(symbol) = UPPER(?)")
+            values.append(symbol)
+        if exchange:
+            filters.append("UPPER(exchange) = UPPER(?)")
+            values.append(exchange)
+        if asset_class:
+            filters.append("data_type = ?")
+            values.append(f"{asset_class.lower()}_ohlcv")
+        if interval:
+            filters.append("interval = ?")
+            values.append(interval)
         row = con.execute(
-            """
-            SELECT dataset_id
-            FROM data_catalog
-            WHERE quality_status NOT IN ('rejected', 'empty')
-            ORDER BY updated_at DESC
-            LIMIT 1
-            """
+            "SELECT dataset_id FROM data_catalog WHERE "
+            + " AND ".join(filters)
+            + " ORDER BY updated_at DESC LIMIT 1",
+            values,
         ).fetchone()
     finally:
         con.close()
+    if row is None and symbol:
+        scope = " ".join(
+            value
+            for value in (symbol.upper(), (exchange or "").upper(), interval or "")
+            if value
+        )
+        raise ValueError(
+            f"No governed dataset matches {scope}. Import verified OpenAlgo "
+            "history first, then run the backtest again."
+        )
     return row[0] if row else None
+
+
+def _latest_dataset_id(db_path: Path) -> str | None:
+    """Compatibility helper for callers that intentionally omit a symbol."""
+    return _dataset_for_request(db_path)
 
 
 def _require_result(result: dict[str, Any] | None) -> dict[str, Any]:

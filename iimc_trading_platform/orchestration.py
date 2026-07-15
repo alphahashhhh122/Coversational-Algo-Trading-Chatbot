@@ -440,6 +440,22 @@ class OfflineOrchestrator:
         ):
             return OrchestrationDecision("get_openalgo_monitor", {})
         sandbox_intent_request = _is_sandbox_intent_request(text)
+        if (
+            "get_execution_readiness" in tool_names
+            and _is_paper_trade_workflow_request(text)
+        ):
+            return OrchestrationDecision(
+                "get_execution_readiness",
+                _readiness_arguments(message),
+            )
+        if (
+            "import_openalgo_history" in tool_names
+            and _is_history_import_request(text)
+        ):
+            return OrchestrationDecision(
+                "import_openalgo_history",
+                _readiness_arguments(message),
+            )
         snapshot_types = _openalgo_snapshot_types(text)
         if "get_openalgo_monitor" in tool_names and (
             len(snapshot_types) > 1
@@ -1034,6 +1050,16 @@ class OfflineOrchestrator:
             )
         ):
             strategy_name = _strategy_from_text(text)
+            if _references_unspecified_personal_strategy(text):
+                return OrchestrationDecision(
+                    tool_name=None,
+                    arguments={},
+                    direct_response=(
+                        "Please name the built-in strategy, plugin, or saved "
+                        "custom_... strategy spec to backtest. I will not "
+                        "silently substitute a different strategy."
+                    ),
+                )
             arguments: dict[str, Any] = {
                 "strategy_name": strategy_name,
                 "parameters": _strategy_parameters(text, strategy_name),
@@ -1047,6 +1073,18 @@ class OfflineOrchestrator:
                 arguments["execution_mode"] = "live"
             if dataset_id:
                 arguments["dataset_id"] = dataset_id
+            else:
+                requested_symbol = _symbol_from_text(message)
+                if requested_symbol:
+                    readiness = _readiness_arguments(message)
+                    arguments.update(
+                        {
+                            "symbol": requested_symbol,
+                            "exchange": readiness["exchange"],
+                            "asset_class": readiness["asset_class"],
+                            "interval": readiness["interval"],
+                        }
+                    )
             return OrchestrationDecision("run_backtest", arguments)
         if any(word in text for word in ("strategies", "strategy list", "available strategy")):
             return OrchestrationDecision("list_strategies", {})
@@ -1273,6 +1311,54 @@ def _is_sandbox_intent_request(text: str) -> bool:
                 "openalgo intent",
                 "sandbox intent",
             )
+        )
+    )
+
+
+def _is_paper_trade_workflow_request(text: str) -> bool:
+    if not any(phrase in text for phrase in ("paper trade", "paper trading")):
+        return False
+    if _is_sandbox_intent_request(text):
+        return False
+    return not any(
+        phrase in text
+        for phrase in (
+            "show paper",
+            "list paper",
+            "paper intent",
+            "paper order status",
+            "openalgo intent",
+        )
+    )
+
+
+def _is_history_import_request(text: str) -> bool:
+    return (
+        any(word in text for word in ("import", "fetch", "download", "ingest", "load"))
+        and any(
+            phrase in text
+            for phrase in (
+                "historical data",
+                "history data",
+                "price history",
+                "ohlcv",
+                "candles",
+                "history for",
+            )
+        )
+        and "order history" not in text
+    )
+
+
+def _references_unspecified_personal_strategy(text: str) -> bool:
+    if not re.search(r"\b(?:my|this|the)\s+strategy\b", text):
+        return False
+    return not any(
+        word in text
+        for word in (
+            "ema", "sma", "rsi", "momentum", "roc", "macd",
+            "bollinger", "vwap", "plugin", "custom_", "strategy:",
+            "strategy=", "strategy named",
         )
     )
 
@@ -1821,6 +1907,7 @@ def _symbol_from_text(text: str) -> str | None:
         "LIVE",
         "MARKET",
         "MIS",
+        "MY",
         "NFO",
         "NRML",
         "NSE",
@@ -1840,13 +1927,15 @@ def _symbol_from_text(text: str) -> str | None:
         "SMA",
         "SPEC",
         "STRATEGY",
+        "THE",
+        "WANT",
+        "YOUR",
     }
     for pattern in (
         r"\b(?:symbol|ticker|underlying)\s*[:=]?\s*([A-Za-z][A-Za-z0-9&.-]{1,30})\b",
         r"\b(?:for|on|trade|backtest)\s+([A-Za-z][A-Za-z0-9&.-]{1,30})\b",
     ):
-        match = re.search(pattern, text, flags=re.IGNORECASE)
-        if match:
+        for match in re.finditer(pattern, text, flags=re.IGNORECASE):
             candidate = _clean_symbol(match.group(1))
             if candidate and candidate not in excluded:
                 return candidate
@@ -1920,15 +2009,15 @@ def _readiness_arguments(message: str) -> dict[str, Any]:
 
 
 def _asset_class_from_text(text: str) -> str:
-    if any(word in text for word in ("crypto", "coin", "bitcoin", "btc", "eth")):
+    if re.search(r"\b(?:crypto|coin|bitcoin|btc|eth)\b", text):
         return "crypto"
-    if any(word in text for word in ("commodity", "gold", "silver", "crude", "mcx")):
+    if re.search(r"\b(?:commodity|gold|silver|crude|mcx)\b", text):
         return "commodity"
-    if "future" in text:
+    if re.search(r"\bfuture(?:s)?\b", text):
         return "futures"
-    if any(word in text for word in ("option", "ce", "pe", "call", "put")):
+    if re.search(r"\b(?:option|options|ce|pe|call|put)\b", text):
         return "options"
-    if "index" in text:
+    if re.search(r"\bindex\b", text):
         return "index"
     return "equity"
 
@@ -2111,13 +2200,25 @@ def _grounded_fallback_response(
             if stage.get("can_start")
         ]
         blocker = result.get("next_blocker")
-        return (
+        summary = (
             f"Execution readiness for {result['symbol']} "
             f"{result['asset_class']} checked. Ready stages: "
             f"{', '.join(ready) or 'none'}. Next blocker: "
             f"{blocker['stage'] if blocker else 'none'}. "
             "No synthetic fallback was used."
         )
+        data = result.get("data_readiness", {})
+        if (
+            not data.get("local_dataset_exists")
+            and data.get("historical_available")
+        ):
+            return (
+                f"{summary} OpenAlgo has verified historical data for this "
+                "instrument, but it has not been imported into the governed "
+                "catalog yet. Ask me to import its historical data, then name "
+                "the strategy for a semi-auto backtest."
+            )
+        return summary
     if tool_name == "get_openalgo_monitor":
         return (
             f"OpenAlgo monitor status: {result['status']}. "
@@ -2178,11 +2279,10 @@ def _grounded_fallback_response(
             )
         articles = result.get("articles", [])
         if not articles:
+            subject = result.get("symbol") or result.get("query") or "this request"
             return (
-                "I could not find recent provider-backed catalysts for that "
-                "outlook, so I will not label any stock as likely to rise next "
-                "week. Ask about a named stock for its current quote and news, "
-                "or run a backtest on a defined universe. "
+                f"The configured news provider returned no matching articles for {subject}. "
+                "No market outlook was inferred from missing news. "
                 f"Evidence: {result.get('fetch_id')}."
             )
         unique_headlines: list[str] = []
@@ -2280,6 +2380,13 @@ def _grounded_fallback_response(
             f"Approval {result['approval_id']} is required before OpenAlgo "
             "submission."
         )
+    if tool_name == "import_openalgo_history":
+        return (
+            f"Imported {result['row_count']} verified OpenAlgo candle(s) for "
+            f"{result['resolved_symbol']} {result['resolved_exchange']} into "
+            f"dataset {result['dataset_id']}. You can now run a research or "
+            "semi-auto backtest against this exact dataset."
+        )
     if tool_name == "prepare_live_order_intent":
         return (
             f"Prepared live order intent {result['intent_id']} for "
@@ -2298,12 +2405,20 @@ def _grounded_fallback_response(
             f"{result['status']}."
         )
     if tool_name == "run_backtest":
-        return (
+        summary = (
             f"Backtest {result['run_id']} completed for "
             f"{result['strategy']}. Net P&L: {result['net_pnl']:.2f}; "
             f"max drawdown: {result['max_drawdown']:.2f}; "
             f"return: {result['return_pct']:.4f}%."
         )
+        if result.get("execution_mode") == "semi_auto":
+            return (
+                f"{summary} This is a historical simulation stored in "
+                "Strategy Runs. Its risk decisions are available in Execution "
+                "Controls to prepare a human-approved OpenAlgo analyzer order; "
+                "only the submitted analyzer order will appear in OpenAlgo."
+            )
+        return summary
     if tool_name == "run_custom_strategy_spec":
         return (
             f"Custom strategy spec {result['custom_strategy_spec_id']} "
