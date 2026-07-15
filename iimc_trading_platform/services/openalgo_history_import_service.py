@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 import re
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -38,6 +38,13 @@ class OpenAlgoHistoryImportService:
             raise ValueError(f"Unsupported asset class: {asset_class}")
         if not self.config.openalgo_api_key:
             raise ValueError("OPENALGO_API_KEY is required to import history")
+        requested_start = _calendar_date(start_date, "start_date")
+        requested_end = _calendar_date(end_date, "end_date")
+        if requested_end < requested_start:
+            raise ValueError("end_date must be on or after start_date")
+        # OpenAlgo's history endpoint treats end_date as exclusive. The UI and
+        # chat contract use inclusive calendar dates, so advance it here only.
+        provider_end_date = (requested_end + timedelta(days=1)).isoformat()
 
         resolution = InstrumentDiscoveryService(self.config).validate_symbol(
             symbol=symbol,
@@ -56,7 +63,7 @@ class OpenAlgoHistoryImportService:
                 exchange=resolved_exchange,
                 interval=interval,
                 start_date=start_date,
-                end_date=end_date,
+                end_date=provider_end_date,
             )
         except OpenAlgoError as exc:
             raise ValueError(f"OpenAlgo history import failed: {exc}") from exc
@@ -95,6 +102,7 @@ class OpenAlgoHistoryImportService:
             "resolved_exchange": resolved_exchange,
             "start_date": start_date,
             "end_date": end_date,
+            "provider_end_date_exclusive": provider_end_date,
             "instrument": resolution.get("instrument", {}),
         }
 
@@ -148,6 +156,13 @@ def _timestamp(value: Any) -> datetime:
             else value
         )
     raise ValueError("timestamp is required")
+
+
+def _calendar_date(value: str, name: str) -> date:
+    try:
+        return date.fromisoformat(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be an ISO date (YYYY-MM-DD)") from exc
 
 
 def _number(value: Any, name: str, index: int) -> float:

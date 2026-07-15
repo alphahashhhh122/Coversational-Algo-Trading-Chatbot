@@ -16,7 +16,11 @@ from iimc_trading_platform.services.openalgo_history_import_service import (
 
 
 class _HistoryBroker:
+    def __init__(self) -> None:
+        self.request: dict[str, object] | None = None
+
     def historical(self, **kwargs):
+        self.request = kwargs
         start = datetime(2026, 6, 1, 3, 45)
         return {
             "data": [
@@ -60,7 +64,8 @@ class OpenAlgoHistoryImportTest(unittest.TestCase):
             "instrument": {"symbol": "RELIANCE", "exchange": "NSE"},
         }
         service = OpenAlgoHistoryImportService(self.config)
-        with patch.object(service, "_client", return_value=_HistoryBroker()):
+        broker = _HistoryBroker()
+        with patch.object(service, "_client", return_value=broker):
             result = service.import_history(
                 symbol="reliance",
                 exchange="nse",
@@ -76,6 +81,8 @@ class OpenAlgoHistoryImportTest(unittest.TestCase):
         )
         self.assertEqual(result["data_source"], "openalgo_history")
         self.assertEqual(result["row_count"], 80)
+        self.assertEqual(broker.request["end_date"], "2026-06-03")
+        self.assertEqual(result["provider_end_date_exclusive"], "2026-06-03")
         con = connect(self.database_path)
         try:
             catalog = con.execute(
