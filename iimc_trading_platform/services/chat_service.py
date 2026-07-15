@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from dataclasses import dataclass
 from typing import Any
@@ -36,6 +37,16 @@ class ChatResult:
 
 
 class ChatService:
+    _EXACT_IDENTIFIER_FIELDS = {
+        "dataset_id",
+        "run_id",
+        "intent_id",
+        "approval_id",
+        "experiment_id",
+        "portfolio_id",
+        "spec_id",
+    }
+
     def __init__(
         self,
         tool_registry: ToolRegistry,
@@ -140,6 +151,19 @@ class ChatService:
                     "Compound chat requests may run only read-only checks. "
                     "Ask for state-changing actions separately and explicitly.",
                     invocations,
+                )
+
+        for invocation in invocations:
+            clarification = self._identifier_clarification(
+                invocation,
+                message,
+                history,
+            )
+            if clarification:
+                return self._clarify(
+                    active_session_id,
+                    active_registry,
+                    clarification,
                 )
 
         if len(invocations) > 1:
@@ -280,6 +304,62 @@ class ChatService:
                 call_id=decision.call_id,
             )
         ]
+
+    def _identifier_clarification(
+        self,
+        invocation: ToolInvocation,
+        message: str,
+        history: list[dict[str, str]],
+    ) -> str | None:
+        context = "\n".join(
+            [message, *(item.get("content", "") for item in history)]
+        )
+        for field_name in self._EXACT_IDENTIFIER_FIELDS:
+            value = invocation.arguments.get(field_name)
+            if not isinstance(value, str) or not value.strip():
+                continue
+            if _identifier_in_context(value, context):
+                continue
+            return (
+                f"Please provide the exact {field_name}. I will not infer "
+                "a stored record identifier."
+            )
+        return None
+
+    def _clarify(
+        self,
+        session_id: str,
+        registry: ToolRegistry,
+        answer: str,
+    ) -> ChatResult:
+        evaluation = self.evaluator.evaluate(
+            answer=answer,
+            tool_name=None,
+            tool_result=None,
+            tool_call_id=None,
+        )
+        self._store_assistant(
+            session_id,
+            evaluation.answer,
+            {
+                "intent": "clarification",
+                "orchestration_mode": self.orchestrator.mode,
+                "evaluation": evaluation.warnings,
+            },
+        )
+        return ChatResult(
+            session_id=session_id,
+            intent="clarification",
+            answer=evaluation.answer,
+            tool_calls=[],
+            data={"available_tools": registry.list_tools()},
+            orchestration_mode=self.orchestrator.mode,
+            evaluation={
+                "passed": evaluation.passed,
+                "warnings": evaluation.warnings,
+                "evidence_ids": evaluation.evidence_ids,
+            },
+        )
 
     def _answer_compound_read_only(
         self,
@@ -425,3 +505,14 @@ class ChatService:
             content=content,
             metadata=metadata,
         )
+
+
+def _identifier_in_context(value: str, context: str) -> bool:
+    escaped = re.escape(value.strip())
+    return bool(
+        re.search(
+            rf"(?<![A-Za-z0-9_.-]){escaped}(?![A-Za-z0-9_.-])",
+            context,
+            flags=re.IGNORECASE,
+        )
+    )

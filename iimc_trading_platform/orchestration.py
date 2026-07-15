@@ -994,13 +994,17 @@ def _dataset_from_text(text: str) -> str | None:
         r"\bdataset\s*[:=]\s*([A-Za-z0-9_.-]+)",
         text,
         flags=re.IGNORECASE,
+    ) or re.search(
+        r"\bon\s+dataset\s+([A-Za-z0-9_.-]+)",
+        text,
+        flags=re.IGNORECASE,
     )
     if match:
         candidate = _clean_identifier(match.group(1))
         if candidate.lower() not in {"id", "dataset"}:
             return candidate
     match = re.search(
-        r"\bon\s+([A-Za-z][A-Za-z0-9_.-]+)\b",
+        r"\bon\s+(?!dataset\b)([A-Za-z][A-Za-z0-9_.-]+)\b",
         text,
         flags=re.IGNORECASE,
     )

@@ -26,6 +26,7 @@ from iimc_trading_platform.orchestration import (
 )
 from iimc_trading_platform.services.chat_service import ChatService
 from iimc_trading_platform.tools.registry import (
+    DatasetFreshnessInput,
     EmptyInput,
     ToolDefinition,
     ToolRegistry,
@@ -142,6 +143,19 @@ class _NullArgumentOrchestrator:
             tool_name="read_status",
             arguments={},
             tool_calls=[ToolInvocation("read_status", None)],
+        )
+
+    def compose_response(self, message, decision, tool_result):
+        return "unused"
+
+
+class _InventedDatasetOrchestrator:
+    mode = "fake_llm"
+
+    def select_tool(self, message, history, registry):
+        return OrchestrationDecision(
+            "assess_dataset_freshness",
+            {"dataset_id": "current_dataset", "purpose": "current_market"},
         )
 
     def compose_response(self, message, decision, tool_result):
@@ -413,6 +427,44 @@ class OrchestrationContractsTest(unittest.TestCase):
         self.assertIsNone(decision.tool_name)
         self.assertEqual(decision.arguments, {})
         self.assertIn("dataset_id", decision.direct_response or "")
+
+    def test_offline_router_parses_dataset_after_on_dataset_phrase(self) -> None:
+        registry = build_default_tool_registry(Path("unused.duckdb"))
+
+        decision = OfflineOrchestrator().select_tool(
+            "Backtest custom strategy spec custom_alpha on dataset nifty_options",
+            [],
+            registry,
+        )
+
+        self.assertEqual(decision.tool_name, "run_custom_strategy_spec")
+        self.assertEqual(decision.arguments["dataset_id"], "nifty_options")
+
+    def test_chat_rejects_model_invented_record_identifier(self) -> None:
+        registry = ToolRegistry(
+            [
+                ToolDefinition(
+                    name="assess_dataset_freshness",
+                    description="Assess dataset freshness.",
+                    input_model=DatasetFreshnessInput,
+                    handler=lambda value: {"status": "fresh"},
+                    side_effects="read-only",
+                    retry_safe=True,
+                )
+            ]
+        )
+        service = ChatService(
+            registry,
+            _FakeToolExecutionService(),
+            _InventedDatasetOrchestrator(),
+            _FakeConversationService(),
+        )
+
+        result = service.answer("Is this dataset fresh for current market use?")
+
+        self.assertEqual(result.intent, "clarification")
+        self.assertEqual(result.tool_calls, [])
+        self.assertIn("dataset_id", result.answer)
 
     def test_offline_router_refuses_to_prepare_sandbox_intent_without_decision_id(self) -> None:
         registry = build_default_tool_registry(
