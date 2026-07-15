@@ -298,6 +298,11 @@ class SandboxExecutionService:
             )
         intent = self.get_intent(intent_id)
         if intent["status"] != "approved":
+            if intent["status"] == "submitting":
+                raise ValueError(
+                    "Intent submission is already in progress; duplicate "
+                    "broker submission refused"
+                )
             raise ValueError(
                 f"Intent must be approved before submission; "
                 f"current status is {intent['status']}"
@@ -329,11 +334,12 @@ class SandboxExecutionService:
             ),
             price=float(intent["limit_price"] or 0.0),
         )
-        self._set_intent_status(
-            intent_id,
-            "submitting",
-            order_id=order.order_id,
-        )
+        if not self._claim_submission(intent_id, order.order_id):
+            current = self.get_intent(intent_id)
+            raise ValueError(
+                "Intent submission is already in progress or complete; "
+                f"current status is {current['status']}"
+            )
         self.audit.record(
             entity_type="order_intent",
             entity_id=intent_id,
@@ -412,6 +418,23 @@ class SandboxExecutionService:
             },
         )
         return self.get_intent(intent_id)
+
+    def _claim_submission(self, intent_id: str, order_id: str) -> bool:
+        """Atomically reserve an approved intent before its broker call."""
+        con = connect(self.db_path)
+        try:
+            row = con.execute(
+                """
+                UPDATE order_intents
+                SET status = 'submitting', order_id = ?, updated_at = ?
+                WHERE intent_id = ? AND status = 'approved'
+                RETURNING intent_id
+                """,
+                [order_id, utc_now(), intent_id],
+            ).fetchone()
+            return row is not None
+        finally:
+            con.close()
 
     def reconcile(self, intent_id: str, *, actor: str = "system") -> dict[str, Any]:
         if self.broker is None:

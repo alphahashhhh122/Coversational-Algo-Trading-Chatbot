@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -73,6 +74,18 @@ class UncertainSandboxBroker(FakeSandboxBroker):
     def place_sandbox_order(self, **kwargs) -> dict:
         self.place_calls += 1
         raise TimeoutError("response timed out")
+
+
+class BlockingSandboxBroker(FakeSandboxBroker):
+    def __init__(self) -> None:
+        super().__init__()
+        self.submission_started = threading.Event()
+        self.release_submission = threading.Event()
+
+    def place_sandbox_order(self, **kwargs) -> dict:
+        self.submission_started.set()
+        self.release_submission.wait(timeout=2)
+        return super().place_sandbox_order(**kwargs)
 
 
 class SandboxExecutionTest(unittest.TestCase):
@@ -335,6 +348,41 @@ class SandboxExecutionTest(unittest.TestCase):
         self.assertEqual(stored["status"], "submission_uncertain")
         with self.assertRaisesRegex(ValueError, "must be approved"):
             service.submit(intent["intent_id"], actor="user")
+        self.assertEqual(broker.place_calls, 1)
+
+    def test_submission_claim_prevents_a_duplicate_broker_call(self) -> None:
+        broker = BlockingSandboxBroker()
+        service = SandboxExecutionService(
+            self.db_path,
+            self.audit,
+            broker,
+            require_approval=True,
+        )
+        intent = self._prepare(service)
+        approved = service.decide(
+            intent["approval_id"],
+            approved=True,
+            decided_by="user",
+            reason="Sandbox test approved",
+        )
+        errors: list[Exception] = []
+
+        def submit_first_request() -> None:
+            try:
+                service.submit(approved["intent_id"], actor="first_user")
+            except Exception as exc:  # pragma: no cover - assertion below
+                errors.append(exc)
+
+        first = threading.Thread(target=submit_first_request)
+        first.start()
+        self.assertTrue(broker.submission_started.wait(timeout=2))
+
+        with self.assertRaisesRegex(ValueError, "already in progress"):
+            service.submit(approved["intent_id"], actor="second_user")
+        broker.release_submission.set()
+        first.join(timeout=2)
+        self.assertFalse(first.is_alive())
+        self.assertEqual(errors, [])
         self.assertEqual(broker.place_calls, 1)
 
     def test_rejected_approval_cannot_submit(self) -> None:
