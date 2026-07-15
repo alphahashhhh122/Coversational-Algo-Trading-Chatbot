@@ -4,7 +4,7 @@ import hashlib
 import json
 import math
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -368,6 +368,115 @@ class MarketDataIngestionService:
             "data_source": "local_user_supplied",
             "point_in_time_safe": True,
             "no_synthetic_fallback": True,
+        }
+
+    def derive_options_features(
+        self,
+        *,
+        options_dataset_id: str,
+        feature_dataset_id: str,
+        feature_names: list[str],
+        availability_delay_seconds: int = 0,
+    ) -> dict[str, Any]:
+        supported = {
+            "open_interest",
+            "call_open_interest",
+            "put_open_interest",
+            "put_call_oi_ratio",
+            "iv_mean",
+            "iv_skew",
+            "option_volume",
+        }
+        requested = list(dict.fromkeys(feature_names))
+        unknown = sorted(set(requested) - supported)
+        if not requested or unknown:
+            raise ValueError(
+                "feature_names must contain supported options features: "
+                + ", ".join(sorted(supported))
+            )
+        if availability_delay_seconds < 0 or availability_delay_seconds > 86_400:
+            raise ValueError("availability_delay_seconds must be 0 to 86400")
+        con = connect(self.db_path)
+        try:
+            dataset = con.execute(
+                """
+                SELECT symbol, exchange, storage_table, source_id, quality_status
+                FROM data_catalog
+                WHERE dataset_id = ?
+                """,
+                [options_dataset_id],
+            ).fetchone()
+            if dataset is None or dataset[2] != "options_ohlcv":
+                raise ValueError(
+                    "options_dataset_id must identify a governed options_ohlcv dataset"
+                )
+            if dataset[4] not in {"clean", "clean_with_warnings"}:
+                raise ValueError("Options dataset is not fit for feature derivation")
+            rows = con.execute(
+                """
+                SELECT timestamp,
+                       sum(oi)::DOUBLE AS open_interest,
+                       sum(CASE WHEN option_type = 'CALL' THEN oi ELSE 0 END)::DOUBLE AS call_open_interest,
+                       sum(CASE WHEN option_type = 'PUT' THEN oi ELSE 0 END)::DOUBLE AS put_open_interest,
+                       avg(iv) AS iv_mean,
+                       avg(CASE WHEN option_type = 'PUT' THEN iv END)
+                         - avg(CASE WHEN option_type = 'CALL' THEN iv END) AS iv_skew,
+                       sum(volume)::DOUBLE AS option_volume
+                FROM options_ohlcv
+                WHERE source_id = ? AND quality_status IN ('clean', 'clean_with_warnings')
+                GROUP BY timestamp
+                ORDER BY timestamp
+                """,
+                [dataset[3]],
+            ).fetchall()
+        finally:
+            con.close()
+        if not rows:
+            raise ValueError("Options dataset contains no usable rows")
+        observations: list[dict[str, Any]] = []
+        for row in rows:
+            values = {
+                "open_interest": row[1],
+                "call_open_interest": row[2],
+                "put_open_interest": row[3],
+                "put_call_oi_ratio": (
+                    float(row[3]) / float(row[2]) if float(row[2]) else None
+                ),
+                "iv_mean": row[4],
+                "iv_skew": row[5],
+                "option_volume": row[6],
+            }
+            for feature_name in requested:
+                value = values[feature_name]
+                if value is None or not math.isfinite(float(value)):
+                    continue
+                observations.append(
+                    {
+                        "feature_name": feature_name,
+                        "observed_at": row[0],
+                        "available_at": row[0] + timedelta(seconds=availability_delay_seconds),
+                        "value": float(value),
+                        "metadata": {
+                            "derived_from_dataset_id": options_dataset_id,
+                            "derived_from_source_id": dataset[3],
+                            "derivation": "options_chain_aggregate_v1",
+                        },
+                    }
+                )
+        if not observations:
+            raise ValueError("Requested options features have no numeric observations")
+        result = self.import_features(
+            dataset_id=feature_dataset_id,
+            symbol=str(dataset[0]),
+            exchange=str(dataset[1]),
+            observations=observations,
+            source_name=f"derived:{options_dataset_id}",
+        )
+        return {
+            **result,
+            "derived_from_dataset_id": options_dataset_id,
+            "derivation": "options_chain_aggregate_v1",
+            "availability_delay_seconds": availability_delay_seconds,
         }
 
     @staticmethod

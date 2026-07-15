@@ -24,6 +24,7 @@ from .api_models import (
     LoginRequest,
     LocalFeatureDatasetInput,
     LocalOhlcvDatasetInput,
+    OptionsFeatureDerivationInput,
     PortfolioControlRequest,
     PortfolioFillRequest,
     PortfolioRiskCheckRequest,
@@ -1055,6 +1056,34 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 "row_count": result["row_count"],
                 "source_sha256": result["source_sha256"],
                 "point_in_time_safe": True,
+            },
+        )
+        return {**result, "audit_id": audit.audit_id}
+
+    @app.post("/datasets/options/{dataset_id}/derive-features")
+    def derive_options_feature_dataset(
+        dataset_id: str,
+        request: OptionsFeatureDerivationInput,
+        principal: Principal = Depends(researcher),
+    ) -> dict[str, Any]:
+        try:
+            result = market_data_ingestion_service.derive_options_features(
+                options_dataset_id=dataset_id,
+                **request.model_dump(),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        audit = AuditService(
+            DuckDBAuditRepository(active_config.database_path)
+        ).record(
+            entity_type="dataset",
+            entity_id=result["dataset_id"],
+            action="options_features_derived",
+            actor=principal.username,
+            payload={
+                "source_dataset_id": dataset_id,
+                "feature_names": result["feature_names"],
+                "source_sha256": result["source_sha256"],
             },
         )
         return {**result, "audit_id": audit.audit_id}

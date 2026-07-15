@@ -451,6 +451,49 @@ class MarketDataIngestionTest(unittest.TestCase):
         self.assertEqual(result["status"], "completed")
         self.assertEqual(service.get_spec(created["spec_id"])["status"], "draft_executable")
 
+    def test_options_chain_derives_governed_oi_and_iv_features(self) -> None:
+        source_id = "source_options_features"
+        timestamps = [
+            datetime(2026, 1, 2, 9, 15) + timedelta(minutes=5 * index)
+            for index in range(3)
+        ]
+        con = connect(self.db_path)
+        try:
+            con.execute(
+                "INSERT INTO raw_file_registry VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [source_id, "local", "options.csv", "abc123", 1, timestamps[0], 6, 6, 0, 0],
+            )
+            con.executemany(
+                "INSERT INTO options_ohlcv VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    ["NIFTY", "NFO", "30JAN26", "5m", timestamp, "22000", 22000.0, side, 100.0, 101.0, 99.0, 100.0, 10, oi, iv, 22000.0, source_id, "options.csv", "clean", timestamp]
+                    for timestamp, call_oi, put_oi, call_iv, put_iv in [
+                        (timestamps[0], 100, 120, 0.20, 0.24),
+                        (timestamps[1], 110, 130, 0.21, 0.25),
+                        (timestamps[2], 120, 140, 0.22, 0.26),
+                    ]
+                    for side, oi, iv in [("CALL", call_oi, call_iv), ("PUT", put_oi, put_iv)]
+                ],
+            )
+            con.execute(
+                "INSERT INTO data_catalog VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                ["nifty_options_features", "market_data", "options_ohlcv", "NIFTY", "NFO", "5m", timestamps[0], timestamps[-1], 6, "options_ohlcv", source_id, "clean", None, timestamps[0]],
+            )
+        finally:
+            con.close()
+
+        derived = MarketDataIngestionService(self.db_path).derive_options_features(
+            options_dataset_id="nifty_options_features",
+            feature_dataset_id="nifty_derived_options_features",
+            feature_names=["open_interest", "put_call_oi_ratio", "iv_skew"],
+            availability_delay_seconds=60,
+        )
+
+        self.assertEqual(derived["storage_table"], "market_features")
+        self.assertEqual(derived["derived_from_dataset_id"], "nifty_options_features")
+        self.assertEqual(derived["row_count"], 9)
+        self.assertEqual(set(derived["feature_names"]), {"open_interest", "put_call_oi_ratio", "iv_skew"})
+
 
 class _AlwaysUnavailableReadiness:
     def readiness(self, **_: str) -> dict[str, object]:

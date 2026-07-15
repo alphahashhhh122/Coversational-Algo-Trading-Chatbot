@@ -161,6 +161,12 @@ class LocalFeatureDatasetInput(BaseModel):
     )
 
 
+class OptionsFeatureDerivationInput(BaseModel):
+    feature_dataset_id: str = Field(min_length=1, max_length=160)
+    feature_names: list[str] = Field(min_length=1, max_length=7)
+    availability_delay_seconds: int = Field(default=0, ge=0, le=86_400)
+
+
 class CreatePortfolioRequest(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     starting_cash: float = Field(gt=0)
