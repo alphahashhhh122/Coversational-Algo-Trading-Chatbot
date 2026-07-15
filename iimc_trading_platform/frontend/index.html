@@ -529,6 +529,22 @@
           </form>
           <pre class="json-view hidden" id="feature-import-result"></pre>
         </section>
+        <section class="rag-panel">
+          <div class="section-heading">
+            <div>
+              <h2>Options Feature Derivation</h2>
+              <p>Derive IV, open-interest, put/call ratio, and option-volume feature series from a governed options dataset.</p>
+            </div>
+          </div>
+          <form class="knowledge-search-form" id="options-feature-form">
+            <label><span>Options dataset ID</span><input id="options-feature-source" required></label>
+            <label><span>New feature dataset ID</span><input id="options-feature-dataset-id" required></label>
+            <label><span>Features (comma separated)</span><input id="options-feature-names" value="open_interest,put_call_oi_ratio,iv_skew" required></label>
+            <label><span>Availability delay (seconds)</span><input id="options-feature-delay" type="number" min="0" max="86400" value="0" required></label>
+            <button type="submit" class="primary-button" id="derive-options-features">Derive options features</button>
+          </form>
+          <pre class="json-view hidden" id="options-feature-result"></pre>
+        </section>
         <div class="dataset-list" id="dataset-list"></div>
         <section class="rag-panel">
           <div class="section-heading">

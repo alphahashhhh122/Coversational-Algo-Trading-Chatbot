@@ -2569,6 +2569,38 @@ async function submitFeatureImport(event) {
   }
 }
 
+async function submitOptionsFeatureDerivation(event) {
+  event.preventDefault();
+  const button = $("#derive-options-features");
+  const resultBox = $("#options-feature-result");
+  const sourceDataset = $("#options-feature-source").value.trim();
+  const featureNames = $("#options-feature-names").value
+    .split(",")
+    .map((name) => name.trim())
+    .filter(Boolean);
+  button.disabled = true;
+  resultBox.classList.remove("hidden");
+  try {
+    if (!featureNames.length) throw new Error("Enter at least one options feature");
+    const result = await api(`/datasets/options/${encodeURIComponent(sourceDataset)}/derive-features`, {
+      method: "POST",
+      body: JSON.stringify({
+        feature_dataset_id: $("#options-feature-dataset-id").value.trim(),
+        feature_names: featureNames,
+        availability_delay_seconds: Number($("#options-feature-delay").value || 0),
+      }),
+    });
+    resultBox.textContent = JSON.stringify(result, null, 2);
+    toast(`Derived ${result.row_count} governed options feature observations`);
+    await loadOverview();
+  } catch (error) {
+    resultBox.textContent = JSON.stringify({ ok: false, message: error.message }, null, 2);
+    toast(error.message);
+  } finally {
+    button.disabled = false;
+  }
+}
+
 function wireEvents() {
   document.querySelectorAll(".nav-item").forEach((button) => {
     button.addEventListener("click", () => setView(button.dataset.view));
@@ -2600,6 +2632,7 @@ function wireEvents() {
   $("#knowledge-search-form").addEventListener("submit", submitKnowledgeSearch);
   $("#ohlcv-import-form").addEventListener("submit", submitOhlcvImport);
   $("#feature-import-form").addEventListener("submit", submitFeatureImport);
+  $("#options-feature-form").addEventListener("submit", submitOptionsFeatureDerivation);
   $("#login-form").addEventListener("submit", submitLogin);
   $("#logout-button").addEventListener("click", logout);
   $("#compare-runs").addEventListener("click", compareSelectedRuns);
