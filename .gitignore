@@ -15,9 +15,6 @@ artifacts/
 
 *.zip
 *.docx
-docx_render_final/
-latest_full_repo_for_chatgpt.zip
-iimc_platform_repo_current.zip
 
 .pytest_cache/
 .coverage
@@ -28,5 +25,4 @@ dist/
 build/
 *.egg-info/
 
-0
 .handoff_review/

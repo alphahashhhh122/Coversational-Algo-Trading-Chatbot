@@ -19,14 +19,14 @@ from .task_service import TaskService
 
 
 CURATED_DOCUMENTS = [
-    Path("docs/AI_FIRST_TARGET_ARCHITECTURE.md"),
+    Path("README.md"),
+    Path("docs/ARCHITECTURE.md"),
     Path("docs/DATA_DOMAINS.md"),
     Path("docs/SECURITY_AND_SECRETS.md"),
-    Path("docs/CLAUDE_HANDOFF_AUDIT.md"),
     Path("docs/OPENALGO_SANDBOX_BRIDGE.md"),
-    Path("docs/OPERATOR_WORKSPACE.md"),
+    Path("docs/OPERATOR_RUNBOOK.md"),
     Path("docs/OPERATIONS_FAILURE_RUNBOOK.md"),
-    Path("PROJECT_PLAN.md"),
+    Path("docs/PRODUCTION_READINESS.md"),
 ]
 
 

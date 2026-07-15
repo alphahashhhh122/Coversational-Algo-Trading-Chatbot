@@ -12,7 +12,7 @@ class DeploymentContractsTest(unittest.TestCase):
         dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
 
         self.assertIn("COPY docs ./docs", dockerfile)
-        self.assertIn("COPY PROJECT_PLAN.md ./", dockerfile)
+        self.assertNotIn("COPY PROJECT_PLAN.md ./", dockerfile)
         self.assertIn("http://127.0.0.1:8000/live", dockerfile)
 
     def test_kubernetes_preserves_single_writer_and_probe_contracts(

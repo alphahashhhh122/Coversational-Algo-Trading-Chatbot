@@ -10,6 +10,21 @@ natural-language requests into governed backend tools. It is built as a
 local-first research and execution-control workspace. Live trading is disabled
 by default, but can be explicitly enabled for approval-gated live order intents.
 
+## Submission Guide
+
+This repository is self-contained for local academic review. No provider
+credential is needed to inspect the architecture, run the full automated suite,
+use the dashboard, import governed data, create/validate custom strategies, or
+run deterministic research backtests. Conversational model, broker, and news
+provider calls remain optional external integrations.
+
+- [Architecture](docs/ARCHITECTURE.md) explains the system boundaries and data flow.
+- [Operator Runbook](docs/OPERATOR_RUNBOOK.md) gives the local review workflow.
+- [Data Domains](docs/DATA_DOMAINS.md) describes governed data coverage.
+- [Security and Secrets](docs/SECURITY_AND_SECRETS.md) documents credential handling.
+- [Production Readiness](docs/PRODUCTION_READINESS.md) distinguishes the local
+  deliverable from deployment-scale work.
+
 ## Core Capabilities
 
 - Conversational chatbot for market research, instrument discovery, backtesting,
@@ -179,10 +194,10 @@ python -m iimc_trading_platform.cli openalgo-readiness `
   --interval 5m --start-date 2026-06-24 --end-date 2026-06-26
 ```
 
-Run tests:
+Run the full automated suite:
 
 ```powershell
-python -m pytest
+python -m unittest discover -s tests -v
 ```
 
 Run a focused platform/API test subset:

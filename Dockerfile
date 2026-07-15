@@ -12,7 +12,6 @@ COPY iimc_trading_platform ./iimc_trading_platform
 RUN python -m pip install --no-cache-dir .
 
 COPY docs ./docs
-COPY PROJECT_PLAN.md ./
 
 RUN mkdir -p /app/data /app/artifacts && chown -R iimc:iimc /app
 USER iimc

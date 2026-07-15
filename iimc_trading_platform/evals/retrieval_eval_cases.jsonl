@@ -1,8 +1,8 @@
-{"case_id":"architecture_tool_boundary","query":"Why does the LLM select typed tools instead of writing SQL or calculating trading risk itself?","relevant_titles":["AI FIRST TARGET ARCHITECTURE"]}
-{"case_id":"agent_framework_decision","query":"When would Agents SDK or LangGraph become justified for this platform?","relevant_titles":["AI FIRST TARGET ARCHITECTURE"]}
+{"case_id":"architecture_tool_boundary","query":"Why does the LLM select typed tools instead of writing SQL or calculating trading risk itself?","relevant_titles":["ARCHITECTURE"]}
+{"case_id":"strategy_execution_boundary","query":"How are custom strategies validated and backtested without executing LLM-generated Python code?","relevant_titles":["README"]}
 {"case_id":"data_domain_taxonomy","query":"Which data domains contain market, fundamental, alternative, reference, order, trade, position, and funds data?","relevant_titles":["DATA DOMAINS"]}
 {"case_id":"security_secret_handling","query":"How are API credentials and secrets kept out of source code logs screenshots and audit payloads?","relevant_titles":["SECURITY AND SECRETS"]}
 {"case_id":"openalgo_analyzer_control","query":"How is OpenAlgo analyzer mode proven and why is human approval required before submission?","relevant_titles":["OPENALGO SANDBOX BRIDGE"]}
-{"case_id":"operator_workspace_views","query":"Which views and workflows are available in the operator workspace?","relevant_titles":["OPERATOR WORKSPACE"]}
-{"case_id":"project_delivery_roadmap","query":"What is the phased production delivery roadmap and implementation plan for the project?","relevant_titles":["PROJECT PLAN"]}
-{"case_id":"handoff_gap_audit","query":"Which architecture gaps and incomplete claims were identified during the handoff audit?","relevant_titles":["CLAUDE HANDOFF AUDIT"]}
+{"case_id":"local_operator_workflow","query":"What is the safe local workflow for importing data, validating a strategy, running a backtest, and reviewing evidence?","relevant_titles":["OPERATOR RUNBOOK"]}
+{"case_id":"incident_response","query":"How should an uncertain broker submission or failed operational check be handled?","relevant_titles":["OPERATIONS FAILURE RUNBOOK"]}
+{"case_id":"production_boundary","query":"What changes are required before this local platform is deployed beyond a single-node research environment?","relevant_titles":["PRODUCTION READINESS"]}
