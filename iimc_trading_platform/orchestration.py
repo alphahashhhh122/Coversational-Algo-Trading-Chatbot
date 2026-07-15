@@ -965,7 +965,7 @@ def _chat_completion_tools(registry: ToolRegistry) -> list[dict[str, Any]]:
                 "parameters": tool["parameters"],
             },
         }
-        for tool in registry.openai_tools()
+        for tool in registry.openai_tools(strict=False)
     ]
 
 
@@ -1708,9 +1708,77 @@ def _grounded_fallback_response(
             f"{result['max_drawdown']:.2f}; return: "
             f"{result['return_pct']:.4f}%. No generated code was executed."
         )
+    if tool_name == "get_custom_strategy_capabilities":
+        contracts = result.get("data_contracts", {})
+        rule_data = contracts.get("rule_backtesting", {})
+        return (
+            "Native custom-rule strategies support "
+            f"{', '.join(result.get('supported_indicators', []))}; "
+            f"position sides: {', '.join(result.get('supported_position_sides', []))}; "
+            "and OHLCV backtests for "
+            f"{', '.join(rule_data.get('supported_asset_classes', []))}. "
+            "The capability response identifies data that needs a governed "
+            "adapter before it can be used in a rule."
+        )
+    if tool_name == "create_custom_strategy_spec":
+        missing = result.get("missing_capabilities", [])
+        if missing:
+            missing_values = ", ".join(
+                str(item.get("value") or item.get("kind"))
+                for item in missing
+                if isinstance(item, dict)
+            )
+            guidance = _missing_capability_guidance(missing)
+            return (
+                f"Stored custom strategy draft {result['spec_id']} for review. "
+                "It is not executable by the native rule runtime because it "
+                f"requires: {missing_values or 'unsupported primitives'}. "
+                f"Next governed adapter: {guidance}"
+            )
+        return (
+            f"Stored executable custom strategy draft {result['spec_id']}. "
+            "It can be backtested through the native deterministic rule runtime; "
+            "no generated code was executed."
+        )
     if "run_id" in result:
         return f"Retrieved stored evidence for run {result['run_id']}."
     return "The requested tool completed successfully."
+
+
+def _missing_capability_guidance(
+    missing_capabilities: list[dict[str, Any]],
+) -> str:
+    values = " ".join(
+        str(item.get("value", "")).lower()
+        for item in missing_capabilities
+        if isinstance(item, dict)
+    )
+    guidance: list[str] = []
+    if any(token in values for token in ("iv", "skew", "oi", "open_interest")):
+        guidance.append(
+            "ingest specialized options-chain data with point-in-time IV/OI, "
+            "expiry, strike, and provenance, then add a governed options "
+            "feature adapter"
+        )
+    if any(
+        token in values
+        for token in ("earnings", "fundamental", "edgar", "quandl")
+    ):
+        guidance.append(
+            "add a point-in-time fundamentals adapter with source timestamps, "
+            "revision handling, and an explicit feature contract"
+        )
+    if any(token in values for token in ("news", "sentiment", "newsapi")):
+        guidance.append(
+            "add a provider-backed news/sentiment adapter with archived source "
+            "responses, timestamps, and an explicit feature contract"
+        )
+    if not guidance:
+        guidance.append(
+            "add a governed feature adapter with validated source data, "
+            "provenance, and a deterministic runtime implementation"
+        )
+    return "; ".join(guidance)
 
 
 def grounded_multi_tool_response(

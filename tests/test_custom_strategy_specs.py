@@ -7,7 +7,10 @@ from pathlib import Path
 
 from iimc_trading_platform.db import connect
 from iimc_trading_platform.infrastructure import initialize_database
-from iimc_trading_platform.orchestration import OfflineOrchestrator
+from iimc_trading_platform.orchestration import (
+    OfflineOrchestrator,
+    grounded_tool_response,
+)
 from iimc_trading_platform.services.custom_strategy_service import (
     CustomStrategyService,
 )
@@ -87,6 +90,25 @@ class CustomStrategySpecTest(unittest.TestCase):
         missing = {item["kind"] for item in created["missing_capabilities"]}
         self.assertIn("indicator", missing)
         self.assertIn("data_field", missing)
+
+    def test_unsupported_draft_response_names_its_governed_adapter_path(self) -> None:
+        answer = grounded_tool_response(
+            "create_custom_strategy_spec",
+            {
+                "spec_id": "custom_options_surface",
+                "missing_capabilities": [
+                    {"kind": "indicator", "value": "IV_SKEW"},
+                    {"kind": "data_field", "value": "oi"},
+                    {"kind": "indicator", "value": "EARNINGS_FUNDAMENTALS"},
+                    {"kind": "indicator", "value": "NEWS_SENTIMENT"},
+                ],
+            },
+        )
+
+        self.assertIn("not executable", answer)
+        self.assertIn("specialized options-chain data", answer)
+        self.assertIn("fundamentals adapter", answer)
+        self.assertIn("news/sentiment adapter", answer)
 
     def test_custom_strategy_tool_routes_and_stores_draft(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

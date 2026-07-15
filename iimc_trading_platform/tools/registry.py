@@ -317,7 +317,7 @@ class ToolDefinition:
             "read-only"
         )
 
-    def openai_schema(self) -> dict[str, Any]:
+    def openai_schema(self, *, strict: bool = True) -> dict[str, Any]:
         return {
             "type": "function",
             "name": self.name,
@@ -327,8 +327,14 @@ class ToolDefinition:
                 f"Required role: {self.required_role}. "
                 f"Capabilities: {self.capabilities.summary()}."
             ),
-            "parameters": _strict_schema(self.input_model.model_json_schema()),
-            "strict": True,
+            "parameters": (
+                _strict_schema(self.input_model.model_json_schema())
+                if strict
+                else _provider_compatible_schema(
+                    self.input_model.model_json_schema()
+                )
+            ),
+            "strict": strict,
         }
 
 
@@ -362,8 +368,11 @@ class ToolRegistry:
             for tool in self._tools.values()
         ]
 
-    def openai_tools(self) -> list[dict[str, Any]]:
-        return [tool.openai_schema() for tool in self._tools.values()]
+    def openai_tools(self, *, strict: bool = True) -> list[dict[str, Any]]:
+        return [
+            tool.openai_schema(strict=strict)
+            for tool in self._tools.values()
+        ]
 
     def subset(self, allowed_names: set[str]) -> ToolRegistry:
         return ToolRegistry(
@@ -1347,3 +1356,20 @@ def _strict_schema(schema: dict[str, Any]) -> dict[str, Any]:
         normalized["additionalProperties"] = False
         normalized["required"] = list(properties)
     return normalized
+
+
+def _provider_compatible_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """Keep Pydantic's optional-field semantics for non-strict providers."""
+    return {
+        key: _provider_compatible_schema(value)
+        if isinstance(value, dict)
+        else [
+            _provider_compatible_schema(item)
+            if isinstance(item, dict)
+            else item
+            for item in value
+        ]
+        if isinstance(value, list)
+        else value
+        for key, value in schema.items()
+    }

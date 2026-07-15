@@ -64,6 +64,8 @@ class ChatService:
     _DETERMINISTIC_RESPONSE_TOOLS = {
         "get_execution_readiness",
         "get_openalgo_monitor",
+        "get_custom_strategy_capabilities",
+        "create_custom_strategy_spec",
         "check_platform_readiness",
         "run_backtest",
         "run_custom_strategy_spec",

@@ -168,6 +168,14 @@ class OrchestrationContractsTest(unittest.TestCase):
         for tool in registry.openai_tools():
             self._assert_strict_objects(tool["parameters"])
 
+    def test_groq_compatible_tool_schema_preserves_optional_indicator_fields(self) -> None:
+        registry = build_default_tool_registry(Path("unused.duckdb"))
+        tools = {tool["name"]: tool for tool in registry.openai_tools(strict=False)}
+        indicator = tools["create_custom_strategy_spec"]["parameters"]["$defs"]["CustomIndicatorSpec"]
+
+        self.assertEqual(indicator["required"], ["type"])
+        self.assertIn("default", indicator["properties"]["period"])
+
     def test_openai_tool_descriptions_include_governance_context(self) -> None:
         registry = build_default_tool_registry(Path("unused.duckdb"))
         tools = {tool["name"]: tool for tool in registry.openai_tools()}
