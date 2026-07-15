@@ -23,8 +23,12 @@ by default, but can be explicitly enabled for approval-gated live order intents.
 - Strategy backtesting with stored signals, risk decisions, order events, fills,
   and performance summaries.
 - Custom strategy draft specs for no-code strategy ideas, with validation of
-  indicators/rules, missing-capability reporting, and review-before-execution
-  policy rather than arbitrary LLM-generated code execution.
+  EMA, SMA, RSI, ROC, ATR, VWAP, Bollinger, and MACD rules; unsupported
+  primitives are reported for review rather than executed as arbitrary code.
+- Local governed OHLCV import for equity, index, futures, commodity, and crypto
+  datasets, with candle validation, provenance hash, quality evidence, catalog
+  visibility, and deterministic backtesting. Options retain their specialized
+  options-chain OHLCV path.
 - OpenAlgo integration for quote, history, analyzer-mode status, funds,
   orderbook, tradebook, and positionbook checks.
 - Broker-backed instrument discovery for NSE equities, NFO derivatives, and MCX
@@ -98,6 +102,20 @@ Open the dashboard:
 ```text
 http://127.0.0.1:8001/
 ```
+
+## Local OHLCV Import
+
+Use **Data Catalog > Local OHLCV Import** or `POST /datasets/ohlcv` to add
+user-supplied candles for local research. The request requires a `dataset_id`,
+asset class (`equity`, `index`, `futures`, `commodity`, or `crypto`), symbol,
+exchange, interval, and at least two candles with `timestamp`, `open`, `high`,
+`low`, `close`, and optional non-negative `volume`.
+
+Every candle is checked for finite positive prices, valid OHLC bounds, and
+unique timestamps. Invalid imports are rejected as a whole; the platform does
+not repair or invent missing candles. Successful imports are stored in
+`market_ohlcv`, cataloged with a SHA-256 source hash, and can immediately be
+used by standard and governed custom-strategy backtests.
 
 ## Configuration
 

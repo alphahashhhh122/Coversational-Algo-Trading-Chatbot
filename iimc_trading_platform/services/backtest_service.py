@@ -290,34 +290,54 @@ class BacktestService:
             ).fetchone()
             if dataset_row is None:
                 raise ValueError(f"Dataset not found: {dataset_id}")
-            if dataset_row[3] != "options_ohlcv":
+            if dataset_row[3] == "options_ohlcv":
+                candle_rows = con.execute(
+                    """
+                    SELECT timestamp,
+                           median(spot) AS price,
+                           median(open) AS open,
+                           median(high) AS high,
+                           median(low) AS low,
+                           median(close) AS close,
+                           median(volume) AS volume
+                    FROM options_ohlcv
+                    WHERE source_id = ?
+                      AND (? IS NULL OR timestamp >= ?)
+                      AND (? IS NULL OR timestamp <= ?)
+                    GROUP BY timestamp
+                    ORDER BY timestamp
+                    """,
+                    [
+                        dataset_row[4],
+                        window_start,
+                        window_start,
+                        window_end,
+                        window_end,
+                    ],
+                ).fetchall()
+            elif dataset_row[3] == "market_ohlcv":
+                candle_rows = con.execute(
+                    """
+                    SELECT timestamp, close AS price, open, high, low, close,
+                           volume
+                    FROM market_ohlcv
+                    WHERE source_id = ?
+                      AND (? IS NULL OR timestamp >= ?)
+                      AND (? IS NULL OR timestamp <= ?)
+                    ORDER BY timestamp
+                    """,
+                    [
+                        dataset_row[4],
+                        window_start,
+                        window_start,
+                        window_end,
+                        window_end,
+                    ],
+                ).fetchall()
+            else:
                 raise ValueError(
                     f"Unsupported storage table for backtesting: {dataset_row[3]}"
                 )
-            candle_rows = con.execute(
-                """
-                SELECT timestamp,
-                       median(spot) AS price,
-                       median(open) AS open,
-                       median(high) AS high,
-                       median(low) AS low,
-                       median(close) AS close,
-                       median(volume) AS volume
-                FROM options_ohlcv
-                WHERE source_id = ?
-                  AND (? IS NULL OR timestamp >= ?)
-                  AND (? IS NULL OR timestamp <= ?)
-                GROUP BY timestamp
-                ORDER BY timestamp
-                """,
-                [
-                    dataset_row[4],
-                    window_start,
-                    window_start,
-                    window_end,
-                    window_end,
-                ],
-            ).fetchall()
         finally:
             con.close()
 

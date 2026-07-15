@@ -9,6 +9,7 @@ from ..db import connect
 CORE_TABLES = [
     "raw_file_registry",
     "options_ohlcv",
+    "market_ohlcv",
     "data_catalog",
     "data_quality_reports",
     "strategy_runs",
@@ -153,6 +154,26 @@ def initialize_database(db_path: Path) -> None:
                     strike_price,
                     option_type
                 )
+            )
+            """
+        )
+        con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS market_ohlcv (
+                source_id VARCHAR NOT NULL,
+                asset_class VARCHAR NOT NULL,
+                symbol VARCHAR NOT NULL,
+                exchange VARCHAR NOT NULL,
+                interval VARCHAR NOT NULL,
+                timestamp TIMESTAMP NOT NULL,
+                open DOUBLE NOT NULL,
+                high DOUBLE NOT NULL,
+                low DOUBLE NOT NULL,
+                close DOUBLE NOT NULL,
+                volume DOUBLE NOT NULL,
+                quality_status VARCHAR NOT NULL,
+                created_at TIMESTAMP NOT NULL,
+                PRIMARY KEY (source_id, timestamp)
             )
             """
         )

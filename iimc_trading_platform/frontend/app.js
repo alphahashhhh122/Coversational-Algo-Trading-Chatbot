@@ -1141,6 +1141,21 @@ function renderBacktestControls() {
 }
 
 function customStrategyTemplate(template) {
+  if (template === "sma_cross") {
+    return {
+      indicators: [
+        { type: "SMA", period: 20, source: "price" },
+        { type: "SMA", period: 50, source: "price" },
+      ],
+      entry_rules: [
+        { left: "SMA_20", operator: "crosses_above", right: "SMA_50", joiner: "AND" },
+      ],
+      exit_rules: [
+        { left: "SMA_20", operator: "crosses_below", right: "SMA_50", joiner: "OR" },
+      ],
+      risk: { max_position_size: 1, stop_loss_pct: 0.02, take_profit_pct: 0.05 },
+    };
+  }
   if (template === "ema_rsi") {
     return {
       indicators: [
@@ -1174,6 +1189,49 @@ function customStrategyTemplate(template) {
         { left: "price", operator: "<", right: "SMA_20", joiner: "OR" },
       ],
       risk: { max_position_size: 1, stop_loss_pct: 0.025, take_profit_pct: 0.06 },
+    };
+  }
+  if (template === "macd") {
+    return {
+      indicators: [
+        { name: "MACD_LINE", type: "MACD", source: "price", fast_period: 12, slow_period: 26, signal_period: 9 },
+        { name: "MACD_SIGNAL", type: "MACD_SIGNAL", source: "price", fast_period: 12, slow_period: 26, signal_period: 9 },
+      ],
+      entry_rules: [
+        { left: "MACD_LINE", operator: "crosses_above", right: "MACD_SIGNAL", joiner: "AND" },
+      ],
+      exit_rules: [
+        { left: "MACD_LINE", operator: "crosses_below", right: "MACD_SIGNAL", joiner: "OR" },
+      ],
+      risk: { max_position_size: 1, stop_loss_pct: 0.025, take_profit_pct: 0.06 },
+    };
+  }
+  if (template === "bollinger") {
+    return {
+      indicators: [
+        { name: "BB_UPPER", type: "BB_UPPER", period: 20, source: "price", stddev: 2 },
+        { name: "BB_MIDDLE", type: "BB_MIDDLE", period: 20, source: "price", stddev: 2 },
+        { name: "BB_LOWER", type: "BB_LOWER", period: 20, source: "price", stddev: 2 },
+      ],
+      entry_rules: [
+        { left: "price", operator: "crosses_above", right: "BB_MIDDLE", joiner: "AND" },
+      ],
+      exit_rules: [
+        { left: "price", operator: "crosses_below", right: "BB_MIDDLE", joiner: "OR" },
+      ],
+      risk: { max_position_size: 1, stop_loss_pct: 0.02, take_profit_pct: 0.05 },
+    };
+  }
+  if (template === "vwap") {
+    return {
+      indicators: [{ type: "VWAP", source: "price" }],
+      entry_rules: [
+        { left: "price", operator: "crosses_above", right: "VWAP", joiner: "AND" },
+      ],
+      exit_rules: [
+        { left: "price", operator: "crosses_below", right: "VWAP", joiner: "OR" },
+      ],
+      risk: { max_position_size: 1, stop_loss_pct: 0.02, take_profit_pct: 0.05 },
     };
   }
   return {
@@ -2384,6 +2442,37 @@ async function assessFreshness(article) {
   }
 }
 
+async function submitOhlcvImport(event) {
+  event.preventDefault();
+  const button = $("#import-ohlcv");
+  const resultBox = $("#ohlcv-import-result");
+  button.disabled = true;
+  resultBox.classList.remove("hidden");
+  try {
+    const candles = JSON.parse($("#ohlcv-candles").value);
+    if (!Array.isArray(candles)) throw new Error("Candles must be a JSON array");
+    const result = await api("/datasets/ohlcv", {
+      method: "POST",
+      body: JSON.stringify({
+        dataset_id: $("#ohlcv-dataset-id").value.trim(),
+        asset_class: $("#ohlcv-asset-class").value,
+        symbol: $("#ohlcv-symbol").value.trim(),
+        exchange: $("#ohlcv-exchange").value.trim(),
+        interval: $("#ohlcv-interval").value.trim(),
+        candles,
+      }),
+    });
+    resultBox.textContent = JSON.stringify(result, null, 2);
+    toast(`Imported ${result.row_count} governed OHLCV candles`);
+    await loadOverview();
+  } catch (error) {
+    resultBox.textContent = JSON.stringify({ ok: false, message: error.message }, null, 2);
+    toast(error.message);
+  } finally {
+    button.disabled = false;
+  }
+}
+
 function wireEvents() {
   document.querySelectorAll(".nav-item").forEach((button) => {
     button.addEventListener("click", () => setView(button.dataset.view));
@@ -2410,6 +2499,7 @@ function wireEvents() {
     if (event.target.value) loadPaperDecisions(event.target.value);
   });
   $("#knowledge-search-form").addEventListener("submit", submitKnowledgeSearch);
+  $("#ohlcv-import-form").addEventListener("submit", submitOhlcvImport);
   $("#login-form").addEventListener("submit", submitLogin);
   $("#logout-button").addEventListener("click", logout);
   $("#compare-runs").addEventListener("click", compareSelectedRuns);

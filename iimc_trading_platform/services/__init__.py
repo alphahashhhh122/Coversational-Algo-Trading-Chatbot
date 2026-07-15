@@ -14,6 +14,7 @@ from .instrument_discovery_service import InstrumentDiscoveryService
 from .job_service import JobService
 from .live_market_service import LiveMarketService
 from .market_news_service import MarketNewsService
+from .market_data_ingestion_service import MarketDataIngestionService
 from .openalgo_readiness_service import OpenAlgoReadinessService
 from .task_service import TaskService
 from .operations_service import (
@@ -49,6 +50,7 @@ __all__ = [
     "InstrumentDiscoveryService",
     "LiveMarketService",
     "MarketNewsService",
+    "MarketDataIngestionService",
     "OpenAlgoReadinessService",
     "ToolExecutionService",
     "TaskService",

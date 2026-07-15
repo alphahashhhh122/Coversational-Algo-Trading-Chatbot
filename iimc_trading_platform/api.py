@@ -22,6 +22,7 @@ from .api_models import (
     CustomStrategyBacktestRequest,
     DashboardPreferencesRequest,
     LoginRequest,
+    LocalOhlcvDatasetInput,
     PortfolioControlRequest,
     PortfolioFillRequest,
     PortfolioRiskCheckRequest,
@@ -63,6 +64,7 @@ from .services import (
     ExecutionReadinessService,
     InstrumentDiscoveryService,
     MarketNewsService,
+    MarketDataIngestionService,
     OpenAlgoReadinessService,
     operational_summary,
     PersonaService,
@@ -215,6 +217,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     platform_dashboard_service = PlatformDashboardService(active_config)
     persona_service = PersonaService(active_config.database_path)
     dashboard_preference_service = DashboardPreferenceService(
+        active_config.database_path
+    )
+    market_data_ingestion_service = MarketDataIngestionService(
         active_config.database_path
     )
     openalgo_readiness_service = OpenAlgoReadinessService(active_config)
@@ -997,6 +1002,32 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     @app.get("/datasets")
     def datasets(principal: Principal = Depends(viewer)) -> dict[str, Any]:
         return execute_tool("list_datasets", {})
+
+    @app.post("/datasets/ohlcv")
+    def import_local_ohlcv_dataset(
+        request: LocalOhlcvDatasetInput,
+        principal: Principal = Depends(researcher),
+    ) -> dict[str, Any]:
+        try:
+            result = market_data_ingestion_service.import_ohlcv(
+                **request.model_dump(),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        audit = AuditService(
+            DuckDBAuditRepository(active_config.database_path)
+        ).record(
+            entity_type="dataset",
+            entity_id=result["dataset_id"],
+            action="local_ohlcv_imported",
+            actor=principal.username,
+            payload={
+                "asset_class": result["asset_class"],
+                "row_count": result["row_count"],
+                "source_sha256": result["source_sha256"],
+            },
+        )
+        return {**result, "audit_id": audit.audit_id}
 
     @app.get("/datasets/{dataset_id}")
     def dataset_detail(

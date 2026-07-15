@@ -62,9 +62,14 @@ class StrategyParameters(ToolInput):
 
 
 class CustomIndicatorSpec(ToolInput):
+    name: str | None = Field(default=None, min_length=1, max_length=80)
     type: str = Field(min_length=1, max_length=40)
     period: int | None = Field(default=None, ge=1, le=10_000)
     source: str = Field(default="close", min_length=1, max_length=40)
+    fast_period: int | None = Field(default=None, ge=1, le=10_000)
+    slow_period: int | None = Field(default=None, ge=1, le=10_000)
+    signal_period: int | None = Field(default=None, ge=1, le=10_000)
+    stddev: float | None = Field(default=None, gt=0, le=100)
 
 
 class CustomRuleSpec(ToolInput):

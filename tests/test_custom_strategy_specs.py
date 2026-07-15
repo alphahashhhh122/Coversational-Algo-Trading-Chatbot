@@ -11,6 +11,7 @@ from iimc_trading_platform.orchestration import OfflineOrchestrator
 from iimc_trading_platform.services.custom_strategy_service import (
     CustomStrategyService,
 )
+from iimc_trading_platform.strategies.rule_spec import validate_rule_spec
 from iimc_trading_platform.tools.registry import build_default_tool_registry
 
 
@@ -102,6 +103,32 @@ class CustomStrategySpecTest(unittest.TestCase):
         self.assertEqual(decision.tool_name, "create_custom_strategy_spec")
         self.assertEqual(result["status"], "draft_executable")
         self.assertIn("arbitrary LLM-generated code is not executed", result["execution_policy"])
+
+    def test_common_ohlcv_indicators_are_executable_without_generated_code(self) -> None:
+        validation = validate_rule_spec(
+            {
+                "indicators": [
+                    {"name": "BB_MIDDLE", "type": "BB_MIDDLE", "period": 20, "source": "close", "stddev": 2},
+                    {"name": "VWAP", "type": "VWAP", "source": "close"},
+                    {"name": "ATR_14", "type": "ATR", "period": 14, "source": "close"},
+                    {"name": "MACD_LINE", "type": "MACD", "source": "close", "fast_period": 12, "slow_period": 26, "signal_period": 9},
+                    {"name": "MACD_SIGNAL", "type": "MACD_SIGNAL", "source": "close", "fast_period": 12, "slow_period": 26, "signal_period": 9},
+                ],
+                "entry_rules": [
+                    {"left": "MACD_LINE", "operator": "crosses_above", "right": "MACD_SIGNAL"},
+                    {"left": "price", "operator": ">", "right": "BB_MIDDLE"},
+                ],
+                "exit_rules": [
+                    {"left": "MACD_LINE", "operator": "crosses_below", "right": "MACD_SIGNAL"},
+                    {"left": "price", "operator": "<", "right": "VWAP"},
+                ],
+            }
+        )
+
+        self.assertFalse(validation["missing_capabilities"])
+        self.assertTrue(validation["can_execute_without_new_code"])
+        self.assertIn("MACD", validation["supported_indicators"])
+        self.assertIn("VWAP", validation["supported_indicators"])
 
     def test_supported_custom_spec_runs_native_rule_spec_backtest(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

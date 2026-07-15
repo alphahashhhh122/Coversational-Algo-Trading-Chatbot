@@ -13,7 +13,8 @@ does not calculate indicators, risk, P&L, or order state in the browser.
 - Experiments: chronological robustness runs and parameter candidates
 - Portfolios: cash, positions, reservations, and kill-switch controls
 - Approvals: pending external actions with explicit human decisions
-- Data Catalog: quality, coverage, provenance, and freshness assessment
+- Data Catalog: quality, coverage, provenance, freshness assessment, and
+  validated local OHLCV import for non-options asset classes
 - Governed Document Search: query indexed RAG chunks with provenance
 - OpenAlgo Monitor: read-only analyzer/account snapshots when credentials exist
 - Operations: jobs, tasks, backups, evaluations, retention, alerts, readiness
@@ -34,6 +35,8 @@ does not calculate indicators, risk, P&L, or order state in the browser.
   provider errors, and actual analyzer availability.
 - Market news is shown only when a real provider is configured; otherwise the
   UI/API reports `news_provider_not_configured`.
+- Local OHLCV import rejects invalid candle bounds, duplicate timestamps, and
+  non-finite values rather than modifying user-supplied market data.
 
 ## Current Limitations
 

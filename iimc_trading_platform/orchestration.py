@@ -1059,7 +1059,10 @@ def _custom_strategy_spec_arguments(message: str) -> dict[str, Any]:
     entry_rules: list[dict[str, Any]] = []
     exit_rules: list[dict[str, Any]] = []
 
-    if "ema" in text:
+    if "ema" in text or not any(
+        word in text
+        for word in ("sma", "macd", "bollinger", "band", "vwap")
+    ):
         indicators.extend(
             [
                 {"type": "EMA", "period": 9, "source": "close"},
@@ -1082,6 +1085,98 @@ def _custom_strategy_spec_arguments(message: str) -> dict[str, Any]:
                 "joiner": "OR",
             }
         )
+    if "sma" in text:
+        indicators.extend(
+            [
+                {"type": "SMA", "period": 20, "source": "close"},
+                {"type": "SMA", "period": 50, "source": "close"},
+            ]
+        )
+        entry_rules.append(
+            {
+                "left": "SMA_20",
+                "operator": "crosses_above",
+                "right": "SMA_50",
+                "joiner": "AND",
+            }
+        )
+        exit_rules.append(
+            {
+                "left": "SMA_20",
+                "operator": "crosses_below",
+                "right": "SMA_50",
+                "joiner": "OR",
+            }
+        )
+    if "macd" in text:
+        indicators.extend(
+            [
+                {
+                    "name": "MACD_LINE",
+                    "type": "MACD",
+                    "source": "close",
+                    "fast_period": 12,
+                    "slow_period": 26,
+                    "signal_period": 9,
+                },
+                {
+                    "name": "MACD_SIGNAL",
+                    "type": "MACD_SIGNAL",
+                    "source": "close",
+                    "fast_period": 12,
+                    "slow_period": 26,
+                    "signal_period": 9,
+                },
+            ]
+        )
+        entry_rules.append(
+            {
+                "left": "MACD_LINE",
+                "operator": "crosses_above",
+                "right": "MACD_SIGNAL",
+                "joiner": "AND",
+            }
+        )
+        exit_rules.append(
+            {
+                "left": "MACD_LINE",
+                "operator": "crosses_below",
+                "right": "MACD_SIGNAL",
+                "joiner": "OR",
+            }
+        )
+    if "bollinger" in text or "band" in text:
+        indicators.extend(
+            [
+                {"name": "BB_UPPER", "type": "BB_UPPER", "period": 20, "source": "close", "stddev": 2.0},
+                {"name": "BB_MIDDLE", "type": "BB_MIDDLE", "period": 20, "source": "close", "stddev": 2.0},
+                {"name": "BB_LOWER", "type": "BB_LOWER", "period": 20, "source": "close", "stddev": 2.0},
+            ]
+        )
+        entry_rules.append(
+            {
+                "left": "price",
+                "operator": "crosses_above",
+                "right": "BB_MIDDLE",
+                "joiner": "AND",
+            }
+        )
+        exit_rules.append(
+            {
+                "left": "price",
+                "operator": "crosses_below",
+                "right": "BB_MIDDLE",
+                "joiner": "OR",
+            }
+        )
+    if "vwap" in text:
+        indicators.append({"type": "VWAP", "source": "close"})
+        entry_rules.append(
+            {"left": "price", "operator": "crosses_above", "right": "VWAP", "joiner": "AND"}
+        )
+        exit_rules.append(
+            {"left": "price", "operator": "crosses_below", "right": "VWAP", "joiner": "OR"}
+        )
     if "rsi" in text:
         indicators.append({"type": "RSI", "period": 14, "source": "close"})
         entry_rules.append(
@@ -1095,20 +1190,31 @@ def _custom_strategy_spec_arguments(message: str) -> dict[str, Any]:
         entry_rules.append(
             {"left": "ROC_10", "operator": ">", "right": 0, "joiner": "AND"}
         )
+        exit_rules.append(
+            {"left": "ROC_10", "operator": "<=", "right": 0, "joiner": "OR"}
+        )
+    if "atr" in text:
+        indicators.append({"type": "ATR", "period": 14, "source": "close"})
+        entry_rules.append(
+            {"left": "ATR_14", "operator": ">", "right": 0, "joiner": "AND"}
+        )
     if "iv" in text or "skew" in text:
         indicators.append({"type": "IV_SKEW", "period": 14, "source": "iv"})
         entry_rules.append(
             {"left": "IV_SKEW_14", "operator": ">", "right": 0, "joiner": "AND"}
         )
 
-    if not indicators:
-        indicators.append({"type": "EMA", "period": 9, "source": "close"})
-        entry_rules.append(
-            {"left": "EMA_9", "operator": ">", "right": "price", "joiner": "AND"}
-        )
     if not exit_rules:
+        first_indicator = indicators[0]
+        reference = str(
+            first_indicator.get("name")
+            or (
+                f"{str(first_indicator['type']).upper()}_"
+                f"{first_indicator.get('period')}"
+            )
+        )
         exit_rules.append(
-            {"left": "price", "operator": "<", "right": "EMA_9", "joiner": "OR"}
+            {"left": "price", "operator": "<", "right": reference, "joiner": "OR"}
         )
 
     return {
@@ -1138,6 +1244,11 @@ def _custom_strategy_name(message: str) -> str:
         for keyword, label in (
             ("ema", "ema"),
             ("sma", "sma"),
+            ("macd", "macd"),
+            ("bollinger", "bollinger"),
+            ("band", "bollinger"),
+            ("vwap", "vwap"),
+            ("atr", "atr"),
             ("rsi", "rsi"),
             ("momentum", "momentum"),
             ("roc", "roc"),

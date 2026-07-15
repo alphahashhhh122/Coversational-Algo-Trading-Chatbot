@@ -109,6 +109,9 @@ class CapabilityCoverageService:
             "commodity": "commodity_ohlcv",
             "crypto": "crypto_ohlcv",
         }.get(asset_class)
+        storage_table = (
+            "options_ohlcv" if asset_class == "options" else "market_ohlcv"
+        )
         con = connect(self.db_path)
         try:
             row = con.execute(
@@ -119,11 +122,20 @@ class CapabilityCoverageService:
                 WHERE UPPER(symbol) = UPPER(?)
                   AND UPPER(exchange) = UPPER(?)
                   AND (? IS NULL OR data_type = ?)
+                  AND storage_table = ?
                   AND (interval = ? OR ? = '')
                 ORDER BY updated_at DESC
                 LIMIT 1
                 """,
-                [symbol, exchange, data_type, data_type, interval, interval],
+                [
+                    symbol,
+                    exchange,
+                    data_type,
+                    data_type,
+                    storage_table,
+                    interval,
+                    interval,
+                ],
             ).fetchone()
         finally:
             con.close()

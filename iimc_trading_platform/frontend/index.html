@@ -316,8 +316,12 @@
               <span>Template</span>
               <select id="custom-strategy-template">
                 <option value="ema_cross">EMA crossover</option>
+                <option value="sma_cross">SMA crossover</option>
                 <option value="ema_rsi">EMA + RSI filter</option>
                 <option value="momentum">Momentum ROC</option>
+                <option value="macd">MACD crossover</option>
+                <option value="bollinger">Bollinger mid-band</option>
+                <option value="vwap">VWAP crossover</option>
               </select>
             </label>
             <label>
@@ -481,6 +485,24 @@
           </div>
           <button class="secondary-button" id="refresh-data">Refresh</button>
         </div>
+        <section class="rag-panel">
+          <div class="section-heading">
+            <div>
+              <h2>Local OHLCV Import</h2>
+              <p>Validated equity, index, futures, commodity, and crypto candles for governed research.</p>
+            </div>
+          </div>
+          <form class="knowledge-search-form" id="ohlcv-import-form">
+            <label><span>Dataset ID</span><input id="ohlcv-dataset-id" required></label>
+            <label><span>Asset class</span><select id="ohlcv-asset-class"><option value="equity">Equity</option><option value="index">Index</option><option value="futures">Futures</option><option value="commodity">Commodity</option><option value="crypto">Crypto</option></select></label>
+            <label><span>Symbol</span><input id="ohlcv-symbol" required></label>
+            <label><span>Exchange</span><input id="ohlcv-exchange" required></label>
+            <label><span>Interval</span><input id="ohlcv-interval" value="5m" required></label>
+            <label class="experiment-grid-input"><span>Candles (JSON array)</span><textarea id="ohlcv-candles" rows="7" required></textarea></label>
+            <button type="submit" class="primary-button" id="import-ohlcv">Import OHLCV</button>
+          </form>
+          <pre class="json-view hidden" id="ohlcv-import-result"></pre>
+        </section>
         <div class="dataset-list" id="dataset-list"></div>
         <section class="rag-panel">
           <div class="section-heading">

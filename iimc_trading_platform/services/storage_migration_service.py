@@ -12,7 +12,7 @@ from typing import Any
 from ..db import connect
 
 
-ANALYTICAL_TABLES = {"options_ohlcv"}
+ANALYTICAL_TABLES = {"market_ohlcv", "options_ohlcv"}
 ARCHIVE_PREFIXES = ("legacy_",)
 
 

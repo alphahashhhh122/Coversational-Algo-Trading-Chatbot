@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -109,6 +110,31 @@ class CustomStrategyBacktestRequest(BaseModel):
     starting_equity: float = Field(default=1_000_000.0, gt=0)
     fee_bps: float = Field(default=1.0, ge=0, le=1_000)
     slippage_bps: float = Field(default=0.0, ge=0, le=1_000)
+
+
+class LocalOhlcvCandleInput(BaseModel):
+    timestamp: datetime
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: float = Field(default=0.0, ge=0)
+
+
+class LocalOhlcvDatasetInput(BaseModel):
+    dataset_id: str = Field(min_length=1, max_length=160)
+    asset_class: Literal[
+        "equity",
+        "index",
+        "futures",
+        "commodity",
+        "crypto",
+    ]
+    symbol: str = Field(min_length=1, max_length=80)
+    exchange: str = Field(min_length=1, max_length=40)
+    interval: str = Field(min_length=1, max_length=20)
+    candles: list[LocalOhlcvCandleInput] = Field(min_length=2, max_length=100_000)
+    source_name: str = Field(default="local_ohlcv.json", min_length=1, max_length=200)
 
 
 class CreatePortfolioRequest(BaseModel):

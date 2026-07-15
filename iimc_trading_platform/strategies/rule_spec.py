@@ -6,7 +6,19 @@ from ..domain import SignalDirection
 from .base import RawSignal, StrategyPlugin
 
 
-SUPPORTED_INDICATORS = {"EMA", "SMA", "RSI", "ROC"}
+SUPPORTED_INDICATORS = {
+    "ATR",
+    "BB_LOWER",
+    "BB_MIDDLE",
+    "BB_UPPER",
+    "EMA",
+    "MACD",
+    "MACD_SIGNAL",
+    "ROC",
+    "RSI",
+    "SMA",
+    "VWAP",
+}
 SUPPORTED_OPERATORS = {
     ">",
     "<",
@@ -126,6 +138,17 @@ def validate_rule_spec(spec: dict[str, Any]) -> dict[str, Any]:
     exit_rules = list(spec.get("exit_rules") or [])
     refs = set(SUPPORTED_DATA_FIELDS)
     max_period = 1
+    seen_refs: set[str] = set()
+
+    position_side = str(spec.get("position_side", "long")).lower()
+    if position_side != "long":
+        missing.append(
+            {
+                "kind": "position_side",
+                "value": position_side,
+                "reason": "The native research ledger currently supports long-only rule specs.",
+            }
+        )
 
     if not indicators:
         missing.append(
@@ -156,6 +179,9 @@ def validate_rule_spec(spec: dict[str, Any]) -> dict[str, Any]:
         indicator_type = str(indicator.get("type", "")).upper()
         source = str(indicator.get("source", "close")).lower()
         period = int(indicator.get("period") or 1)
+        fast_period = int(indicator.get("fast_period") or 12)
+        slow_period = int(indicator.get("slow_period") or 26)
+        signal_period = int(indicator.get("signal_period") or 9)
         if indicator_type not in SUPPORTED_INDICATORS:
             missing.append(
                 {
@@ -180,8 +206,29 @@ def validate_rule_spec(spec: dict[str, Any]) -> dict[str, Any]:
                     "reason": "Indicator period must be positive.",
                 }
             )
-        max_period = max(max_period, period)
-        refs.add(_indicator_ref(indicator))
+        if indicator_type in {"MACD", "MACD_SIGNAL"}:
+            if fast_period >= slow_period:
+                missing.append(
+                    {
+                        "kind": "indicator_period",
+                        "value": f"{fast_period}/{slow_period}",
+                        "reason": "MACD fast_period must be smaller than slow_period.",
+                    }
+                )
+            max_period = max(max_period, slow_period + signal_period)
+        else:
+            max_period = max(max_period, period)
+        reference = _indicator_ref(indicator)
+        if reference in seen_refs:
+            missing.append(
+                {
+                    "kind": "indicator_reference",
+                    "value": reference,
+                    "reason": "Indicator references must be unique.",
+                }
+            )
+        seen_refs.add(reference)
+        refs.add(reference)
 
     for rule in [*entry_rules, *exit_rules]:
         operator = str(rule.get("operator", "")).lower()
@@ -243,6 +290,38 @@ def _build_reference_series(
             values = _rsi(source_values, period)
         elif indicator_type == "ROC":
             values = _roc(source_values, period)
+        elif indicator_type == "ATR":
+            values = _atr(candles, period)
+        elif indicator_type == "VWAP":
+            values = _vwap(candles)
+        elif indicator_type in {"BB_UPPER", "BB_MIDDLE", "BB_LOWER"}:
+            middle = _sma(source_values, period)
+            deviation = _rolling_stddev(source_values, period)
+            multiplier = float(indicator.get("stddev") or 2.0)
+            if indicator_type == "BB_UPPER":
+                values = [
+                    mean + multiplier * spread
+                    for mean, spread in zip(middle, deviation)
+                ]
+            elif indicator_type == "BB_LOWER":
+                values = [
+                    mean - multiplier * spread
+                    for mean, spread in zip(middle, deviation)
+                ]
+            else:
+                values = middle
+        elif indicator_type in {"MACD", "MACD_SIGNAL"}:
+            fast_period = int(indicator.get("fast_period") or 12)
+            slow_period = int(indicator.get("slow_period") or 26)
+            signal_period = int(indicator.get("signal_period") or 9)
+            line = [
+                fast - slow
+                for fast, slow in zip(
+                    _ema(source_values, fast_period),
+                    _ema(source_values, slow_period),
+                )
+            ]
+            values = line if indicator_type == "MACD" else _ema(line, signal_period)
         else:
             raise ValueError(f"Unsupported indicator: {indicator_type}")
         refs[_indicator_ref(indicator)] = values
@@ -453,3 +532,44 @@ def _roc(prices: list[float], period: int) -> list[float]:
         base = prices[index - period]
         values[index] = (prices[index] - base) / base if base else 0.0
     return values
+
+
+def _atr(candles: list[dict[str, Any]], period: int) -> list[float]:
+    ranges: list[float] = []
+    previous_close = float(candles[0].get("close", candles[0]["price"]))
+    for candle in candles:
+        high = float(candle.get("high", candle["price"]))
+        low = float(candle.get("low", candle["price"]))
+        ranges.append(max(high - low, abs(high - previous_close), abs(low - previous_close)))
+        previous_close = float(candle.get("close", candle["price"]))
+    return _sma(ranges, period)
+
+
+def _vwap(candles: list[dict[str, Any]]) -> list[float]:
+    values: list[float] = []
+    cumulative_value = 0.0
+    cumulative_volume = 0.0
+    for candle in candles:
+        typical_price = (
+            float(candle.get("high", candle["price"]))
+            + float(candle.get("low", candle["price"]))
+            + float(candle.get("close", candle["price"]))
+        ) / 3
+        volume = max(0.0, float(candle.get("volume", 0.0)))
+        cumulative_value += typical_price * volume
+        cumulative_volume += volume
+        values.append(
+            cumulative_value / cumulative_volume
+            if cumulative_volume > 0
+            else typical_price
+        )
+    return values
+
+
+def _rolling_stddev(values: list[float], period: int) -> list[float]:
+    result: list[float] = []
+    for index in range(len(values)):
+        window = values[max(0, index - period + 1) : index + 1]
+        mean = sum(window) / len(window)
+        result.append((sum((value - mean) ** 2 for value in window) / len(window)) ** 0.5)
+    return result

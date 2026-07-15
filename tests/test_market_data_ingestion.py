@@ -1,0 +1,195 @@
+from __future__ import annotations
+
+import tempfile
+import unittest
+from datetime import datetime, timedelta
+from pathlib import Path
+
+from fastapi.testclient import TestClient
+
+from iimc_trading_platform.api import create_app
+from iimc_trading_platform.config import AppConfig
+from iimc_trading_platform.db import connect
+from iimc_trading_platform.infrastructure import initialize_database
+from iimc_trading_platform.services.backtest_service import BacktestService
+from iimc_trading_platform.services.capability_coverage_service import (
+    CapabilityCoverageService,
+)
+from iimc_trading_platform.services.custom_strategy_service import (
+    CustomStrategyService,
+)
+from iimc_trading_platform.services.market_data_ingestion_service import (
+    MarketDataIngestionService,
+)
+
+
+class MarketDataIngestionTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary.name)
+        self.db_path = self.root / "platform.duckdb"
+        initialize_database(self.db_path)
+
+    def tearDown(self) -> None:
+        self.temporary.cleanup()
+
+    def test_equity_ohlcv_import_is_cataloged_and_backtestable(self) -> None:
+        imported = MarketDataIngestionService(self.db_path).import_ohlcv(
+            dataset_id="reliance_5m_local",
+            asset_class="equity",
+            symbol="RELIANCE",
+            exchange="NSE",
+            interval="5m",
+            candles=_candles(),
+            source_name="reliance_5m.json",
+        )
+        created = CustomStrategyService(self.db_path).create_spec(
+            name="equity_macd",
+            description="MACD crossover over supplied equity candles.",
+            symbol="RELIANCE",
+            timeframe="5m",
+            indicators=[
+                {
+                    "name": "MACD_LINE",
+                    "type": "MACD",
+                    "source": "close",
+                    "fast_period": 3,
+                    "slow_period": 6,
+                    "signal_period": 3,
+                },
+                {
+                    "name": "MACD_SIGNAL",
+                    "type": "MACD_SIGNAL",
+                    "source": "close",
+                    "fast_period": 3,
+                    "slow_period": 6,
+                    "signal_period": 3,
+                },
+            ],
+            entry_rules=[
+                {
+                    "left": "MACD_LINE",
+                    "operator": "crosses_above",
+                    "right": "MACD_SIGNAL",
+                }
+            ],
+            exit_rules=[
+                {
+                    "left": "MACD_LINE",
+                    "operator": "crosses_below",
+                    "right": "MACD_SIGNAL",
+                }
+            ],
+        )
+        result = CustomStrategyService(self.db_path).run_backtest(
+            spec_id=created["spec_id"],
+            dataset_id=imported["dataset_id"],
+        )
+
+        self.assertEqual(imported["storage_table"], "market_ohlcv")
+        self.assertEqual(imported["quality_status"], "clean")
+        self.assertEqual(created["status"], "draft_executable")
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["dataset_id"], "reliance_5m_local")
+
+    def test_invalid_candles_are_rejected_without_catalog_entry(self) -> None:
+        service = MarketDataIngestionService(self.db_path)
+        candles = _candles()
+        candles[1]["high"] = candles[1]["close"] - 1
+
+        with self.assertRaisesRegex(ValueError, "OHLC bounds"):
+            service.import_ohlcv(
+                dataset_id="invalid_equity",
+                asset_class="equity",
+                symbol="RELIANCE",
+                exchange="NSE",
+                interval="5m",
+                candles=candles,
+                source_name="invalid.json",
+            )
+
+        con = connect(self.db_path)
+        try:
+            count = con.execute("SELECT COUNT(*) FROM data_catalog").fetchone()[0]
+        finally:
+            con.close()
+        self.assertEqual(count, 0)
+
+    def test_api_import_has_audit_evidence_and_readiness_finds_dataset(self) -> None:
+        client = TestClient(
+            create_app(
+                AppConfig(
+                    database_path=self.db_path,
+                    artifacts_dir=self.root / "artifacts",
+                    openalgo_root=self.root,
+                )
+            )
+        )
+        response = client.post(
+            "/datasets/ohlcv",
+            json={
+                "dataset_id": "btc_1h_local",
+                "asset_class": "crypto",
+                "symbol": "BTCUSDT",
+                "exchange": "BINANCE",
+                "interval": "1h",
+                "candles": [
+                    {
+                        **candle,
+                        "timestamp": candle["timestamp"].isoformat(),
+                    }
+                    for candle in _candles()
+                ],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["audit_id"].startswith("audit_"))
+        service = CapabilityCoverageService(
+            self.db_path,
+            _AlwaysUnavailableReadiness(),
+        )
+        status = service.platform_status(
+            symbol="BTCUSDT",
+            exchange="BINANCE",
+            asset_class="crypto",
+            interval="1h",
+            start_date="2026-01-01",
+            end_date="2026-01-02",
+        )
+        self.assertTrue(status["local_dataset_exists"])
+        self.assertEqual(status["local_dataset"]["dataset_id"], "btc_1h_local")
+
+
+class _AlwaysUnavailableReadiness:
+    def readiness(self, **_: str) -> dict[str, object]:
+        return {
+            "provider_configured": False,
+            "quote_available": False,
+            "historical_available": False,
+            "verified_now": False,
+            "unsupported_reason": "OpenAlgo credentials are not configured.",
+            "analyzer_path_status": "not_configured",
+            "paper_path_status": "not_configured",
+            "live_path_status": "not_configured",
+        }
+
+
+def _candles() -> list[dict[str, object]]:
+    start = datetime(2026, 1, 2, 9, 15)
+    closes = [100, 99, 98, 97, 98, 100, 103, 106, 109, 110, 108, 105, 102, 99, 98, 101, 104, 107]
+    return [
+        {
+            "timestamp": start + timedelta(minutes=5 * index),
+            "open": close - 0.5,
+            "high": close + 1.0,
+            "low": close - 1.0,
+            "close": close,
+            "volume": 1_000 + index,
+        }
+        for index, close in enumerate(closes)
+    ]
+
+
+if __name__ == "__main__":
+    unittest.main()

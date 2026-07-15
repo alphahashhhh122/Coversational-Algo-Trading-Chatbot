@@ -37,6 +37,7 @@ class PlatformDashboardService:
         counts = self._table_counts(
             [
                 "data_catalog",
+                "market_ohlcv",
                 "strategy_runs",
                 "strategy_signals",
                 "risk_decisions",
@@ -152,8 +153,12 @@ class PlatformDashboardService:
             "workflow": [
                 {
                     "stage": "data",
-                    "stored_in": ["data_catalog", "options_ohlcv"],
-                    "purpose": "Locate governed NIFTY data and its quality/provenance.",
+                    "stored_in": [
+                        "data_catalog",
+                        "options_ohlcv",
+                        "market_ohlcv",
+                    ],
+                    "purpose": "Locate governed market data and its quality/provenance.",
                 },
                 {
                     "stage": "entry_exit_signal",
