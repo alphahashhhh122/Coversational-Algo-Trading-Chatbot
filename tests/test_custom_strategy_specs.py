@@ -110,7 +110,8 @@ class CustomStrategySpecTest(unittest.TestCase):
         self.assertIn("fundamentals feature series", answer)
         self.assertIn("news/sentiment numeric feature series", answer)
 
-    def test_custom_strategy_tool_routes_and_stores_draft(self) -> None:
+    def test_strategy_creation_chat_routes_to_compile_preview(self) -> None:
+        """Chat strategy creation previews a spec; nothing is persisted."""
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "platform.duckdb"
             initialize_database(db_path)
@@ -121,10 +122,11 @@ class CustomStrategySpecTest(unittest.TestCase):
                 registry,
             )
             result = registry.call(decision.tool_name, decision.arguments)
+            stored = CustomStrategyService(db_path).list_specs()
 
-        self.assertEqual(decision.tool_name, "create_custom_strategy_spec")
-        self.assertEqual(result["status"], "draft_executable")
-        self.assertIn("arbitrary LLM-generated code is not executed", result["execution_policy"])
+        self.assertEqual(decision.tool_name, "compile_custom_strategy_spec")
+        self.assertTrue(result["requires_confirmation"])
+        self.assertEqual(stored["custom_strategy_specs"], [])
 
     def test_capability_question_returns_current_rule_vocabulary(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

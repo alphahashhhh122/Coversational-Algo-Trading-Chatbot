@@ -21,6 +21,7 @@ const state = {
   marketNews: null,
   personas: [],
   customStrategySpecs: [],
+  nlCompiledResult: null,
   researchBriefs: [],
   executionReadiness: null,
   platformSummary: null,
@@ -50,14 +51,21 @@ async function api(path, options = {}) {
   const authHeaders = state.token
     ? { Authorization: `Bearer ${state.token}` }
     : {};
-  const response = await fetch(path, {
-    headers: {
-      "Content-Type": "application/json",
-      ...authHeaders,
-      ...(options.headers || {}),
-    },
-    ...options,
-  });
+  let response;
+  try {
+    response = await fetch(path, {
+      headers: {
+        "Content-Type": "application/json",
+        ...authHeaders,
+        ...(options.headers || {}),
+      },
+      ...options,
+    });
+  } catch (networkError) {
+    $("#api-dot").className = "status-dot offline";
+    $("#api-label").textContent = "API offline";
+    throw new Error("Cannot reach the server. Check that the platform is running.");
+  }
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     if (response.status === 401 && path !== "/auth/login") {
@@ -197,15 +205,13 @@ function setAutoRefresh(enabled, persist = true) {
 
 function setView(view) {
   const labels = {
-    workspace: ["Workspace", "Research, monitoring, and governed actions in one focused place."],
-    operator: ["Operator Console", "Signal, risk, order, fill, and performance evidence in one place."],
-    runs: ["Research & Backtests", "Run, compare, and inspect governed strategy research."],
-    experiments: ["Strategy Experiments", "Chronological out-of-sample validation and parameter stability."],
-    portfolios: ["Portfolio Risk", "Durable positions, exposure reservations, and operator controls."],
-    approvals: ["Human Approvals", "Explicit control over external sandbox actions."],
-    data: ["Data Catalog", "Governed coverage, quality, provenance, and freshness."],
-    openalgo: ["Account & OpenAlgo", "Read-only account state and persisted reconciliation evidence."],
-    operations: ["Platform Operations", "Readiness, scheduled maintenance, and failure visibility."],
+    workspace: ["Chat", "Ask naturally; every market answer is tied to live providers or stored evidence."],
+    runs: ["Research", "Run, compare, and inspect governed strategy research with market news."],
+    strategies: ["Strategies", "Describe in plain language, compile to governed specs, backtest with real data."],
+    data: ["Data", "Coverage, quality, provenance, and OpenAlgo history imports."],
+    approvals: ["Execution", "Paper trading, human approvals, portfolio risk, and governed order intents."],
+    monitor: ["Monitor", "OpenAlgo account state, workflow evidence, and platform operations."],
+    settings: ["Settings", "Runtime configuration, capabilities, personas, and dashboard widgets."],
   };
   document.querySelectorAll(".view").forEach((node) => node.classList.remove("active"));
   document.querySelectorAll(".nav-item").forEach((node) => node.classList.remove("active"));
@@ -332,6 +338,8 @@ function hideLogin() {
 async function submitLogin(event) {
   event.preventDefault();
   $("#auth-error").textContent = "";
+  const button = event.target.querySelector("button[type=submit]");
+  if (button) button.disabled = true;
   try {
     const payload = await api("/auth/login", {
       method: "POST",
@@ -348,6 +356,8 @@ async function submitLogin(event) {
     await loadOverview();
   } catch (error) {
     $("#auth-error").textContent = error.message;
+  } finally {
+    if (button) button.disabled = false;
   }
 }
 
@@ -420,6 +430,7 @@ async function loadOverview() {
   await loadOperatorConsole();
   await loadOpenAlgoHistory();
   await loadOperations();
+  loadSettings();
 }
 
 function renderMarketNewsPanel(message = "") {
@@ -474,14 +485,15 @@ async function createResearchBrief() {
   const button = $("#create-research-brief");
   button.disabled = true;
   try {
-    const payload = {
-      symbol: $("#readiness-symbol").value.trim(),
-      exchange: $("#readiness-exchange").value.trim(),
-      asset_class: $("#readiness-asset").value,
-      interval: $("#readiness-interval").value.trim(),
-      start_date: $("#readiness-start").value.trim(),
-      end_date: $("#readiness-end").value.trim(),
-    };
+    const symbol = $("#market-news-symbol")?.value?.trim()
+      || $("#readiness-symbol")?.value?.trim()
+      || "NIFTY";
+    const exchange = $("#readiness-exchange")?.value?.trim() || "NSE";
+    const asset_class = $("#readiness-asset")?.value || "equity";
+    const interval = $("#readiness-interval")?.value?.trim() || "5m";
+    const start_date = $("#readiness-start")?.value?.trim() || "";
+    const end_date = $("#readiness-end")?.value?.trim() || "";
+    const payload = { symbol, exchange, asset_class, interval, start_date, end_date };
     const brief = await api("/platform/research/briefs", {
       method: "POST",
       body: JSON.stringify(payload),
@@ -1135,12 +1147,16 @@ async function setPortfolioControl(portfolioId, enabled) {
 function renderExperiments() {
   const strategySelect = $("#experiment-strategy");
   const datasetSelect = $("#experiment-dataset");
-  strategySelect.innerHTML = state.strategies.map((strategy) => `
-    <option value="${escapeHtml(strategy.name)}">${escapeHtml(strategy.name)}</option>
-  `).join("");
-  datasetSelect.innerHTML = marketDatasets().map((dataset) => `
-    <option value="${escapeHtml(dataset.dataset_id)}">${escapeHtml(dataset.dataset_id)}</option>
-  `).join("");
+  strategySelect.innerHTML = state.strategies.length
+    ? state.strategies.map((strategy) => `
+        <option value="${escapeHtml(strategy.name)}">${escapeHtml(strategy.name)}</option>
+      `).join("")
+    : `<option value="" disabled selected>No strategies loaded</option>`;
+  datasetSelect.innerHTML = marketDatasets().length
+    ? marketDatasets().map((dataset) => `
+        <option value="${escapeHtml(dataset.dataset_id)}">${escapeHtml(dataset.dataset_id)}</option>
+      `).join("")
+    : `<option value="" disabled selected>No datasets loaded</option>`;
   const table = $("#experiments-table");
   table.innerHTML = state.experiments.length
     ? state.experiments.map((experiment) => `
@@ -1163,12 +1179,16 @@ function renderBacktestControls() {
   const datasetSelect = $("#backtest-dataset");
   const strategySelect = $("#backtest-strategy");
   if (!datasetSelect || !strategySelect) return;
-  datasetSelect.innerHTML = marketDatasets().map((dataset) => `
-    <option value="${escapeHtml(dataset.dataset_id)}">${escapeHtml(dataset.dataset_id)}</option>
-  `).join("");
-  strategySelect.innerHTML = state.strategies.map((strategy) => `
-    <option value="${escapeHtml(strategy.name)}">${escapeHtml(strategy.name)}</option>
-  `).join("");
+  datasetSelect.innerHTML = marketDatasets().length
+    ? marketDatasets().map((dataset) => `
+        <option value="${escapeHtml(dataset.dataset_id)}">${escapeHtml(dataset.dataset_id)}</option>
+      `).join("")
+    : `<option value="" disabled selected>No datasets loaded</option>`;
+  strategySelect.innerHTML = state.strategies.length
+    ? state.strategies.map((strategy) => `
+        <option value="${escapeHtml(strategy.name)}">${escapeHtml(strategy.name)}</option>
+      `).join("")
+    : `<option value="" disabled selected>No strategies loaded</option>`;
   renderBacktestParameters(strategySelect.value);
   strategySelect.onchange = () => renderBacktestParameters(strategySelect.value);
   datasetSelect.onchange = () => {
@@ -1342,9 +1362,11 @@ function renderCustomStrategyControls() {
   const specSelect = $("#custom-strategy-spec-select");
   if (!datasetSelect || !specSelect) return;
   const currentDataset = datasetSelect.value;
-  datasetSelect.innerHTML = marketDatasets().map((dataset) => `
-    <option value="${escapeHtml(dataset.dataset_id)}">${escapeHtml(dataset.dataset_id)}</option>
-  `).join("");
+  datasetSelect.innerHTML = marketDatasets().length
+    ? marketDatasets().map((dataset) => `
+        <option value="${escapeHtml(dataset.dataset_id)}">${escapeHtml(dataset.dataset_id)}</option>
+      `).join("")
+    : `<option value="" disabled selected>No datasets loaded</option>`;
   if (currentDataset) datasetSelect.value = currentDataset;
   datasetSelect.onchange = () => {
     void loadOptionContracts(datasetSelect.value, "custom");
@@ -1381,6 +1403,30 @@ function renderSelectedCustomStrategySpec() {
     ? `Requires review: ${missing.map((item) => item.name || item.kind).join(", ")}`
     : `Executable by native rule-spec runtime: ${spec.spec_id}`;
   status.className = `custom-strategy-status ${missing.length ? "attention" : "ready"}`;
+  const deleteButton = $("#delete-custom-strategy");
+  if (deleteButton) deleteButton.disabled = !spec;
+}
+
+async function deleteCustomStrategySpec() {
+  const specId = $("#custom-strategy-spec-select")?.value;
+  if (!specId) return;
+  const spec = state.customStrategySpecs.find((item) => item.spec_id === specId);
+  if (!spec) return;
+  if (!window.confirm(`Delete strategy spec "${spec.name}" (${specId})? This cannot be undone.`)) return;
+  const button = $("#delete-custom-strategy");
+  if (button) button.disabled = true;
+  try {
+    await api(`/custom-strategy-specs/${encodeURIComponent(specId)}`, {
+      method: "DELETE",
+    });
+    state.customStrategySpecs = state.customStrategySpecs.filter((item) => item.spec_id !== specId);
+    renderCustomStrategyControls();
+    toast(`Deleted strategy spec ${specId}`);
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    if (button) button.disabled = false;
+  }
 }
 
 async function submitCustomStrategySpec(event) {
@@ -1835,7 +1881,7 @@ async function submitBacktest(event) {
     toast(error.message);
   } finally {
     button.disabled = false;
-    button.textContent = "Run IIMC backtest";
+    button.textContent = "Run backtest";
   }
 }
 
@@ -1935,7 +1981,7 @@ async function loadRun(runId) {
     drawCurve(performance.equity_curve || []);
     drawWorkflowChart(timeline.counts || {});
     drawPnlChart(run);
-    $("#generate-report")?.addEventListener("click", () => generateReport(runId));
+    $("#generate-report")?.addEventListener("click", (event) => generateReport(runId, event.currentTarget));
     $("#show-all-events")?.addEventListener("click", (event) => {
       $("#timeline-events").innerHTML = renderTimelineRows(timeline.events);
       event.currentTarget.remove();
@@ -1972,7 +2018,8 @@ async function submitKnowledgeSearch(event) {
   }
 }
 
-async function generateReport(runId) {
+async function generateReport(runId, button) {
+  if (button) button.disabled = true;
   try {
     const report = await api(`/runs/${encodeURIComponent(runId)}/reports`, {
       method: "POST",
@@ -1980,10 +2027,14 @@ async function generateReport(runId) {
     toast(`Report ${report.report_id} generated`);
   } catch (error) {
     toast(error.message);
+  } finally {
+    if (button) button.disabled = false;
   }
 }
 
 async function compareSelectedRuns() {
+  const button = $("#compare-runs");
+  button.disabled = true;
   try {
     const comparison = await api("/runs/compare", {
       method: "POST",
@@ -2006,6 +2057,8 @@ async function compareSelectedRuns() {
     `;
   } catch (error) {
     toast(error.message);
+  } finally {
+    button.disabled = false;
   }
 }
 
@@ -2310,13 +2363,17 @@ async function exportAnalyticalHistory() {
   }
 }
 
+function cssVar(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
 function drawCurve(points) {
   const canvas = $("#equity-curve");
   if (!canvas) return;
   const context = canvas.getContext("2d");
   context.clearRect(0, 0, canvas.width, canvas.height);
   if (!points.length) {
-    context.fillStyle = "#66716a";
+    context.fillStyle = cssVar("--muted");
     context.font = "13px system-ui";
     context.fillText("No filled-trade equity points for this run.", 18, 82);
     return;
@@ -2325,7 +2382,7 @@ function drawCurve(points) {
   const minimum = Math.min(...values);
   const maximum = Math.max(...values);
   const range = Math.max(maximum - minimum, 1);
-  context.strokeStyle = "#16734a";
+  context.strokeStyle = cssVar("--green");
   context.lineWidth = 2;
   context.beginPath();
   values.forEach((value, index) => {
@@ -2343,7 +2400,7 @@ function drawBarChart(canvasId, rows, options = {}) {
   const context = canvas.getContext("2d");
   context.clearRect(0, 0, canvas.width, canvas.height);
   if (!rows.length) {
-    context.fillStyle = "#66716a";
+    context.fillStyle = cssVar("--muted");
     context.font = "13px system-ui";
     context.fillText("No data available.", 16, 92);
     return;
@@ -2358,11 +2415,11 @@ function drawBarChart(canvasId, rows, options = {}) {
     const value = Number(row.value) || 0;
     const y = top + index * rowHeight;
     const width = (Math.abs(value) / maxValue) * (canvas.width - left - right);
-    context.fillStyle = "#66716a";
+    context.fillStyle = cssVar("--muted");
     context.fillText(row.label, 12, y + 15);
-    context.fillStyle = value < 0 ? "#a83a35" : options.color || "#16734a";
+    context.fillStyle = value < 0 ? cssVar("--red") : options.color || cssVar("--green");
     context.fillRect(left, y, Math.max(width, 2), 16);
-    context.fillStyle = "#17201b";
+    context.fillStyle = cssVar("--ink");
     context.fillText(formatNumber(value, options.digits ?? 2), left + width + 6, y + 13);
   });
 }
@@ -2373,7 +2430,7 @@ function drawWorkflowChart(counts) {
     { label: "Risk", value: counts.risk_decisions },
     { label: "Orders", value: counts.orders },
     { label: "Fills", value: counts.fills },
-  ], { digits: 0, color: "#2c5f8a" });
+  ], { digits: 0, color: cssVar("--blue") });
 }
 
 function drawPnlChart(run) {
@@ -2382,7 +2439,7 @@ function drawPnlChart(run) {
     { label: "Drawdown", value: -Math.abs(Number(run.max_drawdown || 0)) },
     { label: "Trades", value: run.total_trades },
     { label: "Return %", value: run.return_pct },
-  ], { digits: 2, color: "#16734a" });
+  ], { digits: 2, color: cssVar("--green") });
 }
 
 function renderApprovals() {
@@ -2407,9 +2464,10 @@ function renderApprovals() {
     </article>
   `).join("");
   container.querySelectorAll("[data-decision]").forEach((button) => {
-    button.addEventListener("click", () => decideApproval(
+    button.addEventListener("click", (event) => decideApproval(
       button.closest("[data-approval-id]").dataset.approvalId,
       button.dataset.decision === "approve",
+      event.currentTarget,
     ));
   });
 }
@@ -2588,9 +2646,10 @@ function renderPaperIntents() {
     `).join("")
     : `<tr><td colspan="7">No OpenAlgo sandbox intents prepared yet.</td></tr>`;
   table.querySelectorAll("[data-intent-action]").forEach((button) => {
-    button.addEventListener("click", () => handleIntentAction(
+    button.addEventListener("click", (event) => handleIntentAction(
       button.dataset.intentAction,
       button.closest("[data-intent-id]").dataset.intentId,
+      event.currentTarget,
     ));
   });
 }
@@ -2607,7 +2666,8 @@ function renderIntentActions(intent) {
   return actions.join(" ");
 }
 
-async function handleIntentAction(action, intentId) {
+async function handleIntentAction(action, intentId, button) {
+  if (button) button.disabled = true;
   try {
     if (action === "submit") {
       await api(`/sandbox/intents/${encodeURIComponent(intentId)}/submit`, {
@@ -2626,15 +2686,18 @@ async function handleIntentAction(action, intentId) {
     await loadOverview();
   } catch (error) {
     toast(error.message);
+  } finally {
+    if (button) button.disabled = false;
   }
 }
 
-async function decideApproval(approvalId, approved) {
+async function decideApproval(approvalId, approved, button) {
   const reason = window.prompt(
     approved ? "Reason for approval" : "Reason for rejection",
     approved ? "Reviewed for OpenAlgo sandbox execution" : "",
   );
   if (!reason) return;
+  if (button) button.disabled = true;
   try {
     await api(`/approvals/${encodeURIComponent(approvalId)}/decision`, {
       method: "POST",
@@ -2648,6 +2711,8 @@ async function decideApproval(approvalId, approved) {
     await loadOverview();
   } catch (error) {
     toast(error.message);
+  } finally {
+    if (button) button.disabled = false;
   }
 }
 
@@ -2682,6 +2747,8 @@ function renderDatasets() {
 
 async function assessFreshness(article) {
   const datasetId = article.dataset.datasetId;
+  const button = article.querySelector(".freshness-button");
+  if (button) button.disabled = true;
   try {
     const result = await api(`/datasets/${encodeURIComponent(datasetId)}/freshness?purpose=current_market`);
     const slot = article.querySelector(".freshness-slot");
@@ -2689,6 +2756,8 @@ async function assessFreshness(article) {
     slot.textContent = `${result.status.toUpperCase()}: ${result.reason}`;
   } catch (error) {
     toast(error.message);
+  } finally {
+    if (button) button.disabled = false;
   }
 }
 
@@ -2815,6 +2884,187 @@ async function submitOptionsFeatureDerivation(event) {
   }
 }
 
+async function submitNlStrategyCompile(event) {
+  event.preventDefault();
+  const button = $("#compile-nl-strategy");
+  const text = $("#nl-strategy-text").value.trim();
+  if (!text) return;
+  button.disabled = true;
+  button.textContent = "Compiling...";
+  try {
+    const result = await api("/custom-strategy-specs/compile", {
+      method: "POST",
+      body: JSON.stringify({ text }),
+    });
+    state.nlCompiledResult = result;
+    $("#nl-strategy-review").classList.remove("hidden");
+    const spec = result.spec || {};
+    const risk = spec.risk || {};
+    const summaryParts = [
+      `<strong>${escapeHtml(spec.symbol || "?")} ${escapeHtml(spec.timeframe || "?")} ${escapeHtml(spec.position_side || "long")}</strong>`,
+    ];
+    const entryRules = spec.entry_rules || [];
+    const exitRules = spec.exit_rules || [];
+    if (entryRules.length) {
+      const entryText = entryRules.map((rule) => {
+        const op = String(rule.operator || "").replaceAll("_", " ");
+        return `${rule.left} ${op} ${rule.right}`;
+      }).join(" AND ");
+      summaryParts.push(`<div class="nl-detail">Entry: ${escapeHtml(entryText)}</div>`);
+    }
+    if (exitRules.length) {
+      const exitText = exitRules.map((rule) => {
+        const op = String(rule.operator || "").replaceAll("_", " ");
+        return `${rule.left} ${op} ${rule.right}`;
+      }).join(" AND ");
+      summaryParts.push(`<div class="nl-detail">Exit: ${escapeHtml(exitText)}</div>`);
+    }
+    const riskParts = Object.entries(risk).map(([key, value]) => {
+      if (key.endsWith("_pct")) return `${key.replace("_pct", "").replaceAll("_", " ")} ${(value * 100).toFixed(1)}%`;
+      return `${key.replaceAll("_", " ")} ${value}`;
+    });
+    if (riskParts.length) summaryParts.push(`<div class="nl-detail">Risk: ${escapeHtml(riskParts.join(", "))}</div>`);
+    if (result.unparsed_clauses?.length) {
+      summaryParts.push(
+        `<div class="nl-warning">Could not interpret: ${result.unparsed_clauses.map((clause) => `“${escapeHtml(clause)}”`).join(", ")}</div>`,
+      );
+    }
+    for (const warning of result.warnings || []) {
+      summaryParts.push(`<div class="nl-warning">${escapeHtml(warning)}</div>`);
+    }
+    const missing = result.missing_capabilities || [];
+    if (missing.length) {
+      summaryParts.push(
+        `<div class="nl-warning">Blocking: ${missing.map((item) => escapeHtml(item.reason || item.value)).join("; ")}</div>`,
+      );
+    } else {
+      summaryParts.push(`<div class="nl-ready">Executable by native rule runtime</div>`);
+    }
+    $("#nl-strategy-summary").innerHTML = summaryParts.join("");
+    $("#nl-strategy-spec-json").value = JSON.stringify(spec, null, 2);
+    $("#save-nl-strategy").disabled = missing.length > 0;
+    $("#nl-strategy-validation").textContent = missing.length
+      ? `${missing.length} blocking issue(s) must be resolved before saving.`
+      : "Validation passed. Review the spec and save when ready.";
+    $("#nl-strategy-validation").className = `nl-strategy-validation ${missing.length ? "attention" : "ready"}`;
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    button.disabled = false;
+    button.textContent = "Compile for review";
+  }
+}
+
+async function revalidateNlStrategy() {
+  const button = $("#revalidate-nl-strategy");
+  button.disabled = true;
+  try {
+    const spec = JSON.parse($("#nl-strategy-spec-json").value);
+    const result = await api("/custom-strategy-specs/validate", {
+      method: "POST",
+      body: JSON.stringify({
+        name: spec.name || `nl_${Date.now()}`,
+        description: spec.description || "NL-compiled strategy",
+        symbol: spec.symbol || "NIFTY",
+        timeframe: spec.timeframe || "5m",
+        indicators: spec.indicators || [],
+        entry_rules: spec.entry_rules || [],
+        exit_rules: spec.exit_rules || [],
+        risk: spec.risk,
+        position_side: spec.position_side || "long",
+        feature_inputs: spec.feature_inputs || [],
+        session: spec.session || null,
+      }),
+    });
+    const missing = result.missing_capabilities || [];
+    $("#save-nl-strategy").disabled = missing.length > 0;
+    $("#nl-strategy-validation").textContent = missing.length
+      ? `Requires review: ${missing.map((item) => item.value || item.kind).join(", ")}`
+      : "Validation passed. Save when ready.";
+    $("#nl-strategy-validation").className = `nl-strategy-validation ${missing.length ? "attention" : "ready"}`;
+  } catch (error) {
+    $("#nl-strategy-validation").textContent = error.message;
+    $("#nl-strategy-validation").className = "nl-strategy-validation attention";
+    $("#save-nl-strategy").disabled = true;
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function saveNlStrategy() {
+  const button = $("#save-nl-strategy");
+  button.disabled = true;
+  try {
+    const spec = JSON.parse($("#nl-strategy-spec-json").value);
+    const created = await api("/custom-strategy-specs", {
+      method: "POST",
+      body: JSON.stringify({
+        name: spec.name || `nl_strategy_${Date.now()}`,
+        description: spec.description || state.nlCompiledResult?.source_text || "NL-compiled strategy",
+        symbol: spec.symbol || "NIFTY",
+        timeframe: spec.timeframe || "5m",
+        indicators: spec.indicators || [],
+        entry_rules: spec.entry_rules || [],
+        exit_rules: spec.exit_rules || [],
+        risk: spec.risk,
+        position_side: spec.position_side || "long",
+        feature_inputs: spec.feature_inputs || [],
+        session: spec.session || null,
+      }),
+    });
+    state.customStrategySpecs = [
+      created,
+      ...state.customStrategySpecs,
+    ].filter((item, index, items) => (
+      items.findIndex((candidate) => candidate.spec_id === item.spec_id) === index
+    ));
+    renderCustomStrategyControls();
+    const specSelect = $("#custom-strategy-spec-select");
+    if (specSelect && created.spec_id) specSelect.value = created.spec_id;
+    renderSelectedCustomStrategySpec();
+    toast(`Strategy ${created.spec_id} saved`);
+    $("#nl-strategy-review").classList.add("hidden");
+    $("#nl-strategy-text").value = "";
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function loadSettings() {
+  try {
+    const config = await api("/settings");
+    const grid = $("#settings-grid");
+    const safetyNotice = $("#settings-safety-notice");
+    const live = config.allow_live_trading;
+    safetyNotice.textContent = live
+      ? "Live trading is ENABLED by configuration. Paper orders still require explicit approval."
+      : "Live trading is disabled. Paper orders use OpenAlgo analyzer mode and require explicit approval.";
+    safetyNotice.className = `notice ${live ? "attention" : ""}`;
+    const sensitiveKeys = new Set([
+      "database_path", "artifacts_dir", "strategy_plugin_dir", "openalgo_root",
+    ]);
+    const entries = Object.entries(config).filter(([key]) => !sensitiveKeys.has(key));
+    grid.innerHTML = entries.map(([key, value]) => {
+      const display = typeof value === "object" ? JSON.stringify(value) : String(value);
+      const tone = key === "allow_live_trading"
+        ? (value ? "attention" : "ready")
+        : (typeof value === "boolean"
+          ? (value ? "ready" : "")
+          : "");
+      return `
+        <div class="settings-item ${tone}">
+          <span>${escapeHtml(key.replaceAll("_", " "))}</span>
+          <strong>${escapeHtml(display)}</strong>
+        </div>
+      `;
+    }).join("") || `<div class="empty-state">No configuration loaded.</div>`;
+  } catch (error) {
+    $("#settings-grid").innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
+  }
+}
+
 function wireEvents() {
   document.querySelectorAll(".nav-item").forEach((button) => {
     button.addEventListener("click", () => setView(button.dataset.view));
@@ -2838,6 +3088,10 @@ function wireEvents() {
   $("#validate-custom-strategy").addEventListener("click", validateCustomStrategySpec);
   $("#run-custom-strategy").addEventListener("click", runSelectedCustomStrategySpec);
   $("#custom-strategy-spec-select").addEventListener("change", renderSelectedCustomStrategySpec);
+  $("#delete-custom-strategy").addEventListener("click", deleteCustomStrategySpec);
+  $("#nl-strategy-form").addEventListener("submit", submitNlStrategyCompile);
+  $("#revalidate-nl-strategy").addEventListener("click", revalidateNlStrategy);
+  $("#save-nl-strategy").addEventListener("click", saveNlStrategy);
   $("#custom-strategy-template").addEventListener("change", () => {
     $("#custom-strategy-description").value = (
       `Local governed ${$("#custom-strategy-template").selectedOptions[0].textContent} strategy.`
@@ -2897,14 +3151,57 @@ function wireEvents() {
     $("#evidence-content").classList.add("hidden");
     $("#evidence-empty").classList.remove("hidden");
   });
-  ["refresh-overview", "refresh-operator", "refresh-runs", "refresh-experiments", "refresh-portfolios", "refresh-approvals", "refresh-data", "refresh-openalgo", "refresh-operations"].forEach((id) => {
+  const refreshActions = {
+    "refresh-overview": loadOverview,
+    "refresh-operator": loadOperatorConsole,
+    "refresh-runs": async () => {
+      const [runs, customSpecs] = await Promise.all([api("/runs?limit=50"), api("/custom-strategy-specs")]);
+      state.runs = runs.runs || [];
+      state.customStrategySpecs = customSpecs.custom_strategy_specs || [];
+      renderRuns();
+      renderBacktestControls();
+    },
+    "refresh-experiments": async () => {
+      const experiments = await api("/experiments/robustness?limit=50");
+      state.experiments = experiments.experiments || [];
+      renderExperiments();
+    },
+    "refresh-portfolios": async () => {
+      const portfolios = await api("/portfolios");
+      state.portfolios = portfolios.portfolios || [];
+      renderPortfolios();
+    },
+    "refresh-approvals": async () => {
+      const [approvals, intents] = await Promise.all([
+        hasRole("approver") ? api("/approvals/pending") : Promise.resolve({ approvals: [] }),
+        api("/sandbox/intents?limit=50"),
+      ]);
+      state.approvals = approvals.approvals || [];
+      state.sandboxIntents = intents.intents || [];
+      renderApprovals();
+      renderPaperTrading();
+    },
+    "refresh-data": async () => {
+      const datasets = await api("/datasets");
+      state.datasets = datasets.datasets || [];
+      renderDatasets();
+      renderBacktestControls();
+    },
+    "refresh-openalgo": loadOpenAlgoHistory,
+    "refresh-operations": async () => { state.operations = null; await loadOperations(); },
+    "refresh-settings": loadSettings,
+  };
+  Object.entries(refreshActions).forEach(([id, action]) => {
     $(`#${id}`).addEventListener("click", async () => {
+      const button = $(`#${id}`);
+      button.disabled = true;
       try {
-        state.operations = null;
-        await loadOverview();
-        toast("Workspace refreshed");
+        await action();
+        toast("Refreshed");
       } catch (error) {
         toast(error.message);
+      } finally {
+        button.disabled = false;
       }
     });
   });

@@ -36,7 +36,7 @@ from .api_models import (
     RunComparisonRequest,
     SandboxActionRequest,
 )
-from .config import AppConfig, load_config
+from .config import AppConfig, load_config, public_config
 from .evaluator import ResponseEvaluator
 from .infrastructure import (
     DuckDBAuditRepository,
@@ -97,6 +97,7 @@ from .services.conversation_service import ConversationService
 from .services.sandbox_execution_service import SandboxExecutionService
 from .services.tool_execution_service import ToolExecutionError
 from .tools.registry import (
+    CompileCustomStrategyInput,
     CreateCustomStrategySpecInput,
     DatasetDetailInput,
     DatasetFreshnessInput,
@@ -280,7 +281,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             CORSMiddleware,
             allow_origins=list(active_config.cors_origins),
             allow_credentials=False,
-            allow_methods=["GET", "POST"],
+            allow_methods=["GET", "POST", "PUT", "DELETE"],
             allow_headers=[
                 "Authorization",
                 "Content-Type",
@@ -738,6 +739,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 detail=detail,
             ) from exc
         return {"tool_call_id": tool_call_id, **result}
+
+    @app.get("/settings")
+    def settings(principal: Principal = Depends(viewer)) -> dict[str, Any]:
+        """Redacted runtime configuration for the Settings view."""
+        return public_config(active_config)
 
     @app.get("/health")
     def health() -> dict[str, Any]:
@@ -1214,6 +1220,51 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         payload = request.model_dump(mode="json")
         payload["created_by"] = principal.username
         return execute_tool("create_custom_strategy_spec", payload)
+
+    @app.post("/custom-strategy-specs/compile")
+    def compile_custom_strategy_spec(
+        request: CompileCustomStrategyInput,
+        principal: Principal = Depends(researcher),
+    ) -> dict[str, Any]:
+        return execute_tool(
+            "compile_custom_strategy_spec",
+            request.model_dump(mode="json"),
+        )
+
+    @app.put("/custom-strategy-specs/{spec_id}")
+    def update_custom_strategy_spec(
+        spec_id: str,
+        request: CreateCustomStrategySpecInput,
+        principal: Principal = Depends(researcher),
+    ) -> dict[str, Any]:
+        payload = request.model_dump(mode="json")
+        payload["spec_id"] = spec_id
+        payload["created_by"] = principal.username
+        return execute_tool("update_custom_strategy_spec", payload)
+
+    @app.get("/custom-strategy-specs/{spec_id}")
+    def get_custom_strategy_spec(
+        spec_id: str,
+        principal: Principal = Depends(viewer),
+    ) -> dict[str, Any]:
+        try:
+            return CustomStrategyService(
+                active_config.database_path
+            ).get_spec(spec_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.delete("/custom-strategy-specs/{spec_id}")
+    def delete_custom_strategy_spec(
+        spec_id: str,
+        principal: Principal = Depends(researcher),
+    ) -> dict[str, Any]:
+        try:
+            return CustomStrategyService(
+                active_config.database_path
+            ).delete_spec(spec_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     @app.post("/custom-strategy-specs/validate")
     def validate_custom_strategy_spec(

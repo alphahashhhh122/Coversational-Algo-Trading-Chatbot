@@ -331,6 +331,72 @@ class PlatformApiRoutesTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 422)
 
+    def test_custom_strategy_compile_review_save_edit_flow(self) -> None:
+        compile_response = self.client.post(
+            "/custom-strategy-specs/compile",
+            json={
+                "text": (
+                    "Create a Reliance 5 minute strategy that buys when EMA 9 "
+                    "crosses above EMA 21 and exits when EMA 9 crosses below "
+                    "EMA 21 with a 2 percent stop loss"
+                )
+            },
+        )
+        self.assertEqual(compile_response.status_code, 200)
+        compiled = compile_response.json()
+        self.assertTrue(compiled["requires_confirmation"])
+        self.assertTrue(compiled["can_execute_without_new_code"])
+        spec = compiled["spec"]
+
+        # Nothing was persisted by compilation.
+        listed = self.client.get("/custom-strategy-specs").json()
+        self.assertEqual(listed["custom_strategy_specs"], [])
+
+        create_response = self.client.post(
+            "/custom-strategy-specs",
+            json={key: value for key, value in spec.items()},
+        )
+        self.assertEqual(create_response.status_code, 200)
+        created = create_response.json()
+        self.assertEqual(created["status"], "draft_executable")
+        spec_id = created["spec_id"]
+
+        fetched = self.client.get(f"/custom-strategy-specs/{spec_id}")
+        self.assertEqual(fetched.status_code, 200)
+        self.assertEqual(fetched.json()["spec"]["symbol"], "RELIANCE")
+
+        edited = dict(spec)
+        edited["risk"] = {"stop_loss_pct": 0.03, "trailing_stop_pct": 0.02}
+        update_response = self.client.put(
+            f"/custom-strategy-specs/{spec_id}",
+            json=edited,
+        )
+        self.assertEqual(update_response.status_code, 200)
+        updated = update_response.json()
+        self.assertEqual(updated["status"], "draft_executable")
+        self.assertEqual(
+            updated["spec"]["risk"],
+            {"stop_loss_pct": 0.03, "trailing_stop_pct": 0.02},
+        )
+
+    def test_custom_strategy_update_unknown_spec_is_404(self) -> None:
+        response = self.client.put(
+            "/custom-strategy-specs/custom_missing",
+            json={
+                "name": "x",
+                "description": "x",
+                "symbol": "NIFTY",
+                "timeframe": "5m",
+                "entry_rules": [
+                    {"left": "price", "operator": ">", "right": 1}
+                ],
+                "exit_rules": [
+                    {"left": "price", "operator": "<", "right": 1}
+                ],
+            },
+        )
+        self.assertEqual(response.status_code, 404)
+
     def test_market_news_unconfigured_does_not_fake_articles(self) -> None:
         status = self.client.get("/market-news/status")
         latest = self.client.get("/market-news/latest")

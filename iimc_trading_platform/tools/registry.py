@@ -84,6 +84,12 @@ class CustomStrategyRiskSpec(ToolInput):
     max_position_size: int | None = Field(default=None, ge=1, le=100_000)
     stop_loss_pct: float | None = Field(default=None, ge=0, le=1)
     take_profit_pct: float | None = Field(default=None, ge=0, le=10)
+    trailing_stop_pct: float | None = Field(default=None, ge=0, le=1)
+
+
+class CustomSessionSpec(ToolInput):
+    start: str = Field(pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$")
+    end: str = Field(pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$")
 
 
 class CustomFeatureInput(ToolInput):
@@ -104,8 +110,19 @@ class CreateCustomStrategySpecInput(ToolInput):
     entry_rules: list[CustomRuleSpec] = Field(min_length=1, max_length=12)
     exit_rules: list[CustomRuleSpec] = Field(min_length=1, max_length=12)
     risk: CustomStrategyRiskSpec = Field(default_factory=CustomStrategyRiskSpec)
+    session: CustomSessionSpec | None = None
     position_side: Literal["long", "short"] = "long"
     created_by: str = Field(default="chat_user", min_length=1, max_length=200)
+
+
+class CompileCustomStrategyInput(ToolInput):
+    text: str = Field(min_length=5, max_length=4000)
+    symbol: str | None = Field(default=None, min_length=1, max_length=80)
+    timeframe: str | None = Field(default=None, min_length=1, max_length=20)
+
+
+class UpdateCustomStrategySpecInput(CreateCustomStrategySpecInput):
+    spec_id: str = Field(min_length=1, max_length=160)
 
 
 class ListCustomStrategySpecsInput(ToolInput):
@@ -936,6 +953,39 @@ def build_default_tool_registry(
                 ),
             ),
             ToolDefinition(
+                name="compile_custom_strategy_spec",
+                description=(
+                    "Compile a plain-language strategy description (EMA/SMA "
+                    "crossovers, RSI, MACD, Bollinger Bands, ATR, VWAP, price/"
+                    "volume conditions, stop loss, take profit, trailing stop, "
+                    "session windows, long/short) into a structured, editable "
+                    "rule spec for human review. Read-only: nothing is saved "
+                    "or executed, and unparsed clauses are reported verbatim."
+                ),
+                input_model=CompileCustomStrategyInput,
+                handler=lambda value: custom_strategies.compile_from_text(
+                    **CompileCustomStrategyInput.model_validate(
+                        value.model_dump()
+                    ).model_dump()
+                ),
+                side_effects="none",
+                retry_safe=True,
+                capabilities=ToolCapabilityMetadata(
+                    actions=("draft_strategy", "validate_strategy_spec"),
+                    asset_classes=(
+                        "equity",
+                        "index",
+                        "futures",
+                        "options",
+                        "commodity",
+                        "crypto",
+                    ),
+                    execution_modes=("research",),
+                    required_data=("strategy_spec",),
+                    risk_level="low",
+                ),
+            ),
+            ToolDefinition(
                 name="create_custom_strategy_spec",
                 description=(
                     "Create and persist a governed draft strategy spec from "
@@ -966,6 +1016,40 @@ def build_default_tool_registry(
                     ),
                     execution_modes=("research",),
                     required_data=("strategy_spec",),
+                    requires_approval=True,
+                    risk_level="medium",
+                ),
+            ),
+            ToolDefinition(
+                name="update_custom_strategy_spec",
+                description=(
+                    "Update a persisted custom strategy spec after human "
+                    "review/editing and revalidate it. Unsupported primitives "
+                    "are marked requires_review; nothing is executed."
+                ),
+                input_model=UpdateCustomStrategySpecInput,
+                handler=lambda value: custom_strategies.update_spec(
+                    **UpdateCustomStrategySpecInput.model_validate(
+                        value.model_dump()
+                    ).model_dump()
+                ),
+                side_effects=(
+                    "updates a persisted custom strategy draft after review"
+                ),
+                retry_safe=False,
+                required_role="researcher",
+                capabilities=ToolCapabilityMetadata(
+                    actions=("draft_strategy", "validate_strategy_spec"),
+                    asset_classes=(
+                        "equity",
+                        "index",
+                        "futures",
+                        "options",
+                        "commodity",
+                        "crypto",
+                    ),
+                    execution_modes=("research",),
+                    required_data=("custom_strategy_specs",),
                     requires_approval=True,
                     risk_level="medium",
                 ),

@@ -396,6 +396,36 @@ class OfflineOrchestrator:
             for tool in registry.list_tools()
         }
 
+        if re.match(
+            r"\s*(?:hi|hello|hey|good\s+(?:morning|afternoon|evening)"
+            r"|greetings|howdy|sup)\b",
+            text,
+        ) and len(text.split()) <= 6:
+            return OrchestrationDecision(
+                tool_name=None,
+                arguments={},
+                direct_response=(
+                    "Hello! I can help with instrument quotes, market news, "
+                    "data imports, strategy creation in plain language, "
+                    "backtests, readiness checks, and paper-order preparation. "
+                    "What would you like to do?"
+                ),
+            )
+        if re.match(
+            r"\s*(?:help|what can you do|what do you do"
+            r"|how do i use|how does this work|capabilities)\b",
+            text,
+        ):
+            if "get_platform_summary" in tool_names:
+                return OrchestrationDecision(
+                    "get_platform_summary", {}
+                )
+            return OrchestrationDecision(
+                tool_name=None,
+                arguments={},
+                direct_response=_closest_action_response(text),
+            )
+
         asks_for_catalog = any(
             phrase in text
             for phrase in ("available", "list", "what", "show")
@@ -447,6 +477,14 @@ class OfflineOrchestrator:
             return OrchestrationDecision(
                 "get_execution_readiness",
                 _readiness_arguments(message),
+            )
+        if (
+            "compile_custom_strategy_spec" in tool_names
+            and _is_strategy_creation_request(text)
+        ):
+            return OrchestrationDecision(
+                "compile_custom_strategy_spec",
+                {"text": message},
             )
         if (
             "import_openalgo_history" in tool_names
@@ -573,14 +611,7 @@ class OfflineOrchestrator:
                     "outlook",
                 )
             )
-            and not (
-                "custom" in text
-                and "strateg" in text
-                and any(
-                    word in text
-                    for word in ("create", "draft", "spec", "using")
-                )
-            )
+            and not _is_strategy_creation_request(text)
         ):
             symbol = _symbol_from_text(message)
             return OrchestrationDecision(
@@ -758,7 +789,10 @@ class OfflineOrchestrator:
                 "reconcile_sandbox_intent",
                 {"intent_id": intent_id, "actor": "chat_user"},
             )
-        if "fresh" in text or "stale" in text:
+        if (
+            ("fresh" in text or "stale" in text)
+            and not intent_id
+        ):
             purpose = (
                 "current_market"
                 if any(word in text for word in ("current", "live", "latest"))
@@ -1027,16 +1061,6 @@ class OfflineOrchestrator:
                 "get_custom_strategy_capabilities",
                 {},
             )
-        if (
-            "create_custom_strategy_spec" in tool_names
-            and any(word in text for word in ("custom", "combine", "combined"))
-            and "strateg" in text
-            and any(word in text for word in ("create", "draft", "spec", "using"))
-        ):
-            return OrchestrationDecision(
-                "create_custom_strategy_spec",
-                _custom_strategy_spec_arguments(message),
-            )
         if "run_" in text and run_id:
             return OrchestrationDecision(
                 "get_backtest_result",
@@ -1101,11 +1125,7 @@ class OfflineOrchestrator:
         return OrchestrationDecision(
             tool_name=None,
             arguments={},
-            direct_response=(
-                "I could not map that request to a governed action yet. Try "
-                "asking for a quote, market news, account funds, positions, "
-                "orders, trades, a backtest, or OpenAlgo status."
-            ),
+            direct_response=_closest_action_response(text),
         )
 
     def compose_response(
@@ -1363,6 +1383,78 @@ def _references_unspecified_personal_strategy(text: str) -> bool:
     )
 
 
+def _closest_action_response(text: str) -> str:
+    """Point an unrecognized request at the nearest supported workflow."""
+    suggestions: list[str] = []
+    if any(word in text for word in ("predict", "forecast", "will", "target price", "tomorrow")):
+        suggestions.append(
+            "I can't predict prices, but I can ground a view in evidence: "
+            "ask for 'news for <symbol>' or 'research <symbol>' for stored "
+            "catalysts, or backtest a rule-based idea on real history."
+        )
+    if any(word in text for word in ("buy", "sell", "invest", "should i")):
+        suggestions.append(
+            "I don't give personalized investment advice or place live "
+            "orders. I can compile a strategy you describe, backtest it, and "
+            "prepare a human-approved paper order."
+        )
+    if "strateg" in text:
+        suggestions.append(
+            "Describe a strategy in plain language, for example: 'Create a "
+            "Reliance 5 minute strategy that buys when EMA 9 crosses above "
+            "EMA 21 and exits when EMA 9 crosses below EMA 21 with a 2 "
+            "percent stop loss'."
+        )
+    if any(word in text for word in ("data", "candle", "history", "import")):
+        suggestions.append(
+            "To bring in market data, say: 'import historical data for "
+            "RELIANCE NSE 5m from 2026-06-01 to 2026-07-16'."
+        )
+    if not suggestions:
+        suggestions.append(
+            "I can help with instrument quotes ('price of Reliance'), "
+            "market news ('news for Tata Steel'), data imports, strategy "
+            "creation in plain language, backtests, readiness checks, "
+            "paper-order preparation, and OpenAlgo account monitoring."
+        )
+    return " ".join(suggestions)
+
+
+def _is_strategy_creation_request(text: str) -> bool:
+    """Detect natural-language strategy creation, including rule phrasing."""
+    if "strateg" not in text:
+        return False
+    has_rule_language = bool(
+        re.search(
+            r"\b(?:buys?|sells?|enters?|exits?|goes?\s+(?:long|short)|"
+            r"longs?|shorts?|closes?)\s+(?:[\w&.-]+\s+){0,2}?"
+            r"(?:when(?:ever)?|if|once)\b",
+            text,
+        )
+    )
+    if has_rule_language:
+        return True
+    if re.match(r"\s*(?:how|what|which|can|could|do|does|is|are)\b", text):
+        return False
+    return any(
+        word in text
+        for word in (
+            "create",
+            "build",
+            "make",
+            "draft",
+            "design",
+            "compile",
+            "write",
+            "generate",
+            "set up",
+            "i want",
+            "i need",
+            "give me",
+        )
+    )
+
+
 def _is_market_price_request(text: str) -> bool:
     return any(
         phrase in text
@@ -1605,289 +1697,6 @@ def _strategy_parameters(text: str, strategy_name: str) -> dict[str, Any]:
     return {}
 
 
-def _custom_strategy_spec_arguments(message: str) -> dict[str, Any]:
-    text = message.lower()
-    indicators: list[dict[str, Any]] = []
-    entry_rules: list[dict[str, Any]] = []
-    exit_rules: list[dict[str, Any]] = []
-    feature_inputs: list[dict[str, Any]] = []
-    external_feature = _external_feature_from_text(text)
-    feature_dataset_id = _feature_dataset_id_from_text(message)
-
-    if external_feature and feature_dataset_id:
-        feature_inputs.append(
-            {
-                "name": external_feature,
-                "dataset_id": feature_dataset_id,
-                "feature_name": external_feature,
-                "alignment": "asof",
-                "max_age_hours": _feature_max_age_hours(external_feature),
-            }
-        )
-        entry_rules.append(
-            {
-                "left": external_feature,
-                "operator": ">",
-                "right": 0,
-                "joiner": "AND",
-            }
-        )
-        exit_rules.append(
-            {
-                "left": external_feature,
-                "operator": "<=",
-                "right": 0,
-                "joiner": "OR",
-            }
-        )
-
-    if "ema" in text or not any(
-        word in text
-        for word in ("sma", "macd", "bollinger", "band", "vwap")
-    ) and not external_feature:
-        indicators.extend(
-            [
-                {"type": "EMA", "period": 9, "source": "close"},
-                {"type": "EMA", "period": 21, "source": "close"},
-            ]
-        )
-        entry_rules.append(
-            {
-                "left": "EMA_9",
-                "operator": "crosses_above",
-                "right": "EMA_21",
-                "joiner": "AND",
-            }
-        )
-        exit_rules.append(
-            {
-                "left": "EMA_9",
-                "operator": "crosses_below",
-                "right": "EMA_21",
-                "joiner": "OR",
-            }
-        )
-    if "sma" in text:
-        indicators.extend(
-            [
-                {"type": "SMA", "period": 20, "source": "close"},
-                {"type": "SMA", "period": 50, "source": "close"},
-            ]
-        )
-        entry_rules.append(
-            {
-                "left": "SMA_20",
-                "operator": "crosses_above",
-                "right": "SMA_50",
-                "joiner": "AND",
-            }
-        )
-        exit_rules.append(
-            {
-                "left": "SMA_20",
-                "operator": "crosses_below",
-                "right": "SMA_50",
-                "joiner": "OR",
-            }
-        )
-    if "macd" in text:
-        indicators.extend(
-            [
-                {
-                    "name": "MACD_LINE",
-                    "type": "MACD",
-                    "source": "close",
-                    "fast_period": 12,
-                    "slow_period": 26,
-                    "signal_period": 9,
-                },
-                {
-                    "name": "MACD_SIGNAL",
-                    "type": "MACD_SIGNAL",
-                    "source": "close",
-                    "fast_period": 12,
-                    "slow_period": 26,
-                    "signal_period": 9,
-                },
-            ]
-        )
-        entry_rules.append(
-            {
-                "left": "MACD_LINE",
-                "operator": "crosses_above",
-                "right": "MACD_SIGNAL",
-                "joiner": "AND",
-            }
-        )
-        exit_rules.append(
-            {
-                "left": "MACD_LINE",
-                "operator": "crosses_below",
-                "right": "MACD_SIGNAL",
-                "joiner": "OR",
-            }
-        )
-    if "bollinger" in text or "band" in text:
-        indicators.extend(
-            [
-                {"name": "BB_UPPER", "type": "BB_UPPER", "period": 20, "source": "close", "stddev": 2.0},
-                {"name": "BB_MIDDLE", "type": "BB_MIDDLE", "period": 20, "source": "close", "stddev": 2.0},
-                {"name": "BB_LOWER", "type": "BB_LOWER", "period": 20, "source": "close", "stddev": 2.0},
-            ]
-        )
-        entry_rules.append(
-            {
-                "left": "price",
-                "operator": "crosses_above",
-                "right": "BB_MIDDLE",
-                "joiner": "AND",
-            }
-        )
-        exit_rules.append(
-            {
-                "left": "price",
-                "operator": "crosses_below",
-                "right": "BB_MIDDLE",
-                "joiner": "OR",
-            }
-        )
-    if "vwap" in text:
-        indicators.append({"type": "VWAP", "source": "close"})
-        entry_rules.append(
-            {"left": "price", "operator": "crosses_above", "right": "VWAP", "joiner": "AND"}
-        )
-        exit_rules.append(
-            {"left": "price", "operator": "crosses_below", "right": "VWAP", "joiner": "OR"}
-        )
-    if "rsi" in text:
-        indicators.append({"type": "RSI", "period": 14, "source": "close"})
-        entry_rules.append(
-            {"left": "RSI_14", "operator": "<", "right": 60, "joiner": "AND"}
-        )
-        exit_rules.append(
-            {"left": "RSI_14", "operator": ">", "right": 75, "joiner": "OR"}
-        )
-    if any(word in text for word in ("momentum", "roc")):
-        indicators.append({"type": "ROC", "period": 10, "source": "close"})
-        entry_rules.append(
-            {"left": "ROC_10", "operator": ">", "right": 0, "joiner": "AND"}
-        )
-        exit_rules.append(
-            {"left": "ROC_10", "operator": "<=", "right": 0, "joiner": "OR"}
-        )
-    if "atr" in text:
-        indicators.append({"type": "ATR", "period": 14, "source": "close"})
-        entry_rules.append(
-            {"left": "ATR_14", "operator": ">", "right": 0, "joiner": "AND"}
-        )
-    if external_feature and not feature_dataset_id:
-        indicators.append(
-            {
-                "type": external_feature.upper(),
-                "period": 1,
-                "source": external_feature,
-            }
-        )
-        entry_rules.append(
-            {
-                "left": f"{external_feature.upper()}_1",
-                "operator": ">",
-                "right": 0,
-                "joiner": "AND",
-            }
-        )
-
-    if not exit_rules:
-        first_indicator = indicators[0]
-        reference = str(
-            first_indicator.get("name")
-            or (
-                f"{str(first_indicator['type']).upper()}_"
-                f"{first_indicator.get('period')}"
-            )
-        )
-        exit_rules.append(
-            {"left": "price", "operator": "<", "right": reference, "joiner": "OR"}
-        )
-
-    return {
-        "name": _custom_strategy_name(message),
-        "description": message[:1000],
-        "symbol": _symbol_from_text(message) or "MARKET",
-        "timeframe": _timeframe_from_text(text),
-        "indicators": indicators,
-        "feature_inputs": feature_inputs,
-        "entry_rules": entry_rules,
-        "exit_rules": exit_rules,
-        "risk": {"max_position_size": 1, "stop_loss_pct": 0.02},
-        "position_side": "short" if re.search(r"\bshort\b", text) else "long",
-        "created_by": "chat_user",
-    }
-
-
-def _external_feature_from_text(text: str) -> str | None:
-    if "news" in text or "sentiment" in text:
-        return "news_sentiment"
-    if "earnings" in text:
-        return "earnings_surprise"
-    if "fundamental" in text or "valuation" in text:
-        return "fundamental_score"
-    if "open interest" in text or "open_interest" in text or re.search(r"\boi\b", text):
-        return "open_interest"
-    if "iv" in text or "skew" in text or "implied volatility" in text:
-        return "iv_skew"
-    return None
-
-
-def _feature_dataset_id_from_text(message: str) -> str | None:
-    match = re.search(
-        r"\b(?:feature(?:\s+(?:series|data))?\s+dataset|feature_dataset_id)"
-        r"\s*(?:is|=|:)?\s*([A-Za-z][A-Za-z0-9_-]{0,159})\b",
-        message,
-        flags=re.IGNORECASE,
-    )
-    return match.group(1) if match else None
-
-
-def _feature_max_age_hours(feature_name: str) -> float:
-    if feature_name in {"iv_skew", "open_interest"}:
-        return 1.0
-    if feature_name == "news_sentiment":
-        return 24.0
-    return 24.0 * 90
-
-
-def _custom_strategy_name(message: str) -> str:
-    match = re.search(
-        r"\b(?:called|named|name)\s+([A-Za-z][A-Za-z0-9_-]{1,60})\b",
-        message,
-        flags=re.IGNORECASE,
-    )
-    if match:
-        return _clean_identifier(match.group(1)).lower()
-    symbol = (_symbol_from_text(message) or "market").lower()
-    features = [
-        label
-        for keyword, label in (
-            ("ema", "ema"),
-            ("sma", "sma"),
-            ("macd", "macd"),
-            ("bollinger", "bollinger"),
-            ("band", "bollinger"),
-            ("vwap", "vwap"),
-            ("atr", "atr"),
-            ("rsi", "rsi"),
-            ("momentum", "momentum"),
-            ("roc", "roc"),
-            ("iv", "iv"),
-            ("skew", "skew"),
-        )
-        if keyword in message.lower()
-    ]
-    suffix = "_".join(dict.fromkeys(features)) or "rules"
-    return f"{symbol}_{suffix}_spec"
-
-
 def _symbol_from_text(text: str) -> str | None:
     upper = text.upper()
     excluded = {
@@ -1956,7 +1765,7 @@ def _clean_symbol(value: str) -> str:
 
 def _exchange_from_text(text: str, *, default: str = "NSE") -> str:
     upper = text.upper()
-    for exchange in ("NSE_INDEX", "BSE_INDEX", "NFO", "BFO", "NSE", "BSE", "MCX", "CDS", "BCD"):
+    for exchange in ("NFO", "BFO", "NSE", "BSE", "MCX", "CDS", "BCD"):
         if re.search(rf"\b{exchange}\b", upper):
             return exchange
     return default
@@ -2028,7 +1837,7 @@ def _default_exchange_for_asset(asset_class: str) -> str:
         "crypto": "CRYPTO",
         "futures": "NFO",
         "options": "NFO",
-        "index": "NSE_INDEX",
+        "index": "NSE",
     }.get(asset_class, "NSE")
 
 
@@ -2448,6 +2257,19 @@ def _grounded_fallback_response(
             "feature series and declared in feature_inputs before it is used "
             "in a rule."
         )
+    if tool_name == "compile_custom_strategy_spec":
+        return _compiled_strategy_response(result)
+    if tool_name == "update_custom_strategy_spec":
+        missing = result.get("missing_capabilities", [])
+        state = (
+            "executable by the native rule runtime"
+            if not missing
+            else "stored for review and is not executable yet"
+        )
+        return (
+            f"Updated custom strategy {result['spec_id']} "
+            f"(status: {result['status']}). The revised spec is {state}."
+        )
     if tool_name == "create_custom_strategy_spec":
         missing = result.get("missing_capabilities", [])
         if missing:
@@ -2471,6 +2293,76 @@ def _grounded_fallback_response(
     if "run_id" in result:
         return f"Retrieved stored evidence for run {result['run_id']}."
     return "The requested tool completed successfully."
+
+
+def _compiled_strategy_response(result: dict[str, Any]) -> str:
+    spec = result.get("spec", {})
+    risk = spec.get("risk", {}) or {}
+    session = spec.get("session")
+    lines = [
+        "Here is the compiled strategy specification for your review. "
+        "It has NOT been saved or executed.",
+        f"- Instrument: {spec.get('symbol')} | timeframe: "
+        f"{spec.get('timeframe')} | side: {spec.get('position_side')}",
+        f"- Entry: {_describe_rules(spec.get('entry_rules'))}",
+        f"- Exit: {_describe_rules(spec.get('exit_rules'))}",
+    ]
+    risk_parts = [
+        f"{key.replace('_pct', '').replace('_', ' ')} "
+        f"{value * 100:g}%" if key.endswith("_pct") else f"{key} {value}"
+        for key, value in risk.items()
+    ]
+    if risk_parts:
+        lines.append(f"- Risk: {', '.join(risk_parts)}")
+    if session:
+        lines.append(
+            f"- Entries limited to {session.get('start')}-{session.get('end')}"
+        )
+    unparsed = result.get("unparsed_clauses") or []
+    if unparsed:
+        lines.append(
+            "- I could not interpret: "
+            + "; ".join(f"“{clause}”" for clause in unparsed)
+        )
+    for warning in result.get("warnings") or []:
+        lines.append(f"- Note: {warning}")
+    missing = result.get("missing_capabilities") or []
+    if missing:
+        reasons = "; ".join(
+            str(item.get("reason") or item.get("value"))
+            for item in missing
+            if isinstance(item, dict)
+        )
+        lines.append(f"- Blocking issues before it can run: {reasons}")
+    else:
+        lines.append(
+            "- Validation passed: this spec can run on the native "
+            "deterministic rule runtime."
+        )
+    lines.append(
+        "Review and edit it in the Strategies panel, then save it "
+        "explicitly to create a governed draft."
+    )
+    return "\n".join(lines)
+
+
+def _describe_rules(rules: Any) -> str:
+    if not rules:
+        return "none recognized"
+    parts = []
+    for index, rule in enumerate(rules):
+        if not isinstance(rule, dict):
+            continue
+        prefix = (
+            ""
+            if index == 0
+            else f"{str(rule.get('joiner', 'AND')).upper()} "
+        )
+        operator = str(rule.get("operator", "")).replace("_", " ")
+        parts.append(
+            f"{prefix}{rule.get('left')} {operator} {rule.get('right')}"
+        )
+    return "; ".join(parts) or "none recognized"
 
 
 def _missing_capability_guidance(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import re
+from datetime import date
 from typing import Any
 
 from ..domain import SignalDirection
@@ -44,7 +45,15 @@ def rule_spec_capabilities() -> dict[str, Any]:
             "max_position_size",
             "stop_loss_pct",
             "take_profit_pct",
+            "trailing_stop_pct",
         ],
+        "supported_session_filter": {
+            "supported": True,
+            "contract": {
+                "start": "HH:MM entry window open (exchange local time)",
+                "end": "HH:MM entry window close; exits are never blocked",
+            },
+        },
         "external_feature_inputs": {
             "supported": True,
             "contract": {
@@ -98,16 +107,25 @@ class RuleSpecStrategy(StrategyPlugin):
         entry_rules = spec["entry_rules"]
         exit_rules = spec["exit_rules"]
         risk = spec.get("risk") or {}
+        session = spec.get("session") or None
         position_side = str(spec.get("position_side", "long")).lower()
         stop_loss_pct = risk.get("stop_loss_pct")
         take_profit_pct = risk.get("take_profit_pct")
+        trailing_stop_pct = risk.get("trailing_stop_pct")
 
         signals: list[RawSignal] = []
         in_position = False
         entry_price = 0.0
+        extreme_price = 0.0
 
         for index in range(max(1, warmup), len(candles)):
             price = float(candles[index]["price"])
+            if in_position:
+                extreme_price = (
+                    max(extreme_price, price)
+                    if position_side == "long"
+                    else min(extreme_price, price)
+                )
             stop_hit = (
                 in_position
                 and stop_loss_pct is not None
@@ -126,13 +144,24 @@ class RuleSpecStrategy(StrategyPlugin):
                     else price <= entry_price * (1 - float(take_profit_pct))
                 )
             )
+            trail_hit = (
+                in_position
+                and trailing_stop_pct is not None
+                and (
+                    price <= extreme_price * (1 - float(trailing_stop_pct))
+                    if position_side == "long"
+                    else price >= extreme_price * (1 + float(trailing_stop_pct))
+                )
+            )
 
             if (
                 not in_position
+                and _in_session(candles[index]["timestamp"], session)
                 and _rules_pass(entry_rules, refs, index)
             ):
                 in_position = True
                 entry_price = price
+                extreme_price = price
                 signals.append(
                     _signal(
                         candles[index],
@@ -150,6 +179,7 @@ class RuleSpecStrategy(StrategyPlugin):
             elif in_position and (
                 stop_hit
                 or target_hit
+                or trail_hit
                 or _rules_pass(exit_rules, refs, index)
             ):
                 in_position = False
@@ -165,7 +195,11 @@ class RuleSpecStrategy(StrategyPlugin):
                             else (
                                 "custom rule-spec take profit reached"
                                 if target_hit
-                                else "custom rule-spec exit conditions passed"
+                                else (
+                                    "custom rule-spec trailing stop reached"
+                                    if trail_hit
+                                    else "custom rule-spec exit conditions passed"
+                                )
                             )
                         ),
                         _rule_features(exit_rules, refs, index),
@@ -283,6 +317,9 @@ def validate_rule_spec(spec: dict[str, Any]) -> dict[str, Any]:
         seen_refs.add(reference)
         refs.add(reference)
 
+    _validate_risk(spec.get("risk") or {}, missing)
+    _validate_session(spec.get("session"), missing)
+
     for rule in [*entry_rules, *exit_rules]:
         operator = str(rule.get("operator", "")).lower()
         if operator not in SUPPORTED_OPERATORS:
@@ -319,6 +356,105 @@ def validate_rule_spec(spec: dict[str, Any]) -> dict[str, Any]:
         "can_execute_without_new_code": not missing,
         "warmup_bars": max_period,
     }
+
+
+_SESSION_TIME_PATTERN = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+
+
+def _validate_risk(
+    risk: Any,
+    missing: list[dict[str, str]],
+) -> None:
+    if not isinstance(risk, dict):
+        missing.append(
+            {
+                "kind": "risk",
+                "value": str(risk),
+                "reason": "risk must be an object of numeric risk controls.",
+            }
+        )
+        return
+    bounds = {
+        "stop_loss_pct": (0.0, 1.0),
+        "take_profit_pct": (0.0, 10.0),
+        "trailing_stop_pct": (0.0, 1.0),
+    }
+    for field, (low, high) in bounds.items():
+        value = risk.get(field)
+        if value is None:
+            continue
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            numeric = math.nan
+        if not math.isfinite(numeric) or not low < numeric <= high:
+            missing.append(
+                {
+                    "kind": "risk_control",
+                    "value": f"{field}={value}",
+                    "reason": (
+                        f"{field} must be a fraction greater than {low} and "
+                        f"at most {high} (for example 0.02 for 2%)."
+                    ),
+                }
+            )
+    size = risk.get("max_position_size")
+    if size is not None and (
+        not isinstance(size, (int, float))
+        or int(size) != size
+        or int(size) < 1
+    ):
+        missing.append(
+            {
+                "kind": "risk_control",
+                "value": f"max_position_size={size}",
+                "reason": "max_position_size must be a positive whole number.",
+            }
+        )
+
+
+def _validate_session(
+    session: Any,
+    missing: list[dict[str, str]],
+) -> None:
+    if session is None:
+        return
+    valid = (
+        isinstance(session, dict)
+        and isinstance(session.get("start"), str)
+        and isinstance(session.get("end"), str)
+        and _SESSION_TIME_PATTERN.fullmatch(session["start"]) is not None
+        and _SESSION_TIME_PATTERN.fullmatch(session["end"]) is not None
+        and session["start"] < session["end"]
+    )
+    if not valid:
+        missing.append(
+            {
+                "kind": "session",
+                "value": str(session),
+                "reason": (
+                    "session requires start and end times in HH:MM format "
+                    "with start earlier than end."
+                ),
+            }
+        )
+
+
+def _in_session(timestamp: Any, session: dict[str, str] | None) -> bool:
+    if not session:
+        return True
+    clock = _clock_of(timestamp)
+    if clock is None:
+        return True
+    return session["start"] <= clock <= session["end"]
+
+
+def _clock_of(timestamp: Any) -> str | None:
+    if hasattr(timestamp, "strftime"):
+        return timestamp.strftime("%H:%M")
+    text = str(timestamp)
+    match = re.search(r"[T\s](\d{2}:\d{2})", text)
+    return match.group(1) if match else None
 
 
 def _build_reference_series(
@@ -702,14 +838,32 @@ def _atr(candles: list[dict[str, Any]], period: int) -> list[float]:
         low = float(candle.get("low", candle["price"]))
         ranges.append(max(high - low, abs(high - previous_close), abs(low - previous_close)))
         previous_close = float(candle.get("close", candle["price"]))
-    return _sma(ranges, period)
+    result = [0.0] * len(ranges)
+    if len(ranges) < period:
+        return result
+    result[period - 1] = sum(ranges[:period]) / period
+    for index in range(period, len(ranges)):
+        result[index] = (result[index - 1] * (period - 1) + ranges[index]) / period
+    return result
 
 
 def _vwap(candles: list[dict[str, Any]]) -> list[float]:
     values: list[float] = []
     cumulative_value = 0.0
     cumulative_volume = 0.0
+    previous_date: date | None = None
     for candle in candles:
+        timestamp = candle.get("timestamp")
+        if timestamp is not None:
+            candle_date = (
+                timestamp.date()
+                if hasattr(timestamp, "date")
+                else None
+            )
+            if candle_date is not None and candle_date != previous_date:
+                cumulative_value = 0.0
+                cumulative_volume = 0.0
+                previous_date = candle_date
         typical_price = (
             float(candle.get("high", candle["price"]))
             + float(candle.get("low", candle["price"]))

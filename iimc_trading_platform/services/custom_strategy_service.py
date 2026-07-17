@@ -8,6 +8,7 @@ from typing import Any
 
 from ..db import connect
 from ..domain import ExecutionMode
+from ..strategies.nl_compiler import compile_strategy_text
 from ..strategies.rule_spec import rule_spec_capabilities, validate_rule_spec
 from .market_data_ingestion_service import SUPPORTED_ASSET_CLASSES
 from .backtest_service import BacktestService
@@ -33,21 +34,23 @@ class CustomStrategyService:
         exit_rules: list[dict[str, Any]],
         feature_inputs: list[dict[str, Any]] | None = None,
         risk: dict[str, Any] | None = None,
+        session: dict[str, Any] | None = None,
         position_side: str = "long",
         created_by: str = "chat_user",
     ) -> dict[str, Any]:
-        spec = {
-            "name": name,
-            "description": description,
-            "symbol": symbol.upper(),
-            "timeframe": timeframe,
-            "indicators": indicators,
-            "entry_rules": entry_rules,
-            "exit_rules": exit_rules,
-            "feature_inputs": feature_inputs or [],
-            "risk": risk or {},
-            "position_side": position_side.lower(),
-        }
+        spec = _spec_payload(
+            name=name,
+            description=description,
+            symbol=symbol,
+            timeframe=timeframe,
+            indicators=indicators,
+            entry_rules=entry_rules,
+            exit_rules=exit_rules,
+            feature_inputs=feature_inputs,
+            risk=risk,
+            session=session,
+            position_side=position_side,
+        )
         validation = self._validate_spec(spec)
         missing = validation["missing_capabilities"]
         status = "draft_executable" if not missing else "requires_review"
@@ -91,6 +94,37 @@ class CustomStrategyService:
                 "This governed spec can be backtested by the native rule-spec "
                 "runtime when validation passes. Unsupported primitives remain "
                 "requires_review; arbitrary LLM-generated code is not executed."
+            ),
+        }
+
+    def compile_from_text(
+        self,
+        *,
+        text: str,
+        symbol: str | None = None,
+        timeframe: str | None = None,
+    ) -> dict[str, Any]:
+        """Compile natural language into a reviewable rule spec (no save)."""
+        compiled = compile_strategy_text(
+            text,
+            default_symbol=symbol,
+            default_timeframe=timeframe or "5m",
+        )
+        validation = self._validate_spec(compiled["spec"])
+        return {
+            "spec": compiled["spec"],
+            "validation": validation,
+            "missing_capabilities": validation["missing_capabilities"],
+            "can_execute_without_new_code": validation[
+                "can_execute_without_new_code"
+            ],
+            "provenance": compiled["provenance"],
+            "warnings": compiled["warnings"],
+            "unparsed_clauses": compiled["unparsed_clauses"],
+            "requires_confirmation": True,
+            "next_step": (
+                "Review the compiled specification, edit it if needed, and "
+                "save it explicitly. Nothing has been persisted or executed."
             ),
         }
 
@@ -181,6 +215,25 @@ class CustomStrategyService:
         if row is None:
             raise ValueError(f"Custom strategy spec not found: {spec_id}")
         return _spec_from_row(row)
+
+    def delete_spec(self, spec_id: str) -> dict[str, Any]:
+        con = connect(self.db_path)
+        try:
+            existing = con.execute(
+                "SELECT spec_id FROM custom_strategy_specs WHERE spec_id = ?",
+                [spec_id],
+            ).fetchone()
+            if existing is None:
+                raise ValueError(
+                    f"Custom strategy spec not found: {spec_id}"
+                )
+            con.execute(
+                "DELETE FROM custom_strategy_specs WHERE spec_id = ?",
+                [spec_id],
+            )
+        finally:
+            con.close()
+        return {"deleted": True, "spec_id": spec_id}
 
     def run_backtest(
         self,
@@ -302,20 +355,22 @@ class CustomStrategyService:
         exit_rules: list[dict[str, Any]],
         feature_inputs: list[dict[str, Any]] | None = None,
         risk: dict[str, Any] | None = None,
+        session: dict[str, Any] | None = None,
         position_side: str = "long",
     ) -> dict[str, Any]:
-        spec = {
-            "name": name,
-            "description": description,
-            "symbol": symbol.upper(),
-            "timeframe": timeframe,
-            "indicators": indicators,
-            "entry_rules": entry_rules,
-            "exit_rules": exit_rules,
-            "feature_inputs": feature_inputs or [],
-            "risk": risk or {},
-            "position_side": position_side.lower(),
-        }
+        spec = _spec_payload(
+            name=name,
+            description=description,
+            symbol=symbol,
+            timeframe=timeframe,
+            indicators=indicators,
+            entry_rules=entry_rules,
+            exit_rules=exit_rules,
+            feature_inputs=feature_inputs,
+            risk=risk,
+            session=session,
+            position_side=position_side,
+        )
         validation = self._validate_spec(spec)
         return {
             "spec": spec,
@@ -325,6 +380,116 @@ class CustomStrategyService:
                 "can_execute_without_new_code"
             ],
         }
+
+    def update_spec(
+        self,
+        *,
+        spec_id: str,
+        name: str,
+        description: str,
+        symbol: str,
+        timeframe: str,
+        indicators: list[dict[str, Any]],
+        entry_rules: list[dict[str, Any]],
+        exit_rules: list[dict[str, Any]],
+        feature_inputs: list[dict[str, Any]] | None = None,
+        risk: dict[str, Any] | None = None,
+        session: dict[str, Any] | None = None,
+        position_side: str = "long",
+        created_by: str = "chat_user",
+    ) -> dict[str, Any]:
+        existing = self.get_spec(spec_id)
+        spec = _spec_payload(
+            name=name,
+            description=description,
+            symbol=symbol,
+            timeframe=timeframe,
+            indicators=indicators,
+            entry_rules=entry_rules,
+            exit_rules=exit_rules,
+            feature_inputs=feature_inputs,
+            risk=risk,
+            session=session,
+            position_side=position_side,
+        )
+        validation = self._validate_spec(spec)
+        missing = validation["missing_capabilities"]
+        status = "draft_executable" if not missing else "requires_review"
+        con = connect(self.db_path)
+        try:
+            con.execute(
+                """
+                UPDATE custom_strategy_specs
+                SET name = ?, description = ?, status = ?, spec_json = ?,
+                    validation_json = ?, missing_capabilities_json = ?,
+                    updated_at = ?
+                WHERE spec_id = ?
+                """,
+                [
+                    name,
+                    description,
+                    status,
+                    json.dumps(spec, sort_keys=True),
+                    json.dumps(validation, sort_keys=True),
+                    json.dumps(missing, sort_keys=True),
+                    utc_now(),
+                    spec_id,
+                ],
+            )
+        finally:
+            con.close()
+        return {
+            "spec_id": spec_id,
+            "status": status,
+            "spec": spec,
+            "validation": validation,
+            "missing_capabilities": missing,
+            "previous_status": existing["status"],
+            "execution_policy": (
+                "This governed spec can be backtested by the native rule-spec "
+                "runtime when validation passes. Unsupported primitives remain "
+                "requires_review; arbitrary LLM-generated code is not executed."
+            ),
+        }
+
+
+def _spec_payload(
+    *,
+    name: str,
+    description: str,
+    symbol: str,
+    timeframe: str,
+    indicators: list[dict[str, Any]],
+    entry_rules: list[dict[str, Any]],
+    exit_rules: list[dict[str, Any]],
+    feature_inputs: list[dict[str, Any]] | None,
+    risk: dict[str, Any] | None,
+    session: dict[str, Any] | None,
+    position_side: str,
+) -> dict[str, Any]:
+    spec: dict[str, Any] = {
+        "name": name,
+        "description": description,
+        "symbol": symbol.upper(),
+        "timeframe": timeframe,
+        "indicators": indicators,
+        "entry_rules": entry_rules,
+        "exit_rules": exit_rules,
+        "feature_inputs": feature_inputs or [],
+        "risk": _clean_risk(risk),
+        "position_side": position_side.lower(),
+    }
+    if session:
+        spec["session"] = session
+    return spec
+
+
+def _clean_risk(risk: dict[str, Any] | None) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in (risk or {}).items()
+        if value is not None
+    }
 
 
 def _spec_from_row(row: tuple[Any, ...]) -> dict[str, Any]:

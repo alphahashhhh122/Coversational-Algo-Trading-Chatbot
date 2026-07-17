@@ -891,43 +891,44 @@ class OrchestrationContractsTest(unittest.TestCase):
 
     def test_offline_router_names_and_generalizes_custom_strategy_specs(self) -> None:
         registry = build_default_tool_registry(Path("unused.duckdb"))
-
-        decision = OfflineOrchestrator().select_tool(
-            (
-                "Create custom strategy called breakout_gold using EMA and "
-                "RSI for gold 15 minutes"
-            ),
-            [],
-            registry,
+        message = (
+            "Create custom strategy called breakout_gold using EMA and "
+            "RSI for gold 15 minutes"
         )
 
-        self.assertEqual(decision.tool_name, "create_custom_strategy_spec")
-        self.assertEqual(decision.arguments["name"], "breakout_gold")
-        self.assertEqual(decision.arguments["symbol"], "GOLD")
-        self.assertEqual(decision.arguments["timeframe"], "15m")
+        decision = OfflineOrchestrator().select_tool(message, [], registry)
+        compiled = registry.call(decision.tool_name, decision.arguments)
+
+        self.assertEqual(decision.tool_name, "compile_custom_strategy_spec")
+        spec = compiled["spec"]
+        self.assertEqual(spec["name"], "breakout_gold")
+        self.assertEqual(spec["symbol"], "GOLD")
+        self.assertEqual(spec["timeframe"], "15m")
         indicator_types = {
-            indicator["type"]
-            for indicator in decision.arguments["indicators"]
+            indicator["type"] for indicator in spec["indicators"]
         }
         self.assertEqual(indicator_types, {"EMA", "RSI"})
+        self.assertTrue(compiled["requires_confirmation"])
+        self.assertTrue(
+            any("template" in warning for warning in compiled["warnings"])
+        )
 
     def test_offline_router_maps_named_feature_dataset_to_rule_spec(self) -> None:
         registry = build_default_tool_registry(Path("unused.duckdb"))
-
-        decision = OfflineOrchestrator().select_tool(
-            (
-                "Create custom strategy called sentiment_reversal using news "
-                "sentiment feature dataset reliance_news_features for RELIANCE "
-                "5 minutes"
-            ),
-            [],
-            registry,
+        message = (
+            "Create custom strategy called sentiment_reversal using news "
+            "sentiment feature dataset reliance_news_features for RELIANCE "
+            "5 minutes"
         )
 
-        self.assertEqual(decision.tool_name, "create_custom_strategy_spec")
-        self.assertEqual(decision.arguments["indicators"], [])
+        decision = OfflineOrchestrator().select_tool(message, [], registry)
+        compiled = registry.call(decision.tool_name, decision.arguments)
+
+        self.assertEqual(decision.tool_name, "compile_custom_strategy_spec")
+        spec = compiled["spec"]
+        self.assertEqual(spec["indicators"], [])
         self.assertEqual(
-            decision.arguments["feature_inputs"],
+            spec["feature_inputs"],
             [
                 {
                     "name": "news_sentiment",
@@ -938,10 +939,7 @@ class OrchestrationContractsTest(unittest.TestCase):
                 }
             ],
         )
-        self.assertEqual(
-            decision.arguments["entry_rules"][0]["left"],
-            "news_sentiment",
-        )
+        self.assertEqual(spec["entry_rules"][0]["left"], "news_sentiment")
 
     @patch("iimc_trading_platform.infrastructure.openalgo.urlopen")
     def test_openalgo_client_proves_analyzer_mode_before_order(

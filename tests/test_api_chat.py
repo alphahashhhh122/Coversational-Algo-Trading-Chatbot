@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -424,8 +424,18 @@ class ApiChatTest(unittest.TestCase):
             con.close()
 
     def _insert_approved_semi_auto_risk_decision(self) -> None:
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
         con = connect(self.db_path)
         try:
+            con.execute(
+                """
+                INSERT INTO strategy_signals VALUES (
+                    'sig_chat', 'run_chat', ?, 'NIFTY', 'entry', 'long',
+                    0.9, 'test entry signal', '{}', ?
+                )
+                """,
+                [now, now],
+            )
             con.execute(
                 """
                 INSERT INTO risk_decisions VALUES (
@@ -439,6 +449,7 @@ class ApiChatTest(unittest.TestCase):
                         {
                             "execution_mode_check": {"mode": "semi_auto"},
                             "quantity_check": {"approved_quantity": 5},
+                            "symbol_check": {"symbol": "NIFTY"},
                         },
                         sort_keys=True,
                     )
