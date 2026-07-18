@@ -132,6 +132,19 @@ nav { display: grid; gap: 4px; }
   border: 1px solid #39443e; font-size: 12px; font-weight: 700;
 }
 .theme-toggle:hover { color: #fff; border-color: #53645b; }
+.chart-slot { position: relative; margin-top: 12px; }
+.chart-slot.hidden { display: none; }
+.candle-canvas {
+  display: block; width: 100%; height: auto;
+  border: 1px solid var(--line); background: var(--surface);
+}
+.chart-tooltip {
+  position: absolute; top: 10px; left: 66px; padding: 6px 10px;
+  color: var(--ink); background: var(--surface); border: 1px solid var(--line);
+  box-shadow: var(--shadow); font-size: 12px; pointer-events: none; z-index: 5;
+}
+.chart-tooltip.hidden { display: none; }
+.chart-tooltip strong { display: block; margin-bottom: 2px; color: var(--muted); font-size: 11px; }
 .connection-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; font-size: 13px; }
 .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #d5a03c; }
 .status-dot.online { background: #49b477; }

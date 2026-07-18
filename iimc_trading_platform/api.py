@@ -1054,6 +1054,50 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    @app.get("/datasets/{dataset_id}/ohlcv")
+    def dataset_ohlcv(
+        dataset_id: str,
+        limit: int = 500,
+        principal: Principal = Depends(viewer),
+    ) -> dict[str, Any]:
+        if limit < 10 or limit > 2000:
+            raise HTTPException(
+                status_code=422,
+                detail="limit must be between 10 and 2000",
+            )
+        try:
+            metadata, candles = BacktestService(
+                active_config.database_path,
+                strategy_plugin_dir=active_config.strategy_plugin_dir,
+            ).load_dataset_candles(dataset_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        tail = candles[-limit:]
+        return {
+            "dataset_id": dataset_id,
+            "symbol": metadata["symbol"],
+            "exchange": metadata["exchange"],
+            "interval": metadata["interval"],
+            "asset_class": metadata["asset_class"],
+            "total_candles": len(candles),
+            "returned_candles": len(tail),
+            "candles": [
+                {
+                    "timestamp": (
+                        candle["timestamp"].isoformat()
+                        if hasattr(candle["timestamp"], "isoformat")
+                        else str(candle["timestamp"])
+                    ),
+                    "open": candle["open"],
+                    "high": candle["high"],
+                    "low": candle["low"],
+                    "close": candle["close"],
+                    "volume": candle["volume"],
+                }
+                for candle in tail
+            ],
+        }
+
     @app.post("/datasets/ohlcv")
     def import_local_ohlcv_dataset(
         request: LocalOhlcvDatasetInput,

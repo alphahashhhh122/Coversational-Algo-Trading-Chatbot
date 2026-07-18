@@ -2572,6 +2572,132 @@ function drawBarChart(canvasId, rows, options = {}) {
   });
 }
 
+function renderCandlestickChart(canvas, payload, highlightIndex = -1) {
+  const candles = payload.candles || [];
+  canvas.__candlePayload = payload;
+  const context = canvas.getContext("2d");
+  const width = canvas.width;
+  const height = canvas.height;
+  context.clearRect(0, 0, width, height);
+  if (!candles.length) {
+    context.fillStyle = cssVar("--muted");
+    context.font = "13px system-ui";
+    context.fillText("No candles available for this dataset.", 18, 40);
+    return;
+  }
+  const left = 58;
+  const right = 16;
+  const top = 14;
+  const priceHeight = Math.floor((height - 64) * 0.74);
+  const priceBottom = top + priceHeight;
+  const volumeTop = priceBottom + 14;
+  const volumeBottom = height - 28;
+  let minPrice = Math.min(...candles.map((candle) => candle.low));
+  let maxPrice = Math.max(...candles.map((candle) => candle.high));
+  const pricePad = (maxPrice - minPrice || 1) * 0.05;
+  minPrice -= pricePad;
+  maxPrice += pricePad;
+  const maxVolume = Math.max(...candles.map((candle) => candle.volume), 1);
+  const count = candles.length;
+  const slotWidth = (width - left - right) / count;
+  const bodyWidth = Math.max(Math.min(slotWidth * 0.7, 12), 1);
+  const xFor = (index) => left + slotWidth * index + slotWidth / 2;
+  const yFor = (price) => top
+    + (1 - (price - minPrice) / (maxPrice - minPrice)) * priceHeight;
+  canvas.__layout = { left, slotWidth, count };
+  context.strokeStyle = cssVar("--line");
+  context.fillStyle = cssVar("--muted");
+  context.font = "11px system-ui";
+  context.lineWidth = 1;
+  for (let tick = 0; tick <= 4; tick += 1) {
+    const price = maxPrice - ((maxPrice - minPrice) * tick) / 4;
+    const y = yFor(price);
+    context.beginPath();
+    context.moveTo(left, y);
+    context.lineTo(width - right, y);
+    context.stroke();
+    context.fillText(formatNumber(price, price >= 1000 ? 0 : 2), 6, y + 4);
+  }
+  const timeTicks = Math.min(6, count);
+  context.textAlign = "center";
+  for (let tick = 0; tick < timeTicks; tick += 1) {
+    const index = Math.floor((tick / Math.max(timeTicks - 1, 1)) * (count - 1));
+    const label = String(candles[index].timestamp).replace("T", " ").slice(5, 16);
+    context.fillText(label, xFor(index), height - 8);
+  }
+  context.textAlign = "left";
+  const upColor = cssVar("--green");
+  const downColor = cssVar("--red");
+  candles.forEach((candle, index) => {
+    const x = xFor(index);
+    const color = candle.close >= candle.open ? upColor : downColor;
+    context.strokeStyle = color;
+    context.fillStyle = color;
+    context.beginPath();
+    context.moveTo(x, yFor(candle.high));
+    context.lineTo(x, yFor(candle.low));
+    context.stroke();
+    const yOpen = yFor(candle.open);
+    const yClose = yFor(candle.close);
+    context.fillRect(
+      x - bodyWidth / 2,
+      Math.min(yOpen, yClose),
+      bodyWidth,
+      Math.max(Math.abs(yOpen - yClose), 1),
+    );
+    const volumeHeight = (candle.volume / maxVolume) * (volumeBottom - volumeTop);
+    context.globalAlpha = 0.5;
+    context.fillRect(
+      x - bodyWidth / 2,
+      volumeBottom - volumeHeight,
+      bodyWidth,
+      Math.max(volumeHeight, 1),
+    );
+    context.globalAlpha = 1;
+  });
+  if (highlightIndex >= 0 && highlightIndex < count) {
+    context.strokeStyle = cssVar("--muted");
+    context.setLineDash([4, 4]);
+    context.beginPath();
+    context.moveTo(xFor(highlightIndex), top);
+    context.lineTo(xFor(highlightIndex), volumeBottom);
+    context.stroke();
+    context.setLineDash([]);
+  }
+}
+
+function attachCandleInteractions(canvas, tooltip) {
+  if (canvas.__candleWired) return;
+  canvas.__candleWired = true;
+  canvas.addEventListener("mousemove", (event) => {
+    const payload = canvas.__candlePayload;
+    const layout = canvas.__layout;
+    if (!payload || !layout) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = (event.clientX - rect.left) * (canvas.width / rect.width);
+    const index = Math.floor((x - layout.left) / layout.slotWidth);
+    if (index < 0 || index >= layout.count) {
+      tooltip.classList.add("hidden");
+      renderCandlestickChart(canvas, payload);
+      return;
+    }
+    renderCandlestickChart(canvas, payload, index);
+    const candle = payload.candles[index];
+    tooltip.classList.remove("hidden");
+    tooltip.innerHTML = `
+      <strong>${escapeHtml(String(candle.timestamp).replace("T", " "))}</strong>
+      O ${formatNumber(candle.open)} · H ${formatNumber(candle.high)}
+      · L ${formatNumber(candle.low)} · C ${formatNumber(candle.close)}
+      · Vol ${formatNumber(candle.volume, 0)}`;
+  });
+  canvas.addEventListener("mouseleave", () => {
+    tooltip.classList.add("hidden");
+    if (canvas.__candlePayload) {
+      renderCandlestickChart(canvas, canvas.__candlePayload);
+    }
+  });
+}
+
 function drawWorkflowChart(counts) {
   drawBarChart("workflow-chart", [
     { label: "Signals", value: counts.signals },
@@ -2870,14 +2996,20 @@ function renderDatasets() {
     container.innerHTML = `<div class="empty-state">No governed datasets.</div>`;
     return;
   }
-  container.innerHTML = state.datasets.map((dataset) => `
+  container.innerHTML = state.datasets.map((dataset) => {
+    const chartable = dataset.storage_table === "market_ohlcv"
+      || dataset.storage_table === "options_ohlcv";
+    return `
     <article class="dataset-item" data-dataset-id="${escapeHtml(dataset.dataset_id)}">
       <div class="item-header">
         <div>
           <strong>${escapeHtml(dataset.dataset_id)}</strong>
           <p>${escapeHtml(dataset.symbol)} · ${escapeHtml(dataset.exchange)} · ${escapeHtml(dataset.interval)}</p>
         </div>
-        <button class="secondary-button freshness-button">Assess current freshness</button>
+        <div class="section-actions">
+          ${chartable ? '<button class="secondary-button chart-button">View chart</button>' : ""}
+          <button class="secondary-button freshness-button">Assess current freshness</button>
+        </div>
       </div>
       <div class="dataset-meta">
         <div><span>Rows</span><strong>${formatNumber(dataset.row_count, 0)}</strong></div>
@@ -2885,12 +3017,43 @@ function renderDatasets() {
         <div><span>Coverage start</span><strong>${escapeHtml(dataset.start_ts)}</strong></div>
         <div><span>Coverage end</span><strong>${escapeHtml(dataset.end_ts)}</strong></div>
       </div>
+      <div class="chart-slot hidden">
+        <canvas class="candle-canvas" width="960" height="380"></canvas>
+        <div class="chart-tooltip hidden"></div>
+      </div>
       <div class="freshness-slot"></div>
     </article>
-  `).join("");
+  `;
+  }).join("");
   container.querySelectorAll(".freshness-button").forEach((button) => {
     button.addEventListener("click", () => assessFreshness(button.closest("[data-dataset-id]")));
   });
+  container.querySelectorAll(".chart-button").forEach((button) => {
+    button.addEventListener("click", () => toggleDatasetChart(button.closest("[data-dataset-id]"), button));
+  });
+}
+
+async function toggleDatasetChart(article, button) {
+  const slot = article.querySelector(".chart-slot");
+  if (!slot.classList.contains("hidden")) {
+    slot.classList.add("hidden");
+    button.textContent = "View chart";
+    return;
+  }
+  button.disabled = true;
+  try {
+    const datasetId = article.dataset.datasetId;
+    const payload = await api(`/datasets/${encodeURIComponent(datasetId)}/ohlcv?limit=500`);
+    slot.classList.remove("hidden");
+    const canvas = slot.querySelector("canvas");
+    renderCandlestickChart(canvas, payload);
+    attachCandleInteractions(canvas, slot.querySelector(".chart-tooltip"));
+    button.textContent = "Hide chart";
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    button.disabled = false;
+  }
 }
 
 async function assessFreshness(article) {
@@ -3296,6 +3459,11 @@ function wireEvents() {
     const dark = !document.documentElement.classList.contains("dark-theme");
     applyTheme(dark);
     localStorage.setItem("iimc_theme", dark ? "dark" : "light");
+    document.querySelectorAll("canvas.candle-canvas").forEach((canvas) => {
+      if (canvas.__candlePayload) {
+        renderCandlestickChart(canvas, canvas.__candlePayload);
+      }
+    });
   });
   $("#new-session").addEventListener("click", () => {
     state.sessionId = `session_ui_${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;

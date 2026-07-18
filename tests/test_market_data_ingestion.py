@@ -186,6 +186,42 @@ class MarketDataIngestionTest(unittest.TestCase):
         self.assertTrue(status["local_dataset_exists"])
         self.assertEqual(status["local_dataset"]["dataset_id"], "btc_1h_local")
 
+    def test_api_serves_ohlcv_candles_for_charting(self) -> None:
+        MarketDataIngestionService(self.db_path).import_ohlcv(
+            dataset_id="reliance_5m_chart",
+            asset_class="equity",
+            symbol="RELIANCE",
+            exchange="NSE",
+            interval="5m",
+            candles=_candles(),
+            source_name="reliance_5m.json",
+        )
+        client = TestClient(
+            create_app(
+                AppConfig(
+                    database_path=self.db_path,
+                    artifacts_dir=self.root / "artifacts",
+                    openalgo_root=self.root,
+                )
+            )
+        )
+
+        response = client.get("/datasets/reliance_5m_chart/ohlcv?limit=10")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["symbol"], "RELIANCE")
+        self.assertEqual(payload["interval"], "5m")
+        self.assertEqual(payload["total_candles"], len(_candles()))
+        self.assertEqual(payload["returned_candles"], 10)
+        last = payload["candles"][-1]
+        for field in ("timestamp", "open", "high", "low", "close", "volume"):
+            self.assertIn(field, last)
+        self.assertEqual(last["close"], _candles()[-1]["close"])
+
+        missing = client.get("/datasets/does_not_exist/ohlcv")
+        self.assertEqual(missing.status_code, 422)
+
     def test_api_validates_custom_rules_without_persisting_them(self) -> None:
         client = TestClient(
             create_app(
