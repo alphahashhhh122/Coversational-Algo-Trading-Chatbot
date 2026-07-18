@@ -23,6 +23,7 @@ from .api_models import (
     CreatePortfolioRequest,
     CustomStrategyBacktestRequest,
     DashboardPreferencesRequest,
+    FundamentalStatementsImportRequest,
     KnowledgeDocumentUploadRequest,
     LoginRequest,
     LocalFeatureDatasetInput,
@@ -1367,6 +1368,48 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         return execute_tool(
             "search_knowledge",
             request.model_dump(mode="json"),
+        )
+
+    @app.post("/fundamentals/statements")
+    def import_fundamental_statements(
+        request: FundamentalStatementsImportRequest,
+        principal: Principal = Depends(researcher),
+    ) -> dict[str, Any]:
+        from .services.fundamentals_service import FundamentalsService
+
+        try:
+            result = FundamentalsService(
+                active_config.database_path
+            ).import_statements(
+                symbol=request.symbol,
+                currency=request.currency,
+                source=request.source,
+                statements=request.statements,
+                imported_by=principal.username,
+            )
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        audit = AuditService(
+            DuckDBAuditRepository(active_config.database_path)
+        )
+        event = audit.record(
+            actor=principal.username,
+            action="fundamental_statements_imported",
+            entity_type="financial_statements",
+            entity_id=result["symbol"],
+            payload=result,
+        )
+        return {**result, "audit_id": event.audit_id}
+
+    @app.get("/fundamentals/{symbol}/analysis")
+    def fundamental_analysis(
+        symbol: str,
+        market_price: float | None = None,
+        principal: Principal = Depends(viewer),
+    ) -> dict[str, Any]:
+        return execute_tool(
+            "analyze_fundamentals",
+            {"symbol": symbol, "market_price": market_price},
         )
 
     @app.post("/knowledge/documents")

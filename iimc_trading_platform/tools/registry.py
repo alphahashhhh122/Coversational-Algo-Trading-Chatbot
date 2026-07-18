@@ -261,6 +261,11 @@ class AnalyzeKnowledgeDocumentInput(ToolInput):
     max_chunks: int = Field(default=8, ge=1, le=50)
 
 
+class FundamentalAnalysisInput(ToolInput):
+    symbol: str = Field(min_length=1, max_length=40)
+    market_price: float | None = Field(default=None, gt=0)
+
+
 class PlatformReadinessInput(ToolInput):
     symbol: str = Field(min_length=1, max_length=80)
     exchange: str = Field(min_length=1, max_length=20)
@@ -489,6 +494,9 @@ def build_default_tool_registry(
     )
     freshness = FreshnessService(db_path)
     knowledge = KnowledgeService(db_path)
+    from ..services.fundamentals_service import FundamentalsService
+
+    fundamentals = FundamentalsService(db_path)
     evidence = EvidenceService(db_path, artifacts_dir)
     from ..services.robustness_service import RobustnessService
 
@@ -670,6 +678,33 @@ def build_default_tool_registry(
                     actions=("retrieve", "explain"),
                     execution_modes=("research",),
                     required_data=("governed_documents",),
+                    risk_level="low",
+                ),
+            ),
+            ToolDefinition(
+                name="analyze_fundamentals",
+                description=(
+                    "Compute deterministic fundamental ratios (growth, "
+                    "margins, ROE, ROA, leverage, liquidity, FCF, EPS, P/E) "
+                    "from imported financial statements. Every ratio records "
+                    "its formula and inputs; missing data yields warnings, "
+                    "never invented values."
+                ),
+                input_model=FundamentalAnalysisInput,
+                handler=lambda value: fundamentals.analyze(
+                    FundamentalAnalysisInput.model_validate(
+                        value.model_dump()
+                    ).symbol,
+                    market_price=FundamentalAnalysisInput.model_validate(
+                        value.model_dump()
+                    ).market_price,
+                ),
+                side_effects="read-only database query",
+                retry_safe=True,
+                capabilities=ToolCapabilityMetadata(
+                    actions=("analyze", "explain"),
+                    asset_classes=("equity",),
+                    execution_modes=("research",),
                     risk_level="low",
                 ),
             ),

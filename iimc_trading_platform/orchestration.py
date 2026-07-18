@@ -708,6 +708,43 @@ class OfflineOrchestrator:
                 {"document": document_title},
             )
         if (
+            "analyze_fundamentals" in tool_names
+            and re.search(
+                r"\b(?:fundamentally|fundamental\s+analysis"
+                r"|fundamentals\s+of|analy[sz]e\s+fundamentals)\b",
+                text,
+            )
+        ):
+            symbol_match = re.search(
+                r"([A-Za-z][\w&]{1,19})\s+fundamentally\b",
+                message,
+                flags=re.IGNORECASE,
+            ) or re.search(
+                r"fundamentals?\s+(?:analysis\s+)?(?:of|for)\s+"
+                r"([A-Za-z][\w&]{1,19})",
+                message,
+                flags=re.IGNORECASE,
+            )
+            symbol = (
+                symbol_match.group(1).upper()
+                if symbol_match
+                else _symbol_from_text(message)
+            )
+            if symbol:
+                return OrchestrationDecision(
+                    "analyze_fundamentals",
+                    {"symbol": symbol},
+                )
+            return OrchestrationDecision(
+                tool_name=None,
+                arguments={},
+                direct_response=(
+                    "Which company should I analyze fundamentally? Say "
+                    "'analyze TCS fundamentally'. Statements must be "
+                    "imported first via POST /fundamentals/statements."
+                ),
+            )
+        if (
             "get_research_context" in tool_names
             and any(
                 phrase in text
@@ -2463,6 +2500,32 @@ def _grounded_fallback_response(
             f"{', '.join(enabled_paths) or 'none'}. Live trading enabled: "
             f"{result.get('safety', {}).get('live_trading_enabled')}. "
             "No synthetic fallback is allowed."
+        )
+    if tool_name == "analyze_fundamentals":
+        lines = []
+        for item in result.get("ratios", []):
+            value = item.get("value")
+            rendered = f"{value:,.4f}".rstrip("0").rstrip(".") if value is not None else "n/a"
+            lines.append(
+                f"- **{item['name']}** = {rendered} "
+                f"({item['formula']})"
+            )
+        warnings = result.get("warnings", [])
+        warning_text = (
+            "\n\nWarnings:\n" + "\n".join(f"- {w}" for w in warnings)
+            if warnings
+            else ""
+        )
+        return (
+            f"Fundamental analysis for **{result.get('symbol')}** "
+            f"(latest period {result.get('latest_period')}, "
+            f"{result.get('currency')}, source: {result.get('source')}; "
+            f"periods stored: {', '.join(result.get('periods_available', []))}):\n"
+            + "\n".join(lines)
+            + warning_text
+            + "\n\nAll ratios are deterministic calculations over imported "
+            "statements with recorded formulas and inputs. No values were "
+            "fabricated."
         )
     if tool_name == "analyze_knowledge_document":
         chunks = result.get("chunks", [])

@@ -879,6 +879,33 @@ def initialize_database(db_path: Path) -> None:
         )
         con.execute(
             """
+            CREATE TABLE IF NOT EXISTS financial_statements (
+                statement_id VARCHAR PRIMARY KEY,
+                symbol VARCHAR NOT NULL,
+                period VARCHAR NOT NULL,
+                period_end DATE NOT NULL,
+                currency VARCHAR NOT NULL,
+                source VARCHAR NOT NULL,
+                revenue DOUBLE,
+                operating_profit DOUBLE,
+                net_income DOUBLE,
+                total_assets DOUBLE,
+                total_equity DOUBLE,
+                total_debt DOUBLE,
+                current_assets DOUBLE,
+                current_liabilities DOUBLE,
+                operating_cash_flow DOUBLE,
+                capital_expenditure DOUBLE,
+                shares_outstanding DOUBLE,
+                dividends_paid DOUBLE,
+                imported_by VARCHAR NOT NULL,
+                imported_at TIMESTAMP NOT NULL,
+                UNIQUE(symbol, period, period_end)
+            )
+            """
+        )
+        con.execute(
+            """
             CREATE TABLE IF NOT EXISTS strategy_definitions (
                 strategy_id VARCHAR PRIMARY KEY,
                 name VARCHAR NOT NULL,

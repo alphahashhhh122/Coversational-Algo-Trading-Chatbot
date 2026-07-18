@@ -18,6 +18,13 @@ class McpCallRequest(BaseModel):
     arguments: dict[str, Any] = Field(default_factory=dict)
 
 
+class FundamentalStatementsImportRequest(BaseModel):
+    symbol: str = Field(min_length=1, max_length=40)
+    currency: str = Field(default="INR", max_length=10)
+    source: str = Field(default="user_import", max_length=200)
+    statements: list[dict[str, Any]] = Field(min_length=1, max_length=40)
+
+
 class KnowledgeDocumentUploadRequest(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     text: str = ""
