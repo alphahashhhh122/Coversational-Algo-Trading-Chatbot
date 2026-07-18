@@ -676,6 +676,37 @@ class OfflineOrchestrator:
                     {"persona_id": persona_id},
                 )
             return OrchestrationDecision("list_strategy_personas", {})
+        document_analysis_match = re.search(
+            r"(?:analy[sz]e|summari[sz]e|review"
+            r"|extract\s+(?:fundamentals|financials)\s+from)\s+"
+            r"(?:the\s+)?(?:uploaded\s+)?"
+            r"(?:document|doc|report|filing|transcript)\s*"
+            r"(?:called\s+|named\s+|titled\s+)?(.*)$",
+            message,
+            flags=re.IGNORECASE,
+        )
+        if (
+            document_analysis_match
+            and "analyze_knowledge_document" in tool_names
+        ):
+            document_title = document_analysis_match.group(1).strip().strip(
+                "\"'?."
+            )
+            if not document_title:
+                return OrchestrationDecision(
+                    tool_name=None,
+                    arguments={},
+                    direct_response=(
+                        "Which stored document should I analyze? Say "
+                        "'analyze document <title>'. You can upload company "
+                        "reports in the Data view or list stored documents "
+                        "with 'list documents'."
+                    ),
+                )
+            return OrchestrationDecision(
+                "analyze_knowledge_document",
+                {"document": document_title},
+            )
         if (
             "get_research_context" in tool_names
             and any(
@@ -2432,6 +2463,25 @@ def _grounded_fallback_response(
             f"{', '.join(enabled_paths) or 'none'}. Live trading enabled: "
             f"{result.get('safety', {}).get('live_trading_enabled')}. "
             "No synthetic fallback is allowed."
+        )
+    if tool_name == "analyze_knowledge_document":
+        chunks = result.get("chunks", [])
+        excerpt_lines = []
+        for chunk in chunks:
+            content = " ".join(str(chunk.get("content", "")).split())
+            if len(content) > 320:
+                content = content[:320].rstrip() + "…"
+            excerpt_lines.append(f"{chunk.get('chunk_index', 0) + 1}. {content}")
+        excerpts = "\n".join(excerpt_lines) or "(no stored text)"
+        return (
+            f"**{result.get('title')}** ({result.get('document_id')}, "
+            f"{result.get('document_type')}) — "
+            f"{result.get('chunk_count', 0)} stored chunk(s), "
+            f"{result.get('total_words', 0)} words.\n\n"
+            f"Key excerpts in document order:\n{excerpts}\n\n"
+            "These are retrieval-based excerpts from the stored document; "
+            "no fundamentals were fabricated. Ask 'search knowledge <topic>' "
+            "to pull specific passages."
         )
     if tool_name == "search_knowledge":
         matches = result.get("matches", [])

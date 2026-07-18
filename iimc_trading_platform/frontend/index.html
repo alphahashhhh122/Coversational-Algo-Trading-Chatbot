@@ -382,6 +382,21 @@
           </form>
           <div class="readiness-result" id="readiness-result">Run a readiness check to see local data, provider status, and OpenAlgo path.</div>
         </section>
+        <section class="rag-panel">
+          <div class="section-heading">
+            <div>
+              <h2>Company Documents</h2>
+              <p>Upload annual reports, transcripts, or research notes into the governed corpus. Ask the chat to search or analyze them.</p>
+            </div>
+          </div>
+          <form class="knowledge-search-form" id="knowledge-upload-form">
+            <label><span>Title</span><input id="knowledge-upload-title" maxlength="200" placeholder="Acme Industries Annual Report 2026" required></label>
+            <label><span>File (.txt / .md)</span><input id="knowledge-upload-file" type="file" accept=".txt,.md,.markdown,text/plain,text/markdown"></label>
+            <label class="experiment-grid-input"><span>Or paste text</span><textarea id="knowledge-upload-text" rows="6" placeholder="Paste the document text here..."></textarea></label>
+            <button type="submit" class="primary-button" id="knowledge-upload-submit">Index document</button>
+          </form>
+          <div class="knowledge-doc-list" id="knowledge-doc-list"></div>
+        </section>
         <div class="dataset-list" id="dataset-list"></div>
         <details class="workspace-tools">
           <summary>Manual imports: OHLCV JSON, point-in-time features, options feature derivation, document search</summary>

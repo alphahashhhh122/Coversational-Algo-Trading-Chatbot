@@ -21,6 +21,7 @@ const state = {
   openalgoMonitor: null,
   marketNews: null,
   personas: [],
+  knowledgeDocuments: [],
   customStrategySpecs: [],
   nlCompiledResult: null,
   researchBriefs: [],
@@ -431,6 +432,8 @@ async function loadOverview() {
   $("#metric-runs").textContent = formatNumber(state.runs.length, 0);
   $("#metric-approvals").textContent = formatNumber(state.approvals.length, 0);
   $("#metric-documents").textContent = formatNumber(documents.documents?.length || 0, 0);
+  state.knowledgeDocuments = documents.documents || [];
+  renderKnowledgeDocuments();
   $("#approval-count").textContent = state.approvals.length;
   renderCommandCenter(documents.documents?.length || 0);
   renderReadinessResult(executionReadiness);
@@ -3040,6 +3043,74 @@ async function decideApproval(approvalId, approved, button) {
   }
 }
 
+function renderKnowledgeDocuments() {
+  const container = $("#knowledge-doc-list");
+  if (!container) return;
+  if (!state.knowledgeDocuments.length) {
+    container.innerHTML = `<div class="empty-state">No stored documents yet. Upload one above.</div>`;
+    return;
+  }
+  container.innerHTML = state.knowledgeDocuments.map((doc) => `
+    <div class="knowledge-doc-item">
+      <div>
+        <strong>${escapeHtml(doc.title)}</strong>
+        <p>${escapeHtml(doc.document_type)} · ${formatNumber(doc.chunk_count, 0)} chunk(s) · ${escapeHtml(String(doc.ingested_at).slice(0, 16).replace("T", " "))}</p>
+      </div>
+      <button class="secondary-button analyze-doc-button" data-title="${escapeHtml(doc.title)}">Analyze in chat</button>
+    </div>
+  `).join("");
+  container.querySelectorAll(".analyze-doc-button").forEach((button) => {
+    button.addEventListener("click", () => {
+      setView("workspace");
+      const input = $("#chat-input");
+      input.value = `Analyze document ${button.dataset.title}`;
+      input.focus();
+    });
+  });
+}
+
+async function submitKnowledgeUpload(event) {
+  event.preventDefault();
+  const button = $("#knowledge-upload-submit");
+  const fileInput = $("#knowledge-upload-file");
+  const title = $("#knowledge-upload-title").value.trim();
+  let text = $("#knowledge-upload-text").value;
+  button.disabled = true;
+  try {
+    const file = fileInput.files?.[0];
+    if (file) {
+      text = await file.text();
+    }
+    if (!text.trim()) {
+      toast("Choose a .txt/.md file or paste the document text");
+      return;
+    }
+    const documentType = file?.name?.toLowerCase().endsWith(".md")
+      || file?.name?.toLowerCase().endsWith(".markdown")
+      ? "markdown"
+      : "text";
+    const payload = await api("/knowledge/documents", {
+      method: "POST",
+      body: JSON.stringify({
+        title,
+        text,
+        document_type: documentType,
+      }),
+    });
+    toast(`Indexed "${title}" (${payload.chunk_count} chunk(s))`);
+    $("#knowledge-upload-text").value = "";
+    fileInput.value = "";
+    const documents = await api("/knowledge/documents");
+    state.knowledgeDocuments = documents.documents || [];
+    renderKnowledgeDocuments();
+    $("#metric-documents").textContent = formatNumber(state.knowledgeDocuments.length, 0);
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    button.disabled = false;
+  }
+}
+
 function renderDatasets() {
   const container = $("#dataset-list");
   if (!state.datasets.length) {
@@ -3466,6 +3537,7 @@ function wireEvents() {
   });
   $("#paper-use-ltp").addEventListener("click", useCurrentPaperQuote);
   $("#knowledge-search-form").addEventListener("submit", submitKnowledgeSearch);
+  $("#knowledge-upload-form").addEventListener("submit", submitKnowledgeUpload);
   $("#ohlcv-import-form").addEventListener("submit", submitOhlcvImport);
   $("#openalgo-history-import-form").addEventListener("submit", submitOpenAlgoHistoryImport);
   $("#feature-import-form").addEventListener("submit", submitFeatureImport);

@@ -1336,6 +1336,44 @@ class OrchestrationContractsTest(unittest.TestCase):
         )
         self.assertEqual(decision.tool_name, "get_market_news")
 
+    def test_offline_router_routes_document_analysis(self) -> None:
+        registry = build_default_tool_registry(Path("unused.duckdb"))
+        decision = OfflineOrchestrator().select_tool(
+            "Analyze document Acme Industries Annual Report", [], registry,
+        )
+        self.assertEqual(decision.tool_name, "analyze_knowledge_document")
+        self.assertEqual(
+            decision.arguments["document"],
+            "Acme Industries Annual Report",
+        )
+
+    def test_offline_router_summarize_report_routes_to_document_tool(self) -> None:
+        registry = build_default_tool_registry(Path("unused.duckdb"))
+        decision = OfflineOrchestrator().select_tool(
+            "Summarize the uploaded report 'Q4 Earnings Transcript'",
+            [],
+            registry,
+        )
+        self.assertEqual(decision.tool_name, "analyze_knowledge_document")
+        self.assertEqual(
+            decision.arguments["document"], "Q4 Earnings Transcript",
+        )
+
+    def test_offline_router_document_analysis_without_title_clarifies(self) -> None:
+        registry = build_default_tool_registry(Path("unused.duckdb"))
+        decision = OfflineOrchestrator().select_tool(
+            "Analyze the document", [], registry,
+        )
+        self.assertIsNone(decision.tool_name)
+        self.assertIn("Which stored document", decision.direct_response)
+
+    def test_offline_router_research_symbol_still_routes_to_context(self) -> None:
+        registry = build_default_tool_registry(Path("unused.duckdb"))
+        decision = OfflineOrchestrator().select_tool(
+            "Analyze RELIANCE on NSE", [], registry,
+        )
+        self.assertEqual(decision.tool_name, "get_research_context")
+
     def test_search_knowledge_grounded_response_includes_excerpts(self) -> None:
         from iimc_trading_platform.orchestration import grounded_tool_response
 

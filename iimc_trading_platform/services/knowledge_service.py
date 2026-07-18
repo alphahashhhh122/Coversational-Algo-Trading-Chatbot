@@ -190,6 +190,77 @@ class KnowledgeService:
                 return document
         raise ValueError(f"Knowledge document not found: {document_id}")
 
+    def document_overview(
+        self,
+        identifier: str,
+        *,
+        max_chunks: int = 8,
+    ) -> dict[str, Any]:
+        """Return a stored document's metadata plus ordered chunk excerpts."""
+        if not 1 <= max_chunks <= 50:
+            raise ValueError("max_chunks must be between 1 and 50")
+        wanted = identifier.strip()
+        if not wanted:
+            raise ValueError("Provide a document title or document_id")
+        documents = self.list_documents()["documents"]
+        document = next(
+            (
+                item
+                for item in documents
+                if item["document_id"] == wanted
+                or item["title"].lower() == wanted.lower()
+            ),
+            None,
+        )
+        if document is None:
+            document = next(
+                (
+                    item
+                    for item in documents
+                    if wanted.lower() in item["title"].lower()
+                ),
+                None,
+            )
+        if document is None:
+            available = ", ".join(
+                item["title"] for item in documents[:10]
+            ) or "none"
+            raise ValueError(
+                f"Knowledge document not found: {identifier!r}. "
+                f"Stored documents include: {available}."
+            )
+        con = connect(self.db_path)
+        try:
+            rows = con.execute(
+                """
+                SELECT chunk_id, chunk_index, content
+                FROM knowledge_chunks
+                WHERE document_id = ?
+                ORDER BY chunk_index
+                """,
+                [document["document_id"]],
+            ).fetchall()
+        finally:
+            con.close()
+        total_words = sum(len(str(row[2]).split()) for row in rows)
+        return {
+            "document_id": document["document_id"],
+            "title": document["title"],
+            "source_uri": document["source_uri"],
+            "document_type": document["document_type"],
+            "ingested_at": document["ingested_at"],
+            "chunk_count": len(rows),
+            "total_words": total_words,
+            "chunks": [
+                {
+                    "chunk_id": row[0],
+                    "chunk_index": row[1],
+                    "content": row[2],
+                }
+                for row in rows[:max_chunks]
+            ],
+        }
+
     def search(
         self,
         query: str,

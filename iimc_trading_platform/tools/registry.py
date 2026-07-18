@@ -256,6 +256,11 @@ class KnowledgeSearchInput(ToolInput):
     limit: int = Field(default=5, ge=1, le=10)
 
 
+class AnalyzeKnowledgeDocumentInput(ToolInput):
+    document: str = Field(min_length=1, max_length=200)
+    max_chunks: int = Field(default=8, ge=1, le=50)
+
+
 class PlatformReadinessInput(ToolInput):
     symbol: str = Field(min_length=1, max_length=80)
     exchange: str = Field(min_length=1, max_length=20)
@@ -660,6 +665,32 @@ def build_default_tool_registry(
                     ).limit,
                 ),
                 side_effects="creates a retrieval audit event",
+                retry_safe=True,
+                capabilities=ToolCapabilityMetadata(
+                    actions=("retrieve", "explain"),
+                    execution_modes=("research",),
+                    required_data=("governed_documents",),
+                    risk_level="low",
+                ),
+            ),
+            ToolDefinition(
+                name="analyze_knowledge_document",
+                description=(
+                    "Return a stored document's metadata and ordered chunk "
+                    "excerpts for review (for example an uploaded company "
+                    "report). Retrieval-based only; never fabricates "
+                    "fundamentals."
+                ),
+                input_model=AnalyzeKnowledgeDocumentInput,
+                handler=lambda value: knowledge.document_overview(
+                    AnalyzeKnowledgeDocumentInput.model_validate(
+                        value.model_dump()
+                    ).document,
+                    max_chunks=AnalyzeKnowledgeDocumentInput.model_validate(
+                        value.model_dump()
+                    ).max_chunks,
+                ),
+                side_effects="read-only database query",
                 retry_safe=True,
                 capabilities=ToolCapabilityMetadata(
                     actions=("retrieve", "explain"),

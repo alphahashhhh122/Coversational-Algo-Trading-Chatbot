@@ -164,6 +164,51 @@ class PlatformApiRoutesTest(unittest.TestCase):
         self.assertEqual(response.status_code, 422)
         self.assertIn("pypdf", response.json()["detail"])
 
+    def test_document_overview_returns_ordered_excerpts(self) -> None:
+        upload = self.client.post(
+            "/knowledge/documents",
+            json={
+                "title": "Zenith Motors FY26 Filing",
+                "text": (
+                    "Zenith Motors grew EV sales 40 percent.\n\n"
+                    "Operating margin expanded to 14 percent on cost "
+                    "controls.\n\n"
+                    "The company plans two new plants in 2027."
+                ),
+            },
+        )
+        self.assertEqual(upload.status_code, 200)
+
+        from iimc_trading_platform.services.knowledge_service import (
+            KnowledgeService,
+        )
+
+        service = KnowledgeService(self.db_path)
+        overview = service.document_overview("zenith motors fy26 filing")
+        self.assertEqual(overview["title"], "Zenith Motors FY26 Filing")
+        self.assertGreaterEqual(overview["chunk_count"], 1)
+        self.assertGreater(overview["total_words"], 10)
+        self.assertIn("EV sales", overview["chunks"][0]["content"])
+
+        partial = service.document_overview("Zenith Motors")
+        self.assertEqual(partial["document_id"], overview["document_id"])
+
+        with self.assertRaises(ValueError):
+            service.document_overview("No Such Document")
+
+        chat = self.client.post(
+            "/chat",
+            json={
+                "session_id": "session_doc_test",
+                "message": "Analyze document Zenith Motors FY26 Filing",
+            },
+        )
+        self.assertEqual(chat.status_code, 200)
+        payload = chat.json()
+        self.assertEqual(payload["intent"], "analyze_knowledge_document")
+        self.assertIn("EV sales", payload["answer"])
+        self.assertIn("no fundamentals were fabricated", payload["answer"].lower())
+
     def test_uploaded_document_survives_knowledge_sync_job(self) -> None:
         upload = self.client.post(
             "/knowledge/documents",
