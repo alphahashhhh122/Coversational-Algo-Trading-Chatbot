@@ -69,5 +69,59 @@ class JobServiceTest(unittest.TestCase):
             service.run_now(job_id, "worker_1")
 
 
+class MarketNewsJobRegistrationTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp_dir.name)
+        self.db_path = self.root / "jobs.duckdb"
+        initialize_database(self.db_path)
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def _job_types(self, config) -> set[str]:
+        from iimc_trading_platform.services import (
+            build_job_service,
+            register_default_jobs,
+        )
+
+        service = build_job_service(config)
+        register_default_jobs(
+            service,
+            include_openalgo=bool(config.openalgo_api_key),
+            include_market_news=bool(
+                config.market_news_provider and config.market_news_api_url
+            ),
+        )
+        return {job["job_type"] for job in service.list_jobs()["jobs"]}
+
+    def test_news_job_registered_when_provider_configured(self) -> None:
+        from iimc_trading_platform.config import AppConfig
+
+        job_types = self._job_types(
+            AppConfig(
+                database_path=self.db_path,
+                artifacts_dir=self.root / "artifacts",
+                market_news_provider="eventregistry",
+                market_news_api_url="https://example.invalid/api",
+                market_news_api_key="test",
+            )
+        )
+
+        self.assertIn("market_news_refresh", job_types)
+
+    def test_news_job_absent_without_provider(self) -> None:
+        from iimc_trading_platform.config import AppConfig
+
+        job_types = self._job_types(
+            AppConfig(
+                database_path=self.db_path,
+                artifacts_dir=self.root / "artifacts",
+            )
+        )
+
+        self.assertNotIn("market_news_refresh", job_types)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -261,6 +261,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     register_default_jobs(
         job_service,
         include_openalgo=bool(active_config.openalgo_api_key),
+        include_market_news=bool(
+            active_config.market_news_provider
+            and active_config.market_news_api_url
+        ),
     )
 
     app = FastAPI(

@@ -11,6 +11,7 @@ from .alert_service import AlertService
 from .freshness_service import FreshnessService
 from .job_service import JobService
 from .knowledge_service import KnowledgeService
+from .market_news_service import MarketNewsService
 from .openalgo_service import OpenAlgoSnapshotService
 from .robustness_service import RobustnessService
 from .retrieval_evaluation_service import RetrievalEvaluationService
@@ -153,6 +154,22 @@ def build_job_service(config: AppConfig) -> JobService:
             }
 
         handlers["openalgo_snapshot"] = openalgo_snapshot
+    if config.market_news_provider and config.market_news_api_url:
+        news = MarketNewsService(config)
+
+        def market_news_refresh(payload: dict[str, Any]) -> dict[str, Any]:
+            result = news.fetch(
+                query=payload.get("query")
+                or "NIFTY Indian stock market outlook",
+                symbol=payload.get("symbol"),
+            )
+            return {
+                "fetch_id": result.get("fetch_id"),
+                "status": result.get("status"),
+                "article_count": len(result.get("articles", [])),
+            }
+
+        handlers["market_news_refresh"] = market_news_refresh
     return JobService(config.database_path, handlers)
 
 
@@ -179,6 +196,7 @@ def register_default_jobs(
     service: JobService,
     *,
     include_openalgo: bool,
+    include_market_news: bool = False,
 ) -> list[str]:
     job_ids = [
         service.register(
@@ -227,6 +245,15 @@ def register_default_jobs(
                     ]
                 },
                 max_retries=5,
+            )
+        )
+    if include_market_news:
+        job_ids.append(
+            service.register(
+                name="market_news_refresh",
+                job_type="market_news_refresh",
+                schedule_seconds=1800,
+                max_retries=3,
             )
         )
     return job_ids
