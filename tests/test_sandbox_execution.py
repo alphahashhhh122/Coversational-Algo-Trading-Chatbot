@@ -570,6 +570,7 @@ class SandboxExecutionTest(unittest.TestCase):
         )
 
     def test_http_workflow_submits_paper_intent_without_manual_approval(self) -> None:
+        # Explicitly opts out of the default paper-approval requirement.
         broker = FakeSandboxBroker()
         config = AppConfig(
             database_path=self.db_path,
@@ -577,6 +578,7 @@ class SandboxExecutionTest(unittest.TestCase):
             openalgo_root=Path(self.temp_dir.name),
             openalgo_api_key="configured",
             paper_signal_max_age_minutes=0,
+            require_paper_approval=False,
         )
         config.artifacts_dir.mkdir()
         with patch(
