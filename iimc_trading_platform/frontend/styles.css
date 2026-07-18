@@ -153,6 +153,17 @@ nav { display: grid; gap: 4px; }
 .knowledge-doc-item p { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
 .emergency-divider { display: inline-block; width: 1px; height: 24px; margin: 0 6px; background: var(--line); vertical-align: middle; }
 .fundamentals-status { margin-top: 10px; color: var(--muted); font-size: 13px; }
+.badge.live { color: #fff; background: var(--red); border-color: var(--red); animation: live-pulse 2s infinite; }
+@keyframes live-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(168, 58, 53, .45); }
+  50% { box-shadow: 0 0 0 5px rgba(168, 58, 53, 0); }
+}
+.mode-banner {
+  margin-bottom: 12px; padding: 12px 16px; font-size: 13px; font-weight: 700;
+  border-radius: 8px;
+}
+.mode-banner.paper { color: var(--green); background: var(--green-soft); border: 1px solid var(--green-line); }
+.mode-banner.live { color: #fff; background: var(--red); border: 1px solid var(--red); }
 .connection-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; font-size: 13px; }
 .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #d5a03c; }
 .status-dot.online { background: #49b477; }
@@ -209,12 +220,37 @@ h2 { margin-bottom: 4px; font-size: 16px; letter-spacing: 0; }
 .section-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .panel-heading { min-height: 68px; padding: 14px 18px; border-bottom: 1px solid var(--line); }
 .section-heading { margin: 26px 0 12px; }
-.messages { flex: 1; min-height: 320px; max-height: 500px; overflow: auto; padding: 18px; }
-.message { max-width: 86%; margin-bottom: 16px; padding: 12px 14px; border-left: 3px solid var(--line); background: var(--surface-soft); }
-.message.user { margin-left: auto; border-left-color: var(--blue); background: var(--blue-soft); }
-.message.assistant { border-left-color: var(--green); }
-.message.error { border-left-color: var(--red); background: var(--red-soft); }
-.message-role { margin-bottom: 5px; color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; }
+.messages {
+  flex: 1; min-height: 320px; max-height: 560px; overflow: auto;
+  padding: 18px 16px; display: flex; flex-direction: column; gap: 14px;
+  scroll-behavior: smooth;
+}
+.message {
+  max-width: 82%; padding: 11px 15px; border-radius: 14px;
+  background: var(--surface-soft); border: 1px solid var(--line);
+  animation: message-in .22s ease-out;
+}
+@keyframes message-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.message.user {
+  margin-left: auto; background: var(--blue-soft);
+  border-color: transparent; border-bottom-right-radius: 4px;
+}
+.message.assistant { border-bottom-left-radius: 4px; }
+.message.error { background: var(--red-soft); border-color: var(--red); }
+.message-role {
+  display: flex; align-items: center; gap: 6px; margin-bottom: 6px;
+  color: var(--muted); font-size: 11px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.message-role::before {
+  content: ""; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--green);
+}
+.message.user .message-role::before { background: var(--blue); }
+.message-time { margin-left: auto; font-weight: 400; text-transform: none; letter-spacing: 0; }
 .message p { margin-bottom: 0; white-space: pre-wrap; line-height: 1.5; font-size: 14px; }
 .message-body { line-height: 1.55; font-size: 14px; }
 .message-body p { margin: 0 0 8px; }
@@ -255,7 +291,19 @@ h2 { margin-bottom: 4px; font-size: 16px; letter-spacing: 0; }
   0%, 60%, 100% { opacity: .35; transform: translateY(0); }
   30% { opacity: 1; transform: translateY(-4px); }
 }
-.composer { display: grid; grid-template-columns: 1fr auto; gap: 10px; padding: 14px; border-top: 1px solid var(--line); }
+.composer {
+  display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: end;
+  padding: 12px 14px; border-top: 1px solid var(--line);
+}
+.composer textarea {
+  border-radius: 12px; max-height: 140px; overflow-y: auto;
+  transition: border-color .15s;
+}
+#send-button {
+  width: 42px; height: 42px; padding: 0; border-radius: 50%;
+  font-size: 17px; line-height: 1; display: grid; place-items: center;
+}
+#send-button:disabled { opacity: .5; cursor: wait; }
 textarea {
   width: 100%; resize: none; padding: 11px 12px; color: var(--ink);
   border: 1px solid var(--input-border); background: var(--surface); outline: none;

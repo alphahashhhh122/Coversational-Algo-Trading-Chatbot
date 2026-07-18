@@ -258,10 +258,20 @@ async function loadHealth() {
     if (liveBadge) {
       liveBadge.textContent = checks.live_trading_disabled
         ? "Live disabled"
-        : "Live enabled";
+        : "LIVE ENABLED";
       liveBadge.className = checks.live_trading_disabled
         ? "badge safe"
-        : "badge attention";
+        : "badge live";
+    }
+    const modeBanner = $("#execution-mode-banner");
+    if (modeBanner) {
+      if (checks.live_trading_disabled) {
+        modeBanner.textContent = "PAPER MODE — live trading is disabled by configuration. Orders route to the OpenAlgo analyzer only.";
+        modeBanner.className = "mode-banner paper";
+      } else {
+        modeBanner.textContent = "⚠ LIVE TRADING ENABLED — approved live intents submit REAL broker orders. Every live order still requires a live risk decision and explicit human approval.";
+        modeBanner.className = "mode-banner live";
+      }
     }
     $("#orchestrator-badge").textContent = llmConfigured
       ? `${llmProvider.toUpperCase()} orchestration`
@@ -446,9 +456,11 @@ async function loadOverview() {
   renderDatasets();
   renderExperiments();
   renderPortfolios();
-  await loadOperatorConsole();
-  await loadOpenAlgoHistory();
-  await loadOperations();
+  // Heavy secondary panels load in the background so the workspace is
+  // interactive immediately.
+  loadOperatorConsole().catch(() => {});
+  loadOpenAlgoHistory().catch(() => {});
+  loadOperations().catch(() => {});
   loadSettings();
 }
 
@@ -1877,16 +1889,24 @@ function renderMarkdown(raw) {
   return html.join("");
 }
 
-function appendMessage(role, content, className = "") {
+function appendMessage(role, content, className = "", options = {}) {
   const article = document.createElement("article");
   article.className = `message ${role} ${className}`.trim();
   const body = role === "assistant" && !className.includes("error")
     ? renderMarkdown(content)
     : `<p>${escapeHtml(content)}</p>`;
+  const time = new Date().toLocaleTimeString([], {
+    hour: "2-digit", minute: "2-digit",
+  });
   article.innerHTML = `
-    <div class="message-role">${role === "user" ? "You" : "Assistant"}</div>
+    <div class="message-role">${role === "user" ? "You" : "Assistant"}
+      <span class="message-time">${time}</span>
+    </div>
     <div class="message-body">${body}</div>
   `;
+  if (options.stream && role === "assistant") {
+    streamMessageBody(article.querySelector(".message-body"));
+  }
   if (role === "assistant" && navigator.clipboard) {
     const copyButton = document.createElement("button");
     copyButton.type = "button";
@@ -1906,6 +1926,23 @@ function appendMessage(role, content, className = "") {
   }
   $("#messages").appendChild(article);
   $("#messages").scrollTop = $("#messages").scrollHeight;
+}
+
+function streamMessageBody(body) {
+  // Progressive reveal so answers read like a live assistant response.
+  const blocks = [...body.children];
+  if (blocks.length <= 1) return;
+  blocks.forEach((block) => { block.style.display = "none"; });
+  let index = 0;
+  const revealNext = () => {
+    if (index >= blocks.length) return;
+    blocks[index].style.display = "";
+    index += 1;
+    const container = $("#messages");
+    if (container) container.scrollTop = container.scrollHeight;
+    setTimeout(revealNext, 140);
+  };
+  revealNext();
 }
 
 function showTypingIndicator() {
@@ -1983,6 +2020,7 @@ async function submitChat(event) {
   if (!message) return;
   appendMessage("user", message);
   input.value = "";
+  input.style.height = "auto";
   $("#send-button").disabled = true;
   const typing = showTypingIndicator();
   try {
@@ -1991,7 +2029,7 @@ async function submitChat(event) {
       body: JSON.stringify({ session_id: state.sessionId, message }),
     });
     typing.remove();
-    appendMessage("assistant", payload.answer);
+    appendMessage("assistant", payload.answer, "", { stream: true });
     renderEvidence(payload);
     if (["get_openalgo_snapshot", "get_openalgo_monitor"].includes(payload.intent)) {
       try {
@@ -3649,6 +3687,11 @@ function wireEvents() {
       event.preventDefault();
       $("#chat-form").requestSubmit();
     }
+  });
+  $("#chat-input").addEventListener("input", (event) => {
+    const input = event.target;
+    input.style.height = "auto";
+    input.style.height = `${Math.min(input.scrollHeight, 140)}px`;
   });
   $("#theme-toggle").addEventListener("click", () => {
     const dark = !document.documentElement.classList.contains("dark-theme");

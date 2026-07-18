@@ -99,8 +99,8 @@
             </div>
             <form class="composer" id="chat-form">
               <label class="sr-only" for="chat-input">Message</label>
-              <textarea id="chat-input" rows="2" maxlength="4000" placeholder="Ask about markets, a stock, your account, a strategy, or a backtest..." required></textarea>
-              <button type="submit" class="primary-button" id="send-button">Send</button>
+              <textarea id="chat-input" rows="1" maxlength="4000" placeholder="Ask about markets, a stock, your account, a strategy, or a backtest..." required></textarea>
+              <button type="submit" class="primary-button" id="send-button" title="Send" aria-label="Send">➤</button>
             </form>
           </section>
 
@@ -513,6 +513,7 @@
           </div>
           <button class="secondary-button" id="refresh-approvals">Refresh</button>
         </div>
+        <div class="mode-banner" id="execution-mode-banner">Checking execution mode...</div>
         <div class="notice">
           The chatbot can prepare governed intents. Paper submission uses analyzer mode; live submission requires configuration, broker readiness, risk approval, and explicit human approval.
         </div>
