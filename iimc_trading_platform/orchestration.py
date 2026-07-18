@@ -2706,20 +2706,69 @@ def _grounded_fallback_response(
         personas = result.get("personas", [])
         if not personas:
             return "No governed strategy personas are configured."
-        names = ", ".join(
-            f"{item.get('persona_id')} ({item.get('name')})"
-            for item in personas
+        lines = []
+        for item in personas:
+            preferred = ", ".join(
+                item.get("strategy_bias", {}).get("preferred_strategies", [])
+            ) or "none"
+            lines.append(
+                f"- **{item.get('name')}** ({item.get('persona_id')}): "
+                f"{item.get('description')} Preferred strategies: "
+                f"{preferred}."
+            )
+        return (
+            f"Found {len(personas)} governed strategy persona(s):\n"
+            + "\n".join(lines)
+            + "\n\nAsk about one by name, for example 'show the "
+            "conservative value persona'."
         )
-        return f"Found {len(personas)} governed strategy persona(s): {names}."
     if tool_name == "get_strategy_persona":
         persona = result.get("persona", {})
-        return (
-            f"Persona {persona.get('persona_id')} is "
-            f"{persona.get('name')}. Supported asset classes: "
-            f"{', '.join(persona.get('asset_classes', []))}. "
-            "It guides strategy choice and explanation style but does not "
+        bias = persona.get("strategy_bias", {})
+        risk_rules = persona.get("risk_rules", {})
+        preferred = ", ".join(bias.get("preferred_strategies", [])) or "none"
+        risk_lines = []
+        if risk_rules.get("max_order_value") is not None:
+            risk_lines.append(
+                f"max order value {float(risk_rules['max_order_value']):,.0f}"
+            )
+        if risk_rules.get("stop_loss_pct") is not None:
+            risk_lines.append(
+                f"stop loss {float(risk_rules['stop_loss_pct']) * 100:g}%"
+            )
+        if risk_rules.get("requires_approval_for_paper"):
+            risk_lines.append("paper orders need human approval")
+        if risk_rules.get("requires_approval_for_live"):
+            risk_lines.append("live orders need human approval")
+        focus = ", ".join(persona.get("dashboard_focus", [])) or "none"
+        first_strategy = (
+            bias.get("preferred_strategies", ["sma_crossover"]) or
+            ["sma_crossover"]
+        )[0]
+        sections = [
+            f"**{persona.get('name')}** ({persona.get('persona_id')}): "
+            f"{persona.get('description')}",
+            f"- **Asset classes**: "
+            f"{', '.join(persona.get('asset_classes', []))}",
+            f"- **Preferred strategies**: {preferred}",
+        ]
+        if bias.get("selection_style"):
+            sections.append(
+                f"- **Selection style**: {bias['selection_style']}"
+            )
+        if risk_lines:
+            sections.append(f"- **Risk rules**: {'; '.join(risk_lines)}")
+        sections.append(f"- **Dashboard focus**: {focus}")
+        if persona.get("prompt_guidance"):
+            sections.append(
+                f"- **Guidance**: {persona['prompt_guidance']}"
+            )
+        sections.append(
+            f"\nTry: 'backtest {first_strategy} on RELIANCE'. This persona "
+            "guides strategy choice and explanation style but does not "
             "bypass data, risk, approval, or OpenAlgo checks."
         )
+        return "\n".join(sections)
     if tool_name == "list_sandbox_intents":
         intents = result.get("intents", [])
         if not intents:

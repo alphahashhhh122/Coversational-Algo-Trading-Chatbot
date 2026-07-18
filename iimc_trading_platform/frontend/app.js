@@ -708,6 +708,17 @@ function renderPersonas() {
     ? state.personas.map((persona) => {
       const assets = (persona.asset_classes || []).join(", ");
       const strategies = (persona.strategy_bias?.preferred_strategies || []).join(", ");
+      const riskRules = persona.risk_rules || {};
+      const riskParts = [];
+      if (riskRules.max_order_value != null) {
+        riskParts.push(`Max order ${formatNumber(riskRules.max_order_value, 0)}`);
+      }
+      if (riskRules.stop_loss_pct != null) {
+        riskParts.push(`Stop ${(riskRules.stop_loss_pct * 100).toFixed(1)}%`);
+      }
+      if (riskRules.requires_approval_for_paper) riskParts.push("Paper approval");
+      if (riskRules.requires_approval_for_live) riskParts.push("Live approval");
+      const focus = (persona.dashboard_focus || []).join(", ");
       return `
         <article class="persona-item">
           <div>
@@ -716,6 +727,9 @@ function renderPersonas() {
           </div>
           <p>${escapeHtml(persona.description)}</p>
           <small>Assets: ${escapeHtml(assets || "none")} · Bias: ${escapeHtml(strategies || "none")}</small>
+          ${riskParts.length ? `<small>Risk: ${escapeHtml(riskParts.join(" · "))}</small>` : ""}
+          ${focus ? `<small>Focus: ${escapeHtml(focus)}</small>` : ""}
+          ${persona.prompt_guidance ? `<small class="persona-guidance">${escapeHtml(persona.prompt_guidance)}</small>` : ""}
         </article>
       `;
     }).join("")

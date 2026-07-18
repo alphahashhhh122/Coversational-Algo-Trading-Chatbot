@@ -1374,6 +1374,50 @@ class OrchestrationContractsTest(unittest.TestCase):
         )
         self.assertEqual(decision.tool_name, "get_research_context")
 
+    def test_persona_grounded_response_renders_bias_and_risk_rules(self) -> None:
+        from iimc_trading_platform.orchestration import grounded_tool_response
+
+        answer = grounded_tool_response(
+            "get_strategy_persona",
+            {
+                "persona": {
+                    "persona_id": "conservative_value",
+                    "name": "Conservative Value",
+                    "description": (
+                        "Longer-horizon profile inspired by quality and "
+                        "capital preservation."
+                    ),
+                    "asset_classes": ["equity", "index"],
+                    "strategy_bias": {
+                        "preferred_strategies": [
+                            "sma_crossover",
+                            "rsi_mean_reversion",
+                        ],
+                        "selection_style": (
+                            "prefer defensible large-cap exposure"
+                        ),
+                    },
+                    "risk_rules": {
+                        "max_order_value": 100000,
+                        "stop_loss_pct": 0.02,
+                        "requires_approval_for_paper": True,
+                        "requires_approval_for_live": True,
+                    },
+                    "dashboard_focus": ["drawdown", "capital_at_risk"],
+                    "prompt_guidance": (
+                        "Explain tradeoffs in value-investor language."
+                    ),
+                },
+            },
+        )
+
+        self.assertIn("sma_crossover", answer)
+        self.assertIn("100,000", answer)
+        self.assertIn("2%", answer)
+        self.assertIn("value-investor language", answer)
+        self.assertIn("does not bypass", answer)
+        self.assertIn("drawdown", answer)
+
     def test_search_knowledge_grounded_response_includes_excerpts(self) -> None:
         from iimc_trading_platform.orchestration import grounded_tool_response
 
