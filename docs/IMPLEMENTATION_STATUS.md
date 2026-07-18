@@ -18,4 +18,6 @@ Living log. Evidence = automated tests plus in-browser verification via the runn
 | Scheduled news refresh (conditional) | done | `operations_service.py` | `test_jobs.py` (2) | Registers only when provider configured |
 | Audit documentation set | done | `docs/*.md` | n/a | This change |
 
-Next actions (in priority order): order modify/cancel-all/square-off adapter passthrough; fundamentals statement provider interface + ratio calculators; WebSocket quote streaming; screen definition registry.
+| Fundamental analysis (statements import + deterministic ratio engine) | done | `fundamentals_service.py`, `tools/registry.py`, `api.py`, `orchestration.py` | `test_fundamentals.py` (5) | Ratios carry formula+inputs; warnings for missing data; chat: "analyze TCS fundamentally". Statement data is user-imported (no free provider) |
+
+Next actions (in priority order): order modify/cancel-all/square-off adapter passthrough + holdings endpoint; frontend statements-import form (API + chat already functional); versioned screen definitions over stored fundamentals; WebSocket quote streaming.
