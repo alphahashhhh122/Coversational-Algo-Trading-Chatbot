@@ -1336,6 +1336,74 @@ class OrchestrationContractsTest(unittest.TestCase):
         )
         self.assertEqual(decision.tool_name, "get_market_news")
 
+    def test_offline_router_refuses_weather_question(self) -> None:
+        registry = build_default_tool_registry(Path("unused.duckdb"))
+        decision = OfflineOrchestrator().select_tool(
+            "What is the weather today?", [], registry,
+        )
+        self.assertIsNone(decision.tool_name)
+        self.assertTrue(decision.authoritative)
+        self.assertIn("trading", decision.direct_response.lower())
+
+    def test_offline_router_refuses_poem_request(self) -> None:
+        registry = build_default_tool_registry(Path("unused.duckdb"))
+        decision = OfflineOrchestrator().select_tool(
+            "Write me a poem about the ocean", [], registry,
+        )
+        self.assertIsNone(decision.tool_name)
+        self.assertIn("trading", decision.direct_response.lower())
+
+    def test_offline_router_refuses_homework_request(self) -> None:
+        registry = build_default_tool_registry(Path("unused.duckdb"))
+        decision = OfflineOrchestrator().select_tool(
+            "Help me with my math homework", [], registry,
+        )
+        self.assertIsNone(decision.tool_name)
+        self.assertIn("trading", decision.direct_response.lower())
+
+    def test_offline_router_bare_help_returns_platform_summary(self) -> None:
+        registry = build_default_tool_registry(Path("unused.duckdb"))
+        decision = OfflineOrchestrator().select_tool(
+            "help", [], registry,
+        )
+        self.assertEqual(decision.tool_name, "get_platform_summary")
+
+    def test_offline_router_momentum_education_beats_persona(self) -> None:
+        registry = build_default_tool_registry(Path("unused.duckdb"))
+        decision = OfflineOrchestrator().select_tool(
+            "What is momentum trading?", [], registry,
+        )
+        self.assertIsNone(decision.tool_name)
+        self.assertIn("momentum", decision.direct_response.lower())
+
+    def test_offline_router_buffett_still_routes_to_persona(self) -> None:
+        registry = build_default_tool_registry(Path("unused.duckdb"))
+        decision = OfflineOrchestrator().select_tool(
+            "What would Warren Buffett do in this market?", [], registry,
+        )
+        self.assertEqual(decision.tool_name, "get_strategy_persona")
+        self.assertEqual(
+            decision.arguments["persona_id"], "conservative_value",
+        )
+
+    def test_groq_returns_authoritative_refusal_without_provider(self) -> None:
+        registry = build_default_tool_registry(Path("unused.duckdb"))
+        orchestrator = GroqToolOrchestrator("test-key", "test-model")
+        orchestrator.client = type(
+            "Client",
+            (),
+            {"chat": property(lambda self: (_ for _ in ()).throw(
+                AssertionError("provider must not be called"),
+            ))},
+        )()
+
+        decision = orchestrator.select_tool(
+            "Write me a poem about the ocean", [], registry,
+        )
+
+        self.assertIsNone(decision.tool_name)
+        self.assertIn("trading", decision.direct_response.lower())
+
     def test_offline_router_handles_thanks(self) -> None:
         registry = build_default_tool_registry(Path("unused.duckdb"))
         decision = OfflineOrchestrator().select_tool(

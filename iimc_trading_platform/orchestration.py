@@ -13,6 +13,11 @@ from .tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
+_EDUCATION_PREFIX_RE = re.compile(
+    r"\s*(?:what\s+(?:is|are|does)|explain|define|meaning\s+of"
+    r"|tell\s+me\s+about|how\s+does|describe|teach\s+me)\b"
+)
+
 
 @dataclass(frozen=True)
 class ToolInvocation:
@@ -29,6 +34,9 @@ class OrchestrationDecision:
     call_id: str | None = None
     provider_items: list[Any] = field(default_factory=list)
     tool_calls: list[ToolInvocation] = field(default_factory=list)
+    # Authoritative direct responses (greetings, domain refusals, education)
+    # are final even when an LLM router is configured.
+    authoritative: bool = False
 
 
 class Orchestrator(Protocol):
@@ -192,7 +200,10 @@ class GroqToolOrchestrator:
             history,
             registry,
         )
-        if deterministic_decision.tool_name is not None:
+        if deterministic_decision.tool_name is not None or (
+            deterministic_decision.direct_response
+            and deterministic_decision.authoritative
+        ):
             return deterministic_decision
         messages = _chat_messages(message, history)
         if self._primary_rate_limited:
@@ -299,7 +310,11 @@ class GroqToolOrchestrator:
                             "questions clearly. Do not invent current prices, "
                             "news, broker state, P&L, risk decisions, or trading "
                             "outcomes. Explain that live orders require explicit "
-                            "human approval."
+                            "human approval. You only assist with trading, "
+                            "markets, investing, and this platform; for "
+                            "unrelated requests (weather, entertainment, "
+                            "homework, general knowledge), politely decline and "
+                            "say you are a trading assistant."
                         ),
                     },
                     *_chat_messages(message, history),
@@ -410,9 +425,21 @@ class OfflineOrchestrator:
                     "backtests, readiness checks, and paper-order preparation. "
                     "What would you like to do?"
                 ),
+                authoritative=True,
+            )
+        off_topic_category = _off_topic_category(text)
+        if off_topic_category:
+            return OrchestrationDecision(
+                tool_name=None,
+                arguments={},
+                direct_response=_domain_refusal_response(off_topic_category),
+                authoritative=True,
             )
         if re.match(
-            r"\s*(?:help|what can you do|what do you do"
+            r"\s*(?:help(?:\s+me)?|please\s+help)\s*[?!.]*$",
+            text,
+        ) or re.match(
+            r"\s*(?:what can you do|what do you do"
             r"|how do i use|how does this work|capabilities)\b",
             text,
         ):
@@ -621,22 +648,24 @@ class OfflineOrchestrator:
                     "symbol": symbol,
                 },
             )
+        strong_persona_words = (
+            "persona",
+            "personas",
+            "profile",
+            "buffett",
+            "warren",
+            "risk-off",
+            "risk off",
+        )
+        weak_persona_words = ("style", "conservative", "momentum")
         if (
             "list_strategy_personas" in tool_names
             and not ("custom" in text and "strateg" in text)
-            and any(
-                word in text
-                for word in (
-                    "persona",
-                    "personas",
-                    "profile",
-                    "style",
-                    "buffett",
-                    "warren",
-                    "conservative",
-                    "momentum",
-                    "risk-off",
-                    "risk off",
+            and (
+                any(word in text for word in strong_persona_words)
+                or (
+                    any(word in text for word in weak_persona_words)
+                    and not _EDUCATION_PREFIX_RE.match(text)
                 )
             )
         ):
@@ -965,6 +994,7 @@ class OfflineOrchestrator:
                     "prepare a live order intent from an approved live risk "
                     "decision; submission requires explicit human approval."
                 ),
+                authoritative=True,
             )
         if any(word in text for word in ("order", "fill")) and run_id:
             return OrchestrationDecision(
@@ -1142,14 +1172,11 @@ class OfflineOrchestrator:
                     "quotes, news, strategy creation, backtests, or account "
                     "monitoring."
                 ),
+                authoritative=True,
             )
 
         if (
-            re.match(
-                r"\s*(?:what\s+(?:is|are|does)|explain|define|meaning\s+of"
-                r"|tell\s+me\s+about|how\s+does|describe|teach\s+me)\b",
-                text,
-            )
+            _EDUCATION_PREFIX_RE.match(text)
             and not re.search(r"\bmy\s+", text)
             and not re.search(
                 r"\b(?:pe ratio|p/e ratio|eps|market cap|dividend|book value"
@@ -1159,7 +1186,7 @@ class OfflineOrchestrator:
             )
         ):
             concept = re.sub(
-                r"^(?:what\s+(?:is|are|does)|explain|define|meaning\s+of"
+                r"^\s*(?:what\s+(?:is|are|does)|explain|define|meaning\s+of"
                 r"|tell\s+me\s+about|how\s+does|describe|teach\s+me)\s+",
                 "",
                 text,
@@ -1171,6 +1198,7 @@ class OfflineOrchestrator:
                         tool_name=None,
                         arguments={},
                         direct_response=known,
+                        authoritative=True,
                     )
                 if "search_knowledge" in tool_names:
                     return OrchestrationDecision(
@@ -1395,7 +1423,12 @@ _ROUTER_SYSTEM_PROMPT = (
     "- Dataset listing/info → list_datasets or get_dataset_detail\n"
     "- Approval/risk → list_pending_approvals or get_risk_decisions\n"
     "- Portfolio → get_portfolio_snapshot\n"
-    "- OpenAlgo status → get_openalgo_monitor"
+    "- OpenAlgo status → get_openalgo_monitor\n\n"
+    "You only assist with trading, markets, investing, and this platform. "
+    "If the request is unrelated (weather, entertainment, homework, "
+    "recipes, general knowledge, personal coding help), do not select any "
+    "tool; reply politely that you are a trading assistant and give two "
+    "supported examples instead."
 )
 
 
@@ -1757,6 +1790,57 @@ def _educational_response(concept: str) -> str:
         f"Bollinger, VWAP, ATR), strategies (intraday, swing, momentum, "
         f"value investing), or concepts (stop loss, PE ratio, Sharpe ratio, "
         f"drawdown, options, candlestick patterns)."
+    )
+
+
+_DOMAIN_TERMS = (
+    "trade", "trading", "trader", "stock", "share", "equity", "market",
+    "invest", "portfolio", "strategy", "strateg", "backtest", "quote",
+    "price", "ltp", "candle", "ohlcv", "dataset", "broker", "openalgo",
+    "order", "position", "fund", "margin", "option", "future", "commodity",
+    "crypto", "nifty", "sensex", "nse", "bse", "mcx", "rsi", "ema", "sma",
+    "macd", "bollinger", "vwap", "atr", "dividend", "earnings", "pe ratio",
+    "ipo", "sector", "index", "bull", "bear", "volatility", "hedge",
+    "derivative", "sip", "mutual fund", "etf", "forex", "currency",
+    "persona", "risk", "approval", "paper", "sandbox", "analyzer",
+    "signal", "indicator", "chart", "screener", "news", "sharpe",
+    "drawdown", "pnl", "p&l", "profit", "loss", "finance", "financial",
+    "filing", "annual report", "balance sheet",
+)
+
+_OFF_TOPIC_CATEGORIES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("weather", ("weather", "temperature outside", "rain today", "forecast for today", "sunny", "humidity")),
+    ("creative writing", ("poem", "poetry", "story", "joke", "song", "lyrics", "rap", "haiku", "novel", "essay about")),
+    ("homework", ("homework", "assignment", "math problem", "solve this equation", "calculus", "algebra", "physics problem", "chemistry")),
+    ("cooking", ("recipe", "cook", "cooking", "bake", "baking", "ingredients for", "dinner ideas")),
+    ("sports", ("cricket score", "football score", "match score", "ipl score", "world cup", "who won the match")),
+    ("entertainment", ("movie", "movies", "tv show", "netflix", "series to watch", "celebrity", "actor", "actress")),
+    ("travel", ("travel to", "vacation", "holiday destination", "flight to", "hotel in", "tourist")),
+    ("health", ("medical advice", "doctor", "medicine for", "symptoms", "diagnosis", "headache", "fever")),
+    ("general knowledge", ("prime minister", "president of", "capital of", "who is the king", "photosynthesis", "world war")),
+    ("programming help", ("write code for", "debug my code", "python script for", "fix my program", "javascript function")),
+)
+
+
+def _off_topic_category(text: str) -> str | None:
+    """Detect clearly non-finance requests without touching domain queries."""
+    if any(term in text for term in _DOMAIN_TERMS):
+        return None
+    for category, phrases in _OFF_TOPIC_CATEGORIES:
+        if any(phrase in text for phrase in phrases):
+            return category
+    return None
+
+
+def _domain_refusal_response(category: str) -> str:
+    return (
+        f"I'm a trading and market-research assistant, so I can't help with "
+        f"{category} questions. I can help with things like:\n"
+        "- **Quotes and news**: 'price of Reliance', 'news for Tata Steel'\n"
+        "- **Education**: 'what is RSI?', 'explain value investing'\n"
+        "- **Strategies**: describe one in plain language and I'll compile "
+        "and backtest it\n"
+        "- **Your account**: 'show my positions', 'my fund balance'"
     )
 
 
