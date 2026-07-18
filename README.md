@@ -74,6 +74,18 @@ provider calls remain optional external integrations.
   Code. Only viewer/researcher tools are exposed; approvals and execution
   stay behind the dashboard's human-approval workflow.
 
+## Feature Status (honest matrix)
+
+| Category | Features |
+|---|---|
+| **Implemented and tested** (249 automated tests) | Conversational routing incl. education/screeners/personas/off-topic refusal; NL strategy compiler with versioned specs; deterministic backtests (equity/futures/options/commodity/crypto datasets, costs, no lookahead); walk-forward robustness; risk engine with persisted decisions; paper approval state machine with idempotency; live-trading rejection gates; document upload + retrieval analysis; candlestick charts; dashboards; MCP (HTTP + stdio); jobs/tasks/alerts/backups/audit |
+| **Implemented, credentials required** | Live quotes/news/broker snapshots/history import/analyzer paper orders (need `OPENALGO_API_KEY`, `MARKET_NEWS_API_KEY`); Groq-routed chat (needs `GROQ_API_KEY`; deterministic router otherwise) |
+| **Implemented, not verified against a live broker** | Live order submission path (all gates tested with fixtures; no real-broker run in CI) |
+| **Partially implemented** | Fundamentals limited to quotes/news/uploaded filings (no statement provider); screeners answer via news; order modify/cancel-all/square-off not wrapped; holdings endpoint not wrapped |
+| **Planned (documented, not built)** | WebSocket streaming quotes + live-to-historical aggregation; statement-level fundamental provider + ratio calculators; versioned screen definitions; PostgreSQL/Redis scale-out (see docs/TARGET_ARCHITECTURE.md) |
+
+Full audit: [docs/CURRENT_STATE.md](docs/CURRENT_STATE.md), [docs/GAP_ANALYSIS.md](docs/GAP_ANALYSIS.md), [docs/IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md).
+
 ## Architecture
 
 ```mermaid
