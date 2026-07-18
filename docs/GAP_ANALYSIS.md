@@ -5,7 +5,7 @@ Classification of every capability in the master specification against the actua
 | Capability | Status | Evidence / root cause | Fix & phase |
 |---|---|---|---|
 | Market & company research (news, quotes, briefs) | complete-needs-credentials | `market_news_service`, `get_market_quote`, research briefs; safe failure without keys | Configure `MARKET_NEWS_API_KEY`, `OPENALGO_API_KEY` |
-| Fundamental analysis (statement-level) | partial | No income-statement/balance-sheet provider exists; fundamentals questions route to quotes/news; uploaded filings analyzed via retrieval excerpts (`analyze_knowledge_document`) | Add `FundamentalDataProvider` adapter + ratio calculators (future phase); honest today |
+| Fundamental analysis (statement-level) | complete-verified | `fundamentals_service.py`: imported statements + deterministic ratio engine (growth, margins, ROE/ROA, leverage, liquidity, FCF, EPS, P/E) with formulas and inputs; chat + API + Data-view form; `test_fundamentals.py` | Statement data is user-imported (no free Indian statements API); external provider adapter remains optional |
 | Technical analysis | complete-verified | 11 deterministic indicators (EMA/SMA/RSI/MACD/BB/ATR/VWAP/ROC + features) in rule-spec runtime, tested; candlestick charts | ADX/stochastic/OBV additions optional |
 | NL strategy creation + versions | complete-verified | `strategies/nl_compiler.py` → validated spec → preview → saved versioned spec; no code generation | — |
 | Backtesting (deterministic, costs, no lookahead) | complete-verified | `backtest_service` (fees/slippage bps, signal-then-fill ordering, tests incl. options lot/expiry) | — |
@@ -26,7 +26,7 @@ Classification of every capability in the master specification against the actua
 | Background jobs & tasks | complete-verified | Persistent scheduled jobs + retries + disable-on-failure; work tasks for long runs | — |
 | PostgreSQL / Redis / React / SSE-WebSocket | missing (deliberate) | Single-user local research platform; DuckDB is authoritative store; spec §3 permits preserving a sound stack | Documented in KNOWN_LIMITATIONS; migration path in TARGET_ARCHITECTURE |
 | Live-to-historical tick aggregation | missing | No streaming quotes source wired | Requires WebSocket provider first |
-| Order modification / cancel-all / square-off | partial | Intent cancel exists; modify/cancel-all/square-off not wrapped | Add adapter passthrough + UI (small slice) |
-| Screening (persisted screen definitions) | partial | Screener questions route to news; no versioned screen configs | Needs fundamentals provider first |
+| Cancel-all / square-off / holdings | complete-verified | `POST /openalgo/emergency/{action}` (approver role, audited, typed-CONFIRM UI), holdings snapshot type; `test_openalgo_emergency.py` | Per-order modification passthrough still optional (intent cancel exists) |
+| Screening (persisted screen definitions) | complete-verified | `screen_service.py`: versioned `screen_definitions` (quality/growth/low_leverage defaults + user versions) evaluated over deterministic ratios; chat + API; `test_screens.py` | Universe = symbols with imported statements |
 
 Acceptance criteria for any "partial → complete" move: typed schema, deterministic service, API + frontend slice, tests, honest degraded state without credentials.

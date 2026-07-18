@@ -20,4 +20,8 @@ Living log. Evidence = automated tests plus in-browser verification via the runn
 
 | Fundamental analysis (statements import + deterministic ratio engine) | done | `fundamentals_service.py`, `tools/registry.py`, `api.py`, `orchestration.py` | `test_fundamentals.py` (5) | Ratios carry formula+inputs; warnings for missing data; chat: "analyze TCS fundamentally". Statement data is user-imported (no free provider) |
 
-Next actions (in priority order): order modify/cancel-all/square-off adapter passthrough + holdings endpoint; frontend statements-import form (API + chat already functional); versioned screen definitions over stored fundamentals; WebSocket quote streaming.
+| Broker emergency controls + holdings | done | `openalgo.py`, `openalgo_service.py`, `api.py`, Monitor UI | `test_openalgo_emergency.py` (6) | Cancel-all/square-off approver-gated with typed CONFIRM; audited; holdings snapshot |
+| Versioned fundamental screens | done | `screen_service.py`, `api.py`, `orchestration.py` | `test_screens.py` (7) | quality/growth/low_leverage defaults; new versions via API; chat "run the quality screen" |
+| Fundamentals import UI | done | `frontend/index.html`, `app.js` | browser-verified | Data-view form → chat analysis verified live |
+
+Remaining optional items (not gaps in local usability): per-order modification passthrough, WebSocket streaming quotes (15s polling covers localhost use), external statements provider adapter.
