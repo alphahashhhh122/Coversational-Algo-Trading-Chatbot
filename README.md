@@ -59,6 +59,20 @@ provider calls remain optional external integrations.
   normalization, deduplication, and DuckDB persistence.
 - Web dashboard for chat, strategy runs, data catalog, OpenAlgo monitor,
   sandbox intents, reports, evaluations, and operational status.
+- Markdown-rendered chat with persistent session history, typing indicator,
+  copy-to-clipboard, Markdown conversation export, and keyboard shortcuts
+  (`Ctrl+K` or `/` to focus chat, `1`-`7` to switch views).
+- Light and dark themes with a sidebar toggle; follows the system preference
+  by default and persists the choice locally.
+- Interactive candlestick + volume charts for governed datasets, rendered
+  locally with no external chart libraries: hover crosshair, OHLCV tooltip,
+  and theme-aware colors, backed by `GET /datasets/{id}/ohlcv`.
+- MCP (Model Context Protocol) integration: `GET /mcp/tools` and
+  `POST /mcp/call` expose the governed tool registry over HTTP, and
+  `python -m iimc_trading_platform.mcp_server` runs a stdio MCP server that
+  connects the platform to MCP clients such as Claude Desktop and Claude
+  Code. Only viewer/researcher tools are exposed; approvals and execution
+  stay behind the dashboard's human-approval workflow.
 
 ## Architecture
 
@@ -218,6 +232,20 @@ Run the full automated suite:
 
 ```powershell
 python -m unittest discover -s tests -v
+```
+
+Attach the platform to an MCP client (for example Claude Desktop or Claude
+Code) by registering the stdio server:
+
+```json
+{
+  "mcpServers": {
+    "iimc-trading": {
+      "command": "python",
+      "args": ["-m", "iimc_trading_platform.mcp_server"]
+    }
+  }
+}
 ```
 
 Run a focused platform/API test subset:

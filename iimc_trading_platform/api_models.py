@@ -13,6 +13,11 @@ class ChatRequest(BaseModel):
     session_id: str | None = None
 
 
+class McpCallRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    arguments: dict[str, Any] = Field(default_factory=dict)
+
+
 class ToolEvidenceResponse(BaseModel):
     tool_call_id: str
     tool_name: str

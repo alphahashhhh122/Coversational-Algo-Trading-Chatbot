@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import asdict
 from pathlib import Path
@@ -24,6 +25,7 @@ from .api_models import (
     LoginRequest,
     LocalFeatureDatasetInput,
     LocalOhlcvDatasetInput,
+    McpCallRequest,
     OpenAlgoHistoryImportRequest,
     OptionsFeatureDerivationInput,
     PortfolioControlRequest,
@@ -1784,6 +1786,70 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         return {
             "session_id": session_id,
             "messages": conversation_service.history(session_id, limit),
+        }
+
+    @app.get("/mcp/tools")
+    def mcp_tools(principal: Principal = Depends(viewer)) -> dict[str, Any]:
+        """List platform tools as MCP-compatible tool definitions."""
+        allowed = tool_registry.allowed_for_role(principal.role)
+        return {
+            "protocol": "mcp-compatible",
+            "server_name": "iimc-trading-platform",
+            "tools": [
+                {
+                    "name": tool["name"],
+                    "description": (
+                        f"{tool['description']} "
+                        f"Side effects: {tool['side_effects']}."
+                    ),
+                    "inputSchema": tool["input_schema"],
+                }
+                for tool in tool_registry.list_tools()
+                if tool["name"] in allowed
+            ],
+        }
+
+    @app.post("/mcp/call")
+    def mcp_call(
+        request: McpCallRequest,
+        principal: Principal = Depends(viewer),
+    ) -> dict[str, Any]:
+        """Execute a governed platform tool through an MCP-style envelope.
+
+        Uses the same audited execution path as chat: role checks, live
+        trading gates, and approval requirements are all preserved.
+        """
+        allowed = tool_registry.allowed_for_role(principal.role)
+        if request.name not in allowed:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    f"Tool {request.name!r} is not available for role "
+                    f"{principal.role!r}."
+                ),
+            )
+        try:
+            result = execute_tool(request.name, request.arguments)
+        except HTTPException as exc:
+            detail = exc.detail
+            message = (
+                detail.get("message", str(detail))
+                if isinstance(detail, dict)
+                else str(detail)
+            )
+            return {
+                "content": [{"type": "text", "text": message}],
+                "isError": True,
+            }
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": json.dumps(result, default=str, indent=2),
+                }
+            ],
+            "isError": False,
+            "structuredContent": result,
         }
 
     @app.post("/chat", response_model=ChatResponse)

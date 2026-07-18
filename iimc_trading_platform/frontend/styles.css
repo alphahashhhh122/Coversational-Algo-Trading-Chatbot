@@ -229,6 +229,24 @@ h2 { margin-bottom: 4px; font-size: 16px; letter-spacing: 0; }
 }
 .message-body .md-table th { background: rgba(22, 115, 74, .07); }
 .message-body a { color: var(--blue); text-decoration: underline; }
+.message { position: relative; }
+.copy-message {
+  position: absolute; top: 8px; right: 8px; padding: 2px 8px;
+  color: var(--muted); background: var(--surface); border: 1px solid var(--line);
+  font-size: 11px; font-weight: 700; opacity: 0; transition: opacity .15s;
+}
+.message:hover .copy-message { opacity: 1; }
+.typing-dots { display: flex; gap: 5px; padding: 6px 0 2px; }
+.typing-dots span {
+  width: 7px; height: 7px; border-radius: 50%; background: var(--muted);
+  animation: typing-bounce 1.2s infinite ease-in-out;
+}
+.typing-dots span:nth-child(2) { animation-delay: .18s; }
+.typing-dots span:nth-child(3) { animation-delay: .36s; }
+@keyframes typing-bounce {
+  0%, 60%, 100% { opacity: .35; transform: translateY(0); }
+  30% { opacity: 1; transform: translateY(-4px); }
+}
 .composer { display: grid; grid-template-columns: 1fr auto; gap: 10px; padding: 14px; border-top: 1px solid var(--line); }
 textarea {
   width: 100%; resize: none; padding: 11px 12px; color: var(--ink);

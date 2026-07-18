@@ -1207,9 +1207,8 @@ class OfflineOrchestrator:
                 return OrchestrationDecision(
                     "get_market_quote",
                     {
-                        "symbol": symbol,
-                        "exchange": _exchange_from_text(text)
-                        or _default_exchange_for_asset("equity"),
+                        "query": symbol,
+                        "exchange": _exchange_from_text(message, default="NSE"),
                     },
                 )
             if "get_market_news" in tool_names:
@@ -1237,7 +1236,7 @@ class OfflineOrchestrator:
                     "get_market_news",
                     {
                         "query": _market_query_from_text(message),
-                        "symbol": _symbol_from_text(message),
+                        "symbol": None,
                     },
                 )
 
@@ -1262,7 +1261,7 @@ class OfflineOrchestrator:
                     "get_market_news",
                     {
                         "query": _market_query_from_text(message),
-                        "symbol": _symbol_from_text(message),
+                        "symbol": None,
                     },
                 )
 
@@ -1300,19 +1299,18 @@ class OfflineOrchestrator:
         if comparison_match and "get_market_quote" in tool_names:
             sym_a = comparison_match.group(1).upper()
             sym_b = comparison_match.group(2).upper()
-            exchange = (_exchange_from_text(text)
-                        or _default_exchange_for_asset("equity"))
+            exchange = _exchange_from_text(message, default="NSE")
             return OrchestrationDecision(
                 tool_name="get_market_quote",
-                arguments={"symbol": sym_a, "exchange": exchange},
+                arguments={"query": sym_a, "exchange": exchange},
                 tool_calls=[
                     ToolInvocation(
                         "get_market_quote",
-                        {"symbol": sym_a, "exchange": exchange},
+                        {"query": sym_a, "exchange": exchange},
                     ),
                     ToolInvocation(
                         "get_market_quote",
-                        {"symbol": sym_b, "exchange": exchange},
+                        {"query": sym_b, "exchange": exchange},
                     ),
                 ],
             )
@@ -1511,7 +1509,7 @@ def _openalgo_snapshot_types(text: str) -> list[str]:
     categories = (
         ("positionbook", ("position", "positions", "holding", "holdings")),
         ("orderbook", ("orderbook", "open order", "orders", "order")),
-        ("tradebook", ("tradebook", "trades", "trade", "fills", "fill")),
+        ("tradebook", ("tradebook", "trade book", "trades", "fills", "my trade")),
         (
             "funds",
             (

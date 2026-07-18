@@ -368,8 +368,8 @@ async function submitLogin(event) {
     state.principal = payload.user;
     renderPrincipal();
     hideLogin();
-    await loadOverview();
     await restoreChatHistory();
+    await loadOverview();
   } catch (error) {
     $("#auth-error").textContent = error.message;
   } finally {
@@ -1870,8 +1870,55 @@ function appendMessage(role, content, className = "") {
     <div class="message-role">${role === "user" ? "You" : "Assistant"}</div>
     <div class="message-body">${body}</div>
   `;
+  if (role === "assistant" && navigator.clipboard) {
+    const copyButton = document.createElement("button");
+    copyButton.type = "button";
+    copyButton.className = "copy-message";
+    copyButton.title = "Copy message";
+    copyButton.textContent = "Copy";
+    copyButton.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(content);
+        copyButton.textContent = "Copied";
+        setTimeout(() => { copyButton.textContent = "Copy"; }, 1500);
+      } catch (error) {
+        toast("Clipboard unavailable");
+      }
+    });
+    article.appendChild(copyButton);
+  }
   $("#messages").appendChild(article);
   $("#messages").scrollTop = $("#messages").scrollHeight;
+}
+
+function showTypingIndicator() {
+  const article = document.createElement("article");
+  article.className = "message assistant typing";
+  article.innerHTML = `
+    <div class="message-role">Assistant</div>
+    <div class="typing-dots"><span></span><span></span><span></span></div>
+  `;
+  $("#messages").appendChild(article);
+  $("#messages").scrollTop = $("#messages").scrollHeight;
+  return article;
+}
+
+function exportChatMarkdown() {
+  const sections = [...document.querySelectorAll("#messages .message")]
+    .filter((message) => !message.classList.contains("typing"))
+    .map((message) => {
+      const role = message.classList.contains("user") ? "You" : "Assistant";
+      const text = message.querySelector(".message-body, p")?.innerText || "";
+      return `**${role}:**\n\n${text}`;
+    });
+  const markdown = `# IIMC Trading Assistant conversation\n\nSession: ${state.sessionId}\n\n${sections.join("\n\n---\n\n")}\n`;
+  const blob = new Blob([markdown], { type: "text/markdown" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `${state.sessionId}.md`;
+  anchor.click();
+  URL.revokeObjectURL(url);
 }
 
 async function restoreChatHistory() {
@@ -1920,11 +1967,13 @@ async function submitChat(event) {
   appendMessage("user", message);
   input.value = "";
   $("#send-button").disabled = true;
+  const typing = showTypingIndicator();
   try {
     const payload = await api("/chat", {
       method: "POST",
       body: JSON.stringify({ session_id: state.sessionId, message }),
     });
+    typing.remove();
     appendMessage("assistant", payload.answer);
     renderEvidence(payload);
     if (["get_openalgo_snapshot", "get_openalgo_monitor"].includes(payload.intent)) {
@@ -1935,6 +1984,7 @@ async function submitChat(event) {
       }
     }
   } catch (error) {
+    typing.remove();
     appendMessage("assistant", error.message, "error");
   } finally {
     $("#send-button").disabled = false;
@@ -3465,6 +3515,39 @@ function wireEvents() {
       }
     });
   });
+  $("#export-chat").addEventListener("click", exportChatMarkdown);
+  document.addEventListener("keydown", (event) => {
+    const activeTag = document.activeElement?.tagName;
+    const inField = ["INPUT", "TEXTAREA", "SELECT"].includes(activeTag);
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+      event.preventDefault();
+      setView("workspace");
+      $("#chat-input").focus();
+      return;
+    }
+    if (inField) {
+      if (event.key === "Escape") document.activeElement.blur();
+      return;
+    }
+    if (event.key === "/") {
+      event.preventDefault();
+      setView("workspace");
+      $("#chat-input").focus();
+      return;
+    }
+    const viewKeys = {
+      1: "workspace",
+      2: "runs",
+      3: "strategies",
+      4: "data",
+      5: "approvals",
+      6: "monitor",
+      7: "settings",
+    };
+    if (viewKeys[event.key] && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      setView(viewKeys[event.key]);
+    }
+  });
   $("#new-session").addEventListener("click", () => {
     state.sessionId = `session_ui_${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
     localStorage.setItem("iimc_chat_session", state.sessionId);
@@ -3536,12 +3619,12 @@ async function start() {
   if (state.health?.checks?.authentication_required && !state.principal) {
     return;
   }
+  await restoreChatHistory();
   try {
     await loadOverview();
   } catch (error) {
     toast(error.message);
   }
-  await restoreChatHistory();
 }
 
 start();

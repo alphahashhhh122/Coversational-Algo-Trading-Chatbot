@@ -1266,6 +1266,27 @@ class OrchestrationContractsTest(unittest.TestCase):
             "Show me top gainers today", [], registry,
         )
         self.assertEqual(decision.tool_name, "get_market_news")
+        self.assertIsNone(decision.arguments.get("symbol"))
+
+    def test_offline_router_comparison_arguments_validate(self) -> None:
+        registry = build_default_tool_registry(
+            Path("unused.duckdb"),
+            openalgo_base_url="http://127.0.0.1:5000",
+            openalgo_api_key="test",
+        )
+        decision = OfflineOrchestrator().select_tool(
+            "Compare Reliance vs TCS", [], registry,
+        )
+        quote_tool = registry.get("get_market_quote")
+        for invocation in decision.tool_calls:
+            quote_tool.validate(invocation.arguments)
+
+    def test_offline_router_crypto_capability_question(self) -> None:
+        registry = build_default_tool_registry(Path("unused.duckdb"))
+        decision = OfflineOrchestrator().select_tool(
+            "Can you trade crypto?", [], registry,
+        )
+        self.assertNotEqual(decision.tool_name, "get_openalgo_snapshot")
 
     def test_offline_router_handles_sector_outlook(self) -> None:
         registry = build_default_tool_registry(Path("unused.duckdb"))
@@ -1305,7 +1326,7 @@ class OrchestrationContractsTest(unittest.TestCase):
         )
         self.assertEqual(decision.tool_name, "get_market_quote")
         self.assertTrue(len(decision.tool_calls) == 2)
-        symbols = {call.arguments["symbol"] for call in decision.tool_calls}
+        symbols = {call.arguments["query"] for call in decision.tool_calls}
         self.assertEqual(symbols, {"RELIANCE", "TCS"})
 
     def test_offline_router_handles_52_week_high(self) -> None:
