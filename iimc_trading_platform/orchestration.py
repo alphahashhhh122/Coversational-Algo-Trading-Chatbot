@@ -1164,12 +1164,19 @@ class OfflineOrchestrator:
                 "",
                 text,
             ).strip().rstrip("?")
-            if concept and "search_knowledge" in tool_names:
-                return OrchestrationDecision(
-                    "search_knowledge",
-                    {"query": concept, "limit": 5},
-                )
             if concept:
+                known = _education_lookup(concept)
+                if known:
+                    return OrchestrationDecision(
+                        tool_name=None,
+                        arguments={},
+                        direct_response=known,
+                    )
+                if "search_knowledge" in tool_names:
+                    return OrchestrationDecision(
+                        "search_knowledge",
+                        {"query": concept, "limit": 5},
+                    )
                 return OrchestrationDecision(
                     tool_name=None,
                     arguments={},
@@ -1733,11 +1740,18 @@ _EDUCATION_MAP: dict[str, str] = {
 }
 
 
-def _educational_response(concept: str) -> str:
+def _education_lookup(concept: str) -> str | None:
     concept_lower = concept.lower().strip()
     for key, explanation in _EDUCATION_MAP.items():
         if key in concept_lower:
             return explanation
+    return None
+
+
+def _educational_response(concept: str) -> str:
+    known = _education_lookup(concept)
+    if known:
+        return known
     return (
         f"I don't have a built-in explanation for '{concept}', but you can "
         f"try: 'search knowledge {concept}' to check the governed document "

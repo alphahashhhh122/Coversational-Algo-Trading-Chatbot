@@ -1,5 +1,6 @@
 const state = {
-  sessionId: `session_ui_${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`,
+  sessionId: localStorage.getItem("iimc_chat_session")
+    || `session_ui_${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`,
   health: null,
   datasets: [],
   runs: [],
@@ -37,7 +38,21 @@ const state = {
   principal: null,
 };
 
+localStorage.setItem("iimc_chat_session", state.sessionId);
+
 const $ = (selector) => document.querySelector(selector);
+
+function applyTheme(dark) {
+  document.documentElement.classList.toggle("dark-theme", dark);
+  const button = $("#theme-toggle");
+  if (button) button.textContent = dark ? "Light mode" : "Dark mode";
+}
+
+applyTheme(
+  localStorage.getItem("iimc_theme")
+    ? localStorage.getItem("iimc_theme") === "dark"
+    : window.matchMedia("(prefers-color-scheme: dark)").matches,
+);
 const DEFAULT_DASHBOARD_WIDGETS = ["research", "assets", "backtests", "openalgo", "risk", "execution"];
 
 function marketDatasets() {
@@ -354,6 +369,7 @@ async function submitLogin(event) {
     renderPrincipal();
     hideLogin();
     await loadOverview();
+    await restoreChatHistory();
   } catch (error) {
     $("#auth-error").textContent = error.message;
   } finally {
@@ -1731,15 +1747,147 @@ function hasRole(required) {
   return (rank[state.principal?.role] || 0) >= rank[required];
 }
 
+function renderMarkdownInline(segment) {
+  return segment
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|[^*])\*([^*\s][^*]*)\*/g, "$1<em>$2</em>")
+    .replace(
+      /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
+      '<a href="$2" target="_blank" rel="noreferrer">$1</a>',
+    );
+}
+
+function splitMarkdownTableRow(line) {
+  return line.trim().replace(/^\|/, "").replace(/\|$/, "")
+    .split("|").map((cell) => cell.trim());
+}
+
+function renderMarkdown(raw) {
+  const codeBlocks = [];
+  const withPlaceholders = String(raw ?? "").replace(
+    /```\w*\n?([\s\S]*?)```/g,
+    (match, code) => {
+      codeBlocks.push(
+        `<pre class="md-code"><code>${escapeHtml(code.replace(/\n$/, ""))}</code></pre>`,
+      );
+      return `@@MDCODE${codeBlocks.length - 1}@@`;
+    },
+  );
+  const lines = escapeHtml(withPlaceholders).split("\n");
+  const html = [];
+  let listType = null;
+  const closeList = () => {
+    if (listType) {
+      html.push(`</${listType}>`);
+      listType = null;
+    }
+  };
+  let index = 0;
+  while (index < lines.length) {
+    const line = lines[index];
+    const placeholder = line.trim().match(/^@@MDCODE(\d+)@@$/);
+    if (placeholder) {
+      closeList();
+      html.push(codeBlocks[Number(placeholder[1])] || "");
+      index += 1;
+      continue;
+    }
+    if (
+      line.includes("|")
+      && index + 1 < lines.length
+      && /^\s*\|?[\s:|-]+\|[\s:|-]*$/.test(lines[index + 1])
+    ) {
+      closeList();
+      const headers = splitMarkdownTableRow(line);
+      index += 2;
+      const rows = [];
+      while (index < lines.length && lines[index].includes("|")) {
+        rows.push(splitMarkdownTableRow(lines[index]));
+        index += 1;
+      }
+      html.push(
+        '<table class="md-table"><thead><tr>'
+        + headers.map((cell) => `<th>${renderMarkdownInline(cell)}</th>`).join("")
+        + "</tr></thead><tbody>"
+        + rows.map((cells) => (
+          "<tr>" + cells.map((cell) => `<td>${renderMarkdownInline(cell)}</td>`).join("") + "</tr>"
+        )).join("")
+        + "</tbody></table>",
+      );
+      continue;
+    }
+    const heading = line.match(/^(#{1,4})\s+(.*)$/);
+    if (heading) {
+      closeList();
+      const level = Math.min(heading[1].length + 2, 6);
+      html.push(`<h${level}>${renderMarkdownInline(heading[2])}</h${level}>`);
+      index += 1;
+      continue;
+    }
+    const bullet = line.match(/^\s*[-*•]\s+(.*)$/);
+    if (bullet) {
+      if (listType !== "ul") {
+        closeList();
+        html.push("<ul>");
+        listType = "ul";
+      }
+      html.push(`<li>${renderMarkdownInline(bullet[1])}</li>`);
+      index += 1;
+      continue;
+    }
+    const ordered = line.match(/^\s*\d+[.)]\s+(.*)$/);
+    if (ordered) {
+      if (listType !== "ol") {
+        closeList();
+        html.push("<ol>");
+        listType = "ol";
+      }
+      html.push(`<li>${renderMarkdownInline(ordered[1])}</li>`);
+      index += 1;
+      continue;
+    }
+    if (!line.trim()) {
+      closeList();
+      index += 1;
+      continue;
+    }
+    closeList();
+    html.push(`<p>${renderMarkdownInline(line)}</p>`);
+    index += 1;
+  }
+  closeList();
+  return html.join("");
+}
+
 function appendMessage(role, content, className = "") {
   const article = document.createElement("article");
   article.className = `message ${role} ${className}`.trim();
+  const body = role === "assistant" && !className.includes("error")
+    ? renderMarkdown(content)
+    : `<p>${escapeHtml(content)}</p>`;
   article.innerHTML = `
     <div class="message-role">${role === "user" ? "You" : "Assistant"}</div>
-    <p>${escapeHtml(content)}</p>
+    <div class="message-body">${body}</div>
   `;
   $("#messages").appendChild(article);
   $("#messages").scrollTop = $("#messages").scrollHeight;
+}
+
+async function restoreChatHistory() {
+  try {
+    const payload = await api(
+      `/sessions/${encodeURIComponent(state.sessionId)}/messages?limit=100`,
+    );
+    const messages = (payload.messages || []).filter(
+      (entry) => entry.role === "user" || entry.role === "assistant",
+    );
+    if (!messages.length) return;
+    $("#messages").innerHTML = "";
+    messages.forEach((entry) => appendMessage(entry.role, entry.content));
+  } catch (error) {
+    // Best effort: keep the default welcome message when history is empty.
+  }
 }
 
 function renderEvidence(payload) {
@@ -3144,8 +3292,14 @@ function wireEvents() {
       $("#chat-form").requestSubmit();
     }
   });
+  $("#theme-toggle").addEventListener("click", () => {
+    const dark = !document.documentElement.classList.contains("dark-theme");
+    applyTheme(dark);
+    localStorage.setItem("iimc_theme", dark ? "dark" : "light");
+  });
   $("#new-session").addEventListener("click", () => {
     state.sessionId = `session_ui_${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
+    localStorage.setItem("iimc_chat_session", state.sessionId);
     $("#messages").innerHTML = "";
     appendMessage("assistant", "New audited session started. What would you like to inspect?");
     $("#evidence-content").classList.add("hidden");
@@ -3219,6 +3373,7 @@ async function start() {
   } catch (error) {
     toast(error.message);
   }
+  await restoreChatHistory();
 }
 
 start();

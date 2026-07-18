@@ -1231,15 +1231,24 @@ class OrchestrationContractsTest(unittest.TestCase):
         decision = OfflineOrchestrator().select_tool(
             "What is RSI?", [], registry,
         )
-        self.assertEqual(decision.tool_name, "search_knowledge")
-        self.assertIn("rsi", decision.arguments["query"].lower())
+        self.assertIsNone(decision.tool_name)
+        self.assertIn("Relative Strength Index", decision.direct_response)
 
     def test_offline_router_handles_explain_macd(self) -> None:
         registry = build_default_tool_registry(Path("unused.duckdb"))
         decision = OfflineOrchestrator().select_tool(
             "explain MACD indicator", [], registry,
         )
+        self.assertIsNone(decision.tool_name)
+        self.assertIn("MACD", decision.direct_response)
+
+    def test_offline_router_unknown_concept_searches_documents(self) -> None:
+        registry = build_default_tool_registry(Path("unused.duckdb"))
+        decision = OfflineOrchestrator().select_tool(
+            "What is delta hedging?", [], registry,
+        )
         self.assertEqual(decision.tool_name, "search_knowledge")
+        self.assertIn("delta hedging", decision.arguments["query"].lower())
 
     def test_offline_router_handles_fundamental_pe_ratio(self) -> None:
         registry = build_default_tool_registry(Path("unused.duckdb"))
