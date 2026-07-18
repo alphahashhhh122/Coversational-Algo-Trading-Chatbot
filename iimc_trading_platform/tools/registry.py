@@ -267,6 +267,10 @@ class FundamentalAnalysisInput(ToolInput):
     market_price: float | None = Field(default=None, gt=0)
 
 
+class RunScreenInput(ToolInput):
+    name: str = Field(min_length=1, max_length=80)
+
+
 class PlatformReadinessInput(ToolInput):
     symbol: str = Field(min_length=1, max_length=80)
     exchange: str = Field(min_length=1, max_length=20)
@@ -496,8 +500,10 @@ def build_default_tool_registry(
     freshness = FreshnessService(db_path)
     knowledge = KnowledgeService(db_path)
     from ..services.fundamentals_service import FundamentalsService
+    from ..services.screen_service import ScreenService
 
     fundamentals = FundamentalsService(db_path)
+    screens = ScreenService(db_path)
     evidence = EvidenceService(db_path, artifacts_dir)
     from ..services.robustness_service import RobustnessService
 
@@ -704,6 +710,32 @@ def build_default_tool_registry(
                 retry_safe=True,
                 capabilities=ToolCapabilityMetadata(
                     actions=("analyze", "explain"),
+                    asset_classes=("equity",),
+                    execution_modes=("research",),
+                    risk_level="low",
+                ),
+            ),
+            ToolDefinition(
+                name="run_screen",
+                description=(
+                    "Run a versioned fundamental screen (e.g. quality, "
+                    "growth, low_leverage) over all symbols with imported "
+                    "financial statements. Reports matches with actual "
+                    "values and honest exclusions for missing metrics."
+                ),
+                input_model=RunScreenInput,
+                handler=lambda value: (
+                    screens.ensure_defaults()
+                    or screens.run(
+                        RunScreenInput.model_validate(
+                            value.model_dump()
+                        ).name
+                    )
+                ),
+                side_effects="read-only database query (seeds default screens once)",
+                retry_safe=True,
+                capabilities=ToolCapabilityMetadata(
+                    actions=("screen", "analyze"),
                     asset_classes=("equity",),
                     execution_modes=("research",),
                     risk_level="low",

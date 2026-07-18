@@ -3083,6 +3083,36 @@ function renderKnowledgeDocuments() {
   });
 }
 
+async function submitFundamentalsImport(event) {
+  event.preventDefault();
+  const button = $("#fundamentals-import-submit");
+  const status = $("#fundamentals-status");
+  button.disabled = true;
+  try {
+    const statements = JSON.parse($("#fundamentals-statements").value);
+    if (!Array.isArray(statements)) {
+      throw new Error("Statements must be a JSON array");
+    }
+    const symbol = $("#fundamentals-symbol").value.trim().toUpperCase();
+    const payload = await api("/fundamentals/statements", {
+      method: "POST",
+      body: JSON.stringify({
+        symbol,
+        currency: $("#fundamentals-currency").value.trim(),
+        source: $("#fundamentals-source").value.trim(),
+        statements,
+      }),
+    });
+    status.textContent = `Imported ${payload.imported_periods} period(s) for ${payload.symbol}. Ask the chat: "analyze ${payload.symbol} fundamentally".`;
+    toast(`Statements imported for ${payload.symbol}`);
+  } catch (error) {
+    status.textContent = error.message;
+    toast(error.message);
+  } finally {
+    button.disabled = false;
+  }
+}
+
 async function submitKnowledgeUpload(event) {
   event.preventDefault();
   const button = $("#knowledge-upload-submit");
@@ -3552,6 +3582,7 @@ function wireEvents() {
   $("#paper-use-ltp").addEventListener("click", useCurrentPaperQuote);
   $("#knowledge-search-form").addEventListener("submit", submitKnowledgeSearch);
   $("#knowledge-upload-form").addEventListener("submit", submitKnowledgeUpload);
+  $("#fundamentals-import-form").addEventListener("submit", submitFundamentalsImport);
   $("#ohlcv-import-form").addEventListener("submit", submitOhlcvImport);
   $("#openalgo-history-import-form").addEventListener("submit", submitOpenAlgoHistoryImport);
   $("#feature-import-form").addEventListener("submit", submitFeatureImport);

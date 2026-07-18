@@ -397,6 +397,39 @@
           </form>
           <div class="knowledge-doc-list" id="knowledge-doc-list"></div>
         </section>
+        <section class="rag-panel">
+          <div class="section-heading">
+            <div>
+              <h2>Financial Statements</h2>
+              <p>Import annual or quarterly statements, then ask the chat: "analyze &lt;symbol&gt; fundamentally". Ratios are deterministic with recorded formulas.</p>
+            </div>
+          </div>
+          <form class="knowledge-search-form" id="fundamentals-import-form">
+            <label><span>Symbol</span><input id="fundamentals-symbol" maxlength="40" placeholder="ACME" required></label>
+            <label><span>Currency</span><input id="fundamentals-currency" maxlength="10" value="INR" required></label>
+            <label><span>Source</span><input id="fundamentals-source" maxlength="200" placeholder="annual_report_fy2026" required></label>
+            <label class="experiment-grid-input"><span>Statements (JSON array)</span><textarea id="fundamentals-statements" rows="9" spellcheck="false">[
+  {
+    "period": "FY2026",
+    "period_end": "2026-03-31",
+    "revenue": 1200,
+    "operating_profit": 264,
+    "net_income": 180,
+    "total_assets": 2300,
+    "total_equity": 1150,
+    "total_debt": 380,
+    "current_assets": 690,
+    "current_liabilities": 300,
+    "operating_cash_flow": 260,
+    "capital_expenditure": 80,
+    "shares_outstanding": 100,
+    "dividends_paid": 60
+  }
+]</textarea></label>
+            <button type="submit" class="primary-button" id="fundamentals-import-submit">Import statements</button>
+          </form>
+          <div class="fundamentals-status" id="fundamentals-status"></div>
+        </section>
         <div class="dataset-list" id="dataset-list"></div>
         <details class="workspace-tools">
           <summary>Manual imports: OHLCV JSON, point-in-time features, options feature derivation, document search</summary>

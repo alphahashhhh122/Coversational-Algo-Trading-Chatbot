@@ -879,6 +879,20 @@ def initialize_database(db_path: Path) -> None:
         )
         con.execute(
             """
+            CREATE TABLE IF NOT EXISTS screen_definitions (
+                screen_id VARCHAR PRIMARY KEY,
+                name VARCHAR NOT NULL,
+                version INTEGER NOT NULL,
+                description VARCHAR NOT NULL,
+                criteria_json VARCHAR NOT NULL,
+                created_by VARCHAR NOT NULL,
+                created_at TIMESTAMP NOT NULL,
+                UNIQUE(name, version)
+            )
+            """
+        )
+        con.execute(
+            """
             CREATE TABLE IF NOT EXISTS financial_statements (
                 statement_id VARCHAR PRIMARY KEY,
                 symbol VARCHAR NOT NULL,

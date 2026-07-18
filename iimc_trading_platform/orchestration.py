@@ -707,6 +707,19 @@ class OfflineOrchestrator:
                 "analyze_knowledge_document",
                 {"document": document_title},
             )
+        screen_match = re.search(
+            r"(?:run\s+(?:the\s+)?([\w-]+)\s+screen"
+            r"|screen\s+for\s+([\w-]+))\b",
+            text,
+        )
+        if screen_match and "run_screen" in tool_names:
+            screen_name = (
+                screen_match.group(1) or screen_match.group(2)
+            ).replace("-", "_")
+            return OrchestrationDecision(
+                "run_screen",
+                {"name": screen_name},
+            )
         if (
             "analyze_fundamentals" in tool_names
             and re.search(
@@ -2500,6 +2513,36 @@ def _grounded_fallback_response(
             f"{', '.join(enabled_paths) or 'none'}. Live trading enabled: "
             f"{result.get('safety', {}).get('live_trading_enabled')}. "
             "No synthetic fallback is allowed."
+        )
+    if tool_name == "run_screen":
+        matches = result.get("matches", [])
+        excluded = result.get("excluded", [])
+        criteria_text = "; ".join(
+            f"{item['metric']} {item['op']} {item['value']}"
+            for item in result.get("criteria", [])
+        )
+        match_lines = [
+            f"- **{item['symbol']}**: "
+            + ", ".join(
+                f"{metric}={value:.4f}" if value is not None else f"{metric}=n/a"
+                for metric, value in item["values"].items()
+            )
+            for item in matches
+        ] or ["- (no symbols passed)"]
+        excluded_note = (
+            f"\n{len(excluded)} symbol(s) excluded (failed criteria or "
+            "missing metrics)."
+            if excluded
+            else ""
+        )
+        return (
+            f"Screen **{result.get('screen')}** v{result.get('version')} "
+            f"({criteria_text}) over {result.get('universe_size', 0)} "
+            f"symbol(s) with imported statements:\n"
+            + "\n".join(match_lines)
+            + excluded_note
+            + "\nScreens evaluate deterministic ratios from imported "
+            "statements only; import more statements to widen the universe."
         )
     if tool_name == "analyze_fundamentals":
         lines = []

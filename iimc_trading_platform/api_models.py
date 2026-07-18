@@ -18,6 +18,12 @@ class McpCallRequest(BaseModel):
     arguments: dict[str, Any] = Field(default_factory=dict)
 
 
+class ScreenDefinitionRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    description: str = Field(min_length=1, max_length=500)
+    criteria: list[dict[str, Any]] = Field(min_length=1, max_length=20)
+
+
 class FundamentalStatementsImportRequest(BaseModel):
     symbol: str = Field(min_length=1, max_length=40)
     currency: str = Field(default="INR", max_length=10)

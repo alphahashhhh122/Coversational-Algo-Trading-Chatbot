@@ -35,6 +35,7 @@ from .api_models import (
     PortfolioFillRequest,
     PortfolioRiskCheckRequest,
     RetentionExecuteRequest,
+    ScreenDefinitionRequest,
     RetentionPreviewRequest,
     ResearchBriefRequest,
     RobustnessExperimentRequest,
@@ -1411,6 +1412,40 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             "analyze_fundamentals",
             {"symbol": symbol, "market_price": market_price},
         )
+
+    @app.get("/screens")
+    def list_screens(
+        principal: Principal = Depends(viewer),
+    ) -> dict[str, Any]:
+        from .services.screen_service import ScreenService
+
+        service = ScreenService(active_config.database_path)
+        service.ensure_defaults()
+        return service.list_definitions()
+
+    @app.post("/screens")
+    def save_screen(
+        request: ScreenDefinitionRequest,
+        principal: Principal = Depends(researcher),
+    ) -> dict[str, Any]:
+        from .services.screen_service import ScreenService
+
+        try:
+            return ScreenService(active_config.database_path).save_definition(
+                name=request.name,
+                description=request.description,
+                criteria=request.criteria,
+                created_by=principal.username,
+            )
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.get("/screens/{name}/run")
+    def run_screen(
+        name: str,
+        principal: Principal = Depends(viewer),
+    ) -> dict[str, Any]:
+        return execute_tool("run_screen", {"name": name})
 
     @app.post("/knowledge/documents")
     def upload_knowledge_document(
