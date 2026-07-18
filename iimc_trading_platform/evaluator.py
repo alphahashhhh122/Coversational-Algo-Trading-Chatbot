@@ -62,9 +62,9 @@ class ResponseEvaluator:
         if tool_name and (tool_result is None or tool_call_id is None):
             warnings.append("missing_tool_evidence")
 
-        for evidence_id in evidence_ids:
-            if evidence_id not in answer:
-                answer = f"{answer}\n\nEvidence: {evidence_id}"
+        # Evidence identifiers are returned in evidence_ids (persisted and
+        # shown in the UI evidence panel) rather than injected into the
+        # conversational answer text.
 
         if tool_name == "run_backtest" and tool_result:
             warnings.extend(_validate_backtest_metrics(answer, tool_result))
@@ -181,8 +181,6 @@ def _safe_replacement(
                 " Verified tool result: "
                 f"{json.dumps(tool_result, default=str)}"
             )
-    if evidence_ids:
-        answer += "\n\nEvidence: " + ", ".join(evidence_ids)
     return answer
 
 

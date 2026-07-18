@@ -2747,9 +2747,9 @@ def _grounded_fallback_response(
         if not articles:
             subject = result.get("symbol") or result.get("query") or "this request"
             return (
-                f"The configured news provider returned no matching articles for {subject}. "
-                "No market outlook was inferred from missing news. "
-                f"Evidence: {result.get('fetch_id')}."
+                f"The configured news provider returned no matching articles "
+                f"for {subject}. No market outlook was inferred from missing "
+                "news."
             )
         unique_headlines: list[str] = []
         seen_titles: set[str] = set()
@@ -2762,18 +2762,17 @@ def _grounded_fallback_response(
                 continue
             seen_titles.add(normalized_title)
             unique_headlines.append(
-                f"{title} ({item.get('source', 'source unavailable')})"
+                f"- **{title}** — {item.get('source', 'source unavailable')}"
             )
-            if len(unique_headlines) == 3:
+            if len(unique_headlines) == 5:
                 break
-        headlines = "; ".join(unique_headlines)
+        subject = result.get("symbol") or result.get("query") or "the market"
         return (
-            "This is a current catalyst snapshot, not a prediction of next "
-            "week's winners. The returned evidence does not support a "
-            "validated stock-level ranking. Recent provider-backed headlines: "
-            f"{headlines or 'none'}. "
-            f"Fetched {result.get('article_count', 0)} article(s). "
-            f"Evidence: {result.get('fetch_id')}."
+            f"**Latest headlines for {subject}** "
+            f"({result.get('article_count', 0)} article(s) fetched):\n"
+            + "\n".join(unique_headlines)
+            + "\n\nThis is a current catalyst snapshot from the configured "
+            "news provider, not a prediction or a stock recommendation."
         )
     if tool_name == "get_market_quote":
         if not result.get("ok"):
