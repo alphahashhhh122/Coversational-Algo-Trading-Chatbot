@@ -766,7 +766,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     @app.get("/ready")
     def ready() -> dict[str, Any]:
-        result = production_readiness(active_config)
+        result = json.loads(
+            json.dumps(production_readiness(active_config), default=str)
+        )
         if result["status"] != "ready":
             raise HTTPException(status_code=503, detail=result)
         return result
