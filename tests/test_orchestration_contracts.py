@@ -1336,6 +1336,25 @@ class OrchestrationContractsTest(unittest.TestCase):
         )
         self.assertEqual(decision.tool_name, "get_market_news")
 
+    def test_search_knowledge_grounded_response_includes_excerpts(self) -> None:
+        from iimc_trading_platform.orchestration import grounded_tool_response
+
+        answer = grounded_tool_response(
+            "search_knowledge",
+            {
+                "matches": [
+                    {
+                        "title": "Acme Annual Report",
+                        "chunk_id": "chunk_1",
+                        "content": "Revenue grew 18 percent this year.",
+                    },
+                ],
+            },
+        )
+
+        self.assertIn("Acme Annual Report", answer)
+        self.assertIn("Revenue grew 18 percent", answer)
+
     def test_offline_router_refuses_weather_question(self) -> None:
         registry = build_default_tool_registry(Path("unused.duckdb"))
         decision = OfflineOrchestrator().select_tool(

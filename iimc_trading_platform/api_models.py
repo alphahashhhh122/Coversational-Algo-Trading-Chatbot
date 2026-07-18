@@ -18,6 +18,14 @@ class McpCallRequest(BaseModel):
     arguments: dict[str, Any] = Field(default_factory=dict)
 
 
+class KnowledgeDocumentUploadRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    text: str = ""
+    document_type: str = Field(default="text", max_length=40)
+    source_uri: str | None = Field(default=None, max_length=500)
+    content_base64: str | None = None
+
+
 class ToolEvidenceResponse(BaseModel):
     tool_call_id: str
     tool_name: str

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,7 @@ from .api_models import (
     CreatePortfolioRequest,
     CustomStrategyBacktestRequest,
     DashboardPreferencesRequest,
+    KnowledgeDocumentUploadRequest,
     LoginRequest,
     LocalFeatureDatasetInput,
     LocalOhlcvDatasetInput,
@@ -86,6 +88,7 @@ from .services import (
     foundation_health,
 )
 from .services.chat_service import ChatService
+from .services.knowledge_service import KnowledgeService
 from .services.ai_evaluation_service import AiEvaluationService
 from .services.alert_service import AlertService
 from .services.retrieval_evaluation_service import (
@@ -1361,6 +1364,80 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             "search_knowledge",
             request.model_dump(mode="json"),
         )
+
+    @app.post("/knowledge/documents")
+    def upload_knowledge_document(
+        request: KnowledgeDocumentUploadRequest,
+        principal: Principal = Depends(researcher),
+    ) -> dict[str, Any]:
+        """Index a user-supplied document (company report, filing, notes)."""
+        text = request.text
+        document_type = request.document_type
+        if request.content_base64:
+            try:
+                import pypdf  # noqa: F401
+            except ImportError as exc:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "PDF support requires the optional pypdf package "
+                        "(pip install pypdf). Paste the text or upload a "
+                        ".txt/.md file instead."
+                    ),
+                ) from exc
+            import base64
+            import io
+            try:
+                reader = pypdf.PdfReader(
+                    io.BytesIO(base64.b64decode(request.content_base64))
+                )
+                text = "\n\n".join(
+                    page.extract_text() or "" for page in reader.pages
+                )
+                document_type = "pdf"
+            except Exception as exc:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Could not read the PDF: {exc}",
+                ) from exc
+        if not text.strip():
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "The document has no extractable text. Provide 'text' "
+                    "or a readable PDF."
+                ),
+            )
+        slug = re.sub(r"[^a-z0-9]+", "-", request.title.lower()).strip("-")
+        knowledge = KnowledgeService(active_config.database_path)
+        try:
+            document = knowledge.index_text(
+                title=request.title,
+                source_uri=request.source_uri or f"upload://{slug}",
+                text=text,
+                document_type=document_type,
+                metadata={
+                    "corpus": "user_uploaded",
+                    "uploaded_by": principal.username,
+                },
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        audit = AuditService(
+            DuckDBAuditRepository(active_config.database_path)
+        )
+        event = audit.record(
+            actor=principal.username,
+            action="knowledge_document_uploaded",
+            entity_type="knowledge_document",
+            entity_id=document["document_id"],
+            payload={
+                "title": request.title,
+                "document_type": document_type,
+                "chunk_count": document.get("chunk_count"),
+            },
+        )
+        return {**document, "audit_id": event.audit_id}
 
     @app.get("/market-news/status")
     def market_news_status(

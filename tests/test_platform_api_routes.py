@@ -104,6 +104,99 @@ class PlatformApiRoutesTest(unittest.TestCase):
         self.assertEqual(payload["latest_completed_run"], None)
         self.assertGreaterEqual(len(payload["ui_actions"]), 3)
 
+    def test_knowledge_document_upload_and_search(self) -> None:
+        response = self.client.post(
+            "/knowledge/documents",
+            json={
+                "title": "Acme Industries Annual Report 2026",
+                "text": (
+                    "Acme Industries reported revenue growth of 18 percent "
+                    "driven by specialty chemicals.\n\n"
+                    "The board declared a dividend of 12 rupees per share "
+                    "and net debt fell by 30 percent."
+                ),
+                "document_type": "text",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["document_id"].startswith("doc_"))
+        self.assertTrue(payload["audit_id"].startswith("audit_"))
+        self.assertGreaterEqual(payload["chunk_count"], 1)
+
+        listing = self.client.get("/knowledge/documents").json()
+        titles = {item["title"] for item in listing["documents"]}
+        self.assertIn("Acme Industries Annual Report 2026", titles)
+
+        search = self.client.post(
+            "/knowledge/search",
+            json={"query": "Acme specialty chemicals revenue"},
+        )
+        self.assertEqual(search.status_code, 200)
+        matches = search.json()["matches"]
+        self.assertTrue(
+            any("specialty chemicals" in item["content"] for item in matches)
+        )
+
+    def test_knowledge_document_upload_rejects_empty_text(self) -> None:
+        response = self.client.post(
+            "/knowledge/documents",
+            json={"title": "Empty upload", "text": "   "},
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_knowledge_document_pdf_without_pypdf_is_rejected(self) -> None:
+        try:
+            import pypdf  # noqa: F401
+            self.skipTest("pypdf is installed; ImportError path not reachable")
+        except ImportError:
+            pass
+        response = self.client.post(
+            "/knowledge/documents",
+            json={
+                "title": "PDF upload",
+                "content_base64": "JVBERi0xLjQK",
+            },
+        )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("pypdf", response.json()["detail"])
+
+    def test_uploaded_document_survives_knowledge_sync_job(self) -> None:
+        upload = self.client.post(
+            "/knowledge/documents",
+            json={
+                "title": "Uploaded Earnings Transcript",
+                "text": "Management guided for stable operating margins.",
+            },
+        )
+        self.assertEqual(upload.status_code, 200)
+
+        from iimc_trading_platform.config import AppConfig as _AppConfig
+        from iimc_trading_platform.services import (
+            build_job_service,
+            register_default_jobs,
+        )
+
+        config = _AppConfig(
+            database_path=self.db_path,
+            artifacts_dir=self.artifacts_dir,
+        )
+        job_service = build_job_service(config)
+        register_default_jobs(job_service, include_openalgo=False)
+        sync_job_id = next(
+            job["job_id"]
+            for job in job_service.list_jobs()["jobs"]
+            if job["job_type"] == "knowledge_sync"
+        )
+        job_service.run_now(sync_job_id, "test_worker")
+
+        listing = self.client.get("/knowledge/documents").json()
+        titles = {item["title"] for item in listing["documents"]}
+        self.assertIn("Uploaded Earnings Transcript", titles)
+
     def test_platform_status_finds_known_local_dataset(self) -> None:
         response = self.client.get(
             "/platform/status",

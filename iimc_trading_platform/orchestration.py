@@ -2437,13 +2437,17 @@ def _grounded_fallback_response(
         matches = result.get("matches", [])
         if not matches:
             return "No governed knowledge chunks matched the question."
-        sources = ", ".join(
-            f"{item['title']} ({item['chunk_id']})"
-            for item in matches
-        )
+        excerpts = []
+        for item in matches[:3]:
+            content = " ".join(str(item.get("content", "")).split())
+            if len(content) > 240:
+                content = content[:240].rstrip() + "…"
+            excerpts.append(
+                f"- **{item['title']}** ({item['chunk_id']}): {content}"
+            )
         return (
-            f"Retrieved {len(matches)} governed knowledge chunk(s): "
-            f"{sources}."
+            f"Retrieved {len(matches)} governed knowledge chunk(s):\n"
+            + "\n".join(excerpts)
         )
     if tool_name == "check_platform_readiness":
         blocked_reasons = []
