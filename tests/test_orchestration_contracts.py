@@ -253,7 +253,7 @@ class OrchestrationContractsTest(unittest.TestCase):
         )()
 
         decision = orchestrator.select_tool(
-            "How does diversification work?",
+            "Summarize the key takeaways from last quarter",
             [],
             registry,
         )
@@ -1224,6 +1224,139 @@ class OrchestrationContractsTest(unittest.TestCase):
         elif isinstance(node, list):
             for value in node:
                 self._assert_strict_objects(value)
+
+
+    def test_offline_router_handles_education_what_is_rsi(self) -> None:
+        registry = build_default_tool_registry(Path("unused.duckdb"))
+        decision = OfflineOrchestrator().select_tool(
+            "What is RSI?", [], registry,
+        )
+        self.assertEqual(decision.tool_name, "search_knowledge")
+        self.assertIn("rsi", decision.arguments["query"].lower())
+
+    def test_offline_router_handles_explain_macd(self) -> None:
+        registry = build_default_tool_registry(Path("unused.duckdb"))
+        decision = OfflineOrchestrator().select_tool(
+            "explain MACD indicator", [], registry,
+        )
+        self.assertEqual(decision.tool_name, "search_knowledge")
+
+    def test_offline_router_handles_fundamental_pe_ratio(self) -> None:
+        registry = build_default_tool_registry(Path("unused.duckdb"))
+        decision = OfflineOrchestrator().select_tool(
+            "What is the PE ratio of Reliance?", [], registry,
+        )
+        self.assertIn(
+            decision.tool_name,
+            {"search_knowledge", "get_market_quote"},
+        )
+
+    def test_offline_router_handles_top_gainers(self) -> None:
+        registry = build_default_tool_registry(Path("unused.duckdb"))
+        decision = OfflineOrchestrator().select_tool(
+            "Show me top gainers today", [], registry,
+        )
+        self.assertEqual(decision.tool_name, "get_market_news")
+
+    def test_offline_router_handles_sector_outlook(self) -> None:
+        registry = build_default_tool_registry(Path("unused.duckdb"))
+        decision = OfflineOrchestrator().select_tool(
+            "How is banking sector doing?", [], registry,
+        )
+        self.assertEqual(decision.tool_name, "get_market_news")
+
+    def test_offline_router_handles_my_positions(self) -> None:
+        registry = build_default_tool_registry(
+            Path("unused.duckdb"),
+            openalgo_base_url="http://127.0.0.1:5000",
+            openalgo_api_key="test",
+        )
+        decision = OfflineOrchestrator().select_tool(
+            "Show my positions", [], registry,
+        )
+        self.assertEqual(decision.tool_name, "get_openalgo_snapshot")
+        self.assertEqual(decision.arguments["snapshot_type"], "positionbook")
+
+    def test_offline_router_handles_my_funds(self) -> None:
+        registry = build_default_tool_registry(
+            Path("unused.duckdb"),
+            openalgo_base_url="http://127.0.0.1:5000",
+            openalgo_api_key="test",
+        )
+        decision = OfflineOrchestrator().select_tool(
+            "What is my fund balance?", [], registry,
+        )
+        self.assertEqual(decision.tool_name, "get_openalgo_snapshot")
+        self.assertEqual(decision.arguments["snapshot_type"], "funds")
+
+    def test_offline_router_handles_symbol_comparison(self) -> None:
+        registry = build_default_tool_registry(Path("unused.duckdb"))
+        decision = OfflineOrchestrator().select_tool(
+            "Compare Reliance vs TCS", [], registry,
+        )
+        self.assertEqual(decision.tool_name, "get_market_quote")
+        self.assertTrue(len(decision.tool_calls) == 2)
+        symbols = {call.arguments["symbol"] for call in decision.tool_calls}
+        self.assertEqual(symbols, {"RELIANCE", "TCS"})
+
+    def test_offline_router_handles_52_week_high(self) -> None:
+        registry = build_default_tool_registry(Path("unused.duckdb"))
+        decision = OfflineOrchestrator().select_tool(
+            "52 week high of HDFC Bank", [], registry,
+        )
+        self.assertEqual(decision.tool_name, "get_market_news")
+
+    def test_offline_router_handles_thanks(self) -> None:
+        registry = build_default_tool_registry(Path("unused.duckdb"))
+        decision = OfflineOrchestrator().select_tool(
+            "Thanks!", [], registry,
+        )
+        self.assertIsNone(decision.tool_name)
+        self.assertIn("welcome", decision.direct_response.lower())
+
+    def test_offline_router_handles_goodbye(self) -> None:
+        registry = build_default_tool_registry(Path("unused.duckdb"))
+        decision = OfflineOrchestrator().select_tool(
+            "Bye", [], registry,
+        )
+        self.assertIsNone(decision.tool_name)
+        self.assertIn("welcome", decision.direct_response.lower())
+
+    def test_offline_router_handles_my_pnl(self) -> None:
+        registry = build_default_tool_registry(
+            Path("unused.duckdb"),
+            openalgo_base_url="http://127.0.0.1:5000",
+            openalgo_api_key="test",
+        )
+        decision = OfflineOrchestrator().select_tool(
+            "What is my P&L?", [], registry,
+        )
+        self.assertEqual(decision.tool_name, "get_openalgo_snapshot")
+
+    def test_offline_router_handles_market_cap_question(self) -> None:
+        registry = build_default_tool_registry(Path("unused.duckdb"))
+        decision = OfflineOrchestrator().select_tool(
+            "Market cap of Infosys", [], registry,
+        )
+        self.assertIn(
+            decision.tool_name,
+            {"get_market_quote", "get_market_news"},
+        )
+
+    def test_offline_router_handles_most_active_stocks(self) -> None:
+        registry = build_default_tool_registry(Path("unused.duckdb"))
+        decision = OfflineOrchestrator().select_tool(
+            "Show me most active stocks", [], registry,
+        )
+        self.assertEqual(decision.tool_name, "get_market_news")
+
+    def test_offline_router_fallback_includes_structured_help(self) -> None:
+        registry = build_default_tool_registry(Path("unused.duckdb"))
+        decision = OfflineOrchestrator().select_tool(
+            "xyzzy random gibberish", [], registry,
+        )
+        self.assertIsNone(decision.tool_name)
+        self.assertIn("Quotes", decision.direct_response)
 
 
 if __name__ == "__main__":

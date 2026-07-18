@@ -986,14 +986,20 @@ class OfflineOrchestrator:
                     "Please provide the run_id for the order timeline."
                 ),
             )
-        if _contains_any_word(text, ("performance", "drawdown", "equity")) and run_id:
+        _perf_words = ("performance", "drawdown", "equity", "p&l", "pnl")
+        if (
+            _contains_any_word(text, _perf_words)
+            and run_id
+            and not re.search(r"\bmy\s+", text)
+        ):
             return OrchestrationDecision(
                 "get_performance",
                 {"run_id": run_id},
             )
         if (
-            _contains_any_word(text, ("performance", "drawdown", "equity"))
+            _contains_any_word(text, _perf_words)
             and not run_id
+            and not re.search(r"\bmy\s+", text)
         ):
             return OrchestrationDecision(
                 tool_name=None,
@@ -1122,6 +1128,188 @@ class OfflineOrchestrator:
             for word in ("dataset", "datasets", "catalog", "what data", "nifty data")
         ):
             return OrchestrationDecision("list_datasets", {})
+
+        if re.match(
+            r"\s*(?:thank|thanks|thx|bye|goodbye|good\s*bye|see\s+you"
+            r"|cheers|that'?s?\s+all|no\s+more)\b",
+            text,
+        ):
+            return OrchestrationDecision(
+                tool_name=None,
+                arguments={},
+                direct_response=(
+                    "You're welcome! Feel free to come back any time for "
+                    "quotes, news, strategy creation, backtests, or account "
+                    "monitoring."
+                ),
+            )
+
+        if (
+            re.match(
+                r"\s*(?:what\s+(?:is|are|does)|explain|define|meaning\s+of"
+                r"|tell\s+me\s+about|how\s+does|describe|teach\s+me)\b",
+                text,
+            )
+            and not re.search(r"\bmy\s+", text)
+            and not re.search(
+                r"\b(?:pe ratio|p/e ratio|eps|market cap|dividend|book value"
+                r"|fundamental|top\s+gainer|top\s+loser|52[\s-]*week"
+                r"|sector)\b",
+                text,
+            )
+        ):
+            concept = re.sub(
+                r"^(?:what\s+(?:is|are|does)|explain|define|meaning\s+of"
+                r"|tell\s+me\s+about|how\s+does|describe|teach\s+me)\s+",
+                "",
+                text,
+            ).strip().rstrip("?")
+            if concept and "search_knowledge" in tool_names:
+                return OrchestrationDecision(
+                    "search_knowledge",
+                    {"query": concept, "limit": 5},
+                )
+            if concept:
+                return OrchestrationDecision(
+                    tool_name=None,
+                    arguments={},
+                    direct_response=_educational_response(concept),
+                )
+
+        if any(
+            phrase in text
+            for phrase in (
+                "pe ratio",
+                "p/e ratio",
+                "eps",
+                "earnings per share",
+                "market cap",
+                "market capitalization",
+                "dividend yield",
+                "dividend",
+                "book value",
+                "face value",
+                "roe",
+                "return on equity",
+                "debt to equity",
+                "fundamental",
+            )
+        ):
+            symbol = _symbol_from_text(message)
+            if symbol and "get_market_quote" in tool_names:
+                return OrchestrationDecision(
+                    "get_market_quote",
+                    {
+                        "symbol": symbol,
+                        "exchange": _exchange_from_text(text)
+                        or _default_exchange_for_asset("equity"),
+                    },
+                )
+            if "get_market_news" in tool_names:
+                return OrchestrationDecision(
+                    "get_market_news",
+                    {
+                        "query": _market_query_from_text(message),
+                        "symbol": symbol,
+                    },
+                )
+
+        if re.search(
+            r"\b(?:top\s+(?:gainer|loser|performer|mover)s?"
+            r"|most\s+(?:active|traded)"
+            r"|52[\s-]*week\s+(?:high|low)"
+            r"|all[\s-]*time\s+(?:high|low)"
+            r"|best\s+(?:performing|stock)"
+            r"|worst\s+(?:performing|stock)"
+            r"|market\s+(?:movers?|leaders?)"
+            r"|nifty\s+(?:top|best|worst))\b",
+            text,
+        ):
+            if "get_market_news" in tool_names:
+                return OrchestrationDecision(
+                    "get_market_news",
+                    {
+                        "query": _market_query_from_text(message),
+                        "symbol": _symbol_from_text(message),
+                    },
+                )
+
+        if "sector" in text and any(
+            word in text
+            for word in (
+                "performance",
+                "outlook",
+                "trend",
+                "doing",
+                "bullish",
+                "bearish",
+                "analysis",
+                "rotation",
+                "best",
+                "worst",
+                "how",
+            )
+        ):
+            if "get_market_news" in tool_names:
+                return OrchestrationDecision(
+                    "get_market_news",
+                    {
+                        "query": _market_query_from_text(message),
+                        "symbol": _symbol_from_text(message),
+                    },
+                )
+
+        if re.search(
+            r"\bmy\s+(?:p&?l|pnl|performance|profit|loss|return|position|holding|"
+            r"portfolio|account|fund|balance|margin)\b",
+            text,
+        ):
+            if "get_openalgo_snapshot" in tool_names:
+                snapshot_type = "positionbook"
+                if any(
+                    word in text
+                    for word in ("fund", "balance", "margin", "cash")
+                ):
+                    snapshot_type = "funds"
+                if any(
+                    word in text
+                    for word in ("order", "pending")
+                ):
+                    snapshot_type = "orderbook"
+                if any(
+                    word in text
+                    for word in ("trade", "fill", "executed")
+                ):
+                    snapshot_type = "tradebook"
+                return OrchestrationDecision(
+                    "get_openalgo_snapshot",
+                    {"snapshot_type": snapshot_type},
+                )
+
+        comparison_match = re.search(
+            r"\b(\w+)\s+(?:vs\.?|versus|compared?\s+(?:to|with))\s+(\w+)\b",
+            text,
+        )
+        if comparison_match and "get_market_quote" in tool_names:
+            sym_a = comparison_match.group(1).upper()
+            sym_b = comparison_match.group(2).upper()
+            exchange = (_exchange_from_text(text)
+                        or _default_exchange_for_asset("equity"))
+            return OrchestrationDecision(
+                tool_name="get_market_quote",
+                arguments={"symbol": sym_a, "exchange": exchange},
+                tool_calls=[
+                    ToolInvocation(
+                        "get_market_quote",
+                        {"symbol": sym_a, "exchange": exchange},
+                    ),
+                    ToolInvocation(
+                        "get_market_quote",
+                        {"symbol": sym_b, "exchange": exchange},
+                    ),
+                ],
+            )
+
         return OrchestrationDecision(
             tool_name=None,
             arguments={},
@@ -1185,7 +1373,24 @@ _ROUTER_SYSTEM_PROMPT = (
     "paper or live execution. Live execution must remain guarded by backend "
     "configuration and approval checks. For compound questions, select at "
     "most four read-only tools. Never combine a state-changing tool with "
-    "another tool."
+    "another tool.\n\n"
+    "Tool routing guide:\n"
+    "- Price/quote questions → get_market_quote\n"
+    "- Market news, sector outlook, top gainers/losers → get_market_news\n"
+    "- 'What is RSI/MACD/EMA', education → search_knowledge\n"
+    "- 'Create/build/make a strategy' → compile_custom_strategy_spec\n"
+    "- 'Backtest EMA crossover' → run_backtest\n"
+    "- 'My positions/funds/orders' → get_openalgo_snapshot\n"
+    "- 'Warren Buffett/conservative' → get_strategy_persona\n"
+    "- 'Compare run_X and run_Y' → compare_runs\n"
+    "- 'Paper trade/readiness' → get_execution_readiness\n"
+    "- 'Import data for SYMBOL' → import_openalgo_history\n"
+    "- Symbol comparison ('X vs Y') → two get_market_quote calls\n"
+    "- Platform capabilities → get_platform_summary\n"
+    "- Dataset listing/info → list_datasets or get_dataset_detail\n"
+    "- Approval/risk → list_pending_approvals or get_risk_decisions\n"
+    "- Portfolio → get_portfolio_snapshot\n"
+    "- OpenAlgo status → get_openalgo_monitor"
 )
 
 
@@ -1268,7 +1473,7 @@ _INTENT_TERMS = frozenset(
 
 def _normalize_intent_text(message: str) -> str:
     """Correct only close matches to known intent words, never entities."""
-    normalized = message.lower().replace("p&l", "performance")
+    normalized = message.lower()
     aliases = {
         "holdings": "positions",
         "ltp": "price",
@@ -1383,6 +1588,166 @@ def _references_unspecified_personal_strategy(text: str) -> bool:
     )
 
 
+_EDUCATION_MAP: dict[str, str] = {
+    "rsi": (
+        "**RSI (Relative Strength Index)** measures the speed and magnitude "
+        "of recent price changes on a 0-100 scale. Traditionally, RSI > 70 "
+        "signals overbought conditions (potential sell), RSI < 30 signals "
+        "oversold (potential buy). The default period is 14. You can create "
+        "a strategy using RSI — try: 'Create a strategy that buys when RSI "
+        "is below 30 and exits when RSI is above 70'."
+    ),
+    "ema": (
+        "**EMA (Exponential Moving Average)** gives more weight to recent "
+        "prices, making it faster to react than SMA. Traders often compare "
+        "a fast EMA (9 or 12) with a slow EMA (21 or 26) — a crossover "
+        "above signals bullish momentum, below signals bearish. You can "
+        "create EMA crossover strategies in plain language here."
+    ),
+    "sma": (
+        "**SMA (Simple Moving Average)** is the arithmetic mean of prices "
+        "over a period. Common periods: 20 (short-term), 50 (medium), 200 "
+        "(long-term). The 50/200 crossover is the classic 'golden cross' "
+        "(bullish) or 'death cross' (bearish)."
+    ),
+    "macd": (
+        "**MACD (Moving Average Convergence Divergence)** is the difference "
+        "between 12-period and 26-period EMA. The signal line is a 9-period "
+        "EMA of MACD. Buy when MACD crosses above the signal line, sell "
+        "when it crosses below. You can create MACD strategies here."
+    ),
+    "bollinger": (
+        "**Bollinger Bands** are a volatility envelope: a 20-period SMA "
+        "(middle band) with upper/lower bands at +/- 2 standard deviations. "
+        "Price touching the upper band may signal overbought; the lower "
+        "band, oversold. Bandwidth contracting signals a potential breakout."
+    ),
+    "vwap": (
+        "**VWAP (Volume Weighted Average Price)** is the average price "
+        "weighted by volume, resetting daily. Institutional traders use it "
+        "as a benchmark — buying below VWAP and selling above. It's most "
+        "useful for intraday trading."
+    ),
+    "atr": (
+        "**ATR (Average True Range)** measures volatility — the average of "
+        "true ranges (max of high-low, |high-prev_close|, |low-prev_close|) "
+        "over a period (default 14). It's used for position sizing and "
+        "setting stop losses proportional to volatility."
+    ),
+    "stop loss": (
+        "**Stop loss** is a risk management order that closes a position "
+        "when price moves against you by a specified amount. Types: fixed "
+        "percentage (e.g., 2%), ATR-based (e.g., 1.5x ATR), trailing "
+        "(follows price by a fixed distance). All are supported in the "
+        "strategy compiler."
+    ),
+    "pe ratio": (
+        "**PE Ratio (Price-to-Earnings)** is the stock price divided by "
+        "earnings per share. A high PE (>25) may indicate overvaluation or "
+        "growth expectations; a low PE (<15) may suggest undervaluation or "
+        "declining earnings. Compare PE within the same sector for context."
+    ),
+    "market cap": (
+        "**Market Capitalization** is the total market value of a company's "
+        "outstanding shares (price x shares). Categories: Large-cap (>20K Cr), "
+        "Mid-cap (5K-20K Cr), Small-cap (<5K Cr). It indicates company size "
+        "and liquidity."
+    ),
+    "option": (
+        "**Options** are contracts giving the right (not obligation) to buy "
+        "(call) or sell (put) an asset at a strike price before expiry. Key "
+        "concepts: premium, strike price, expiry, intrinsic/extrinsic value, "
+        "and Greeks (Delta, Gamma, Theta, Vega). This platform supports "
+        "options data import and rule-spec strategies on options OHLCV."
+    ),
+    "straddle": (
+        "**Straddle** is an options strategy: buy both a call and put at "
+        "the same strike and expiry. Profits from large price movement in "
+        "either direction. Maximum loss is the total premium paid. Used "
+        "before events like earnings or budget."
+    ),
+    "strangle": (
+        "**Strangle** is similar to a straddle but uses different strikes — "
+        "buy an OTM call and OTM put. Cheaper premium but needs a larger "
+        "move to profit. Also used for volatility plays."
+    ),
+    "iron condor": (
+        "**Iron Condor** combines a bull put spread and bear call spread. "
+        "Profits when price stays within a range. Limited risk and reward. "
+        "Used in low-volatility, range-bound markets."
+    ),
+    "candlestick": (
+        "**Candlestick charts** show open, high, low, close prices per "
+        "period. Green/white candles mean close > open (bullish); red/black "
+        "mean close < open (bearish). Patterns like doji, hammer, engulfing, "
+        "and morning star signal potential reversals."
+    ),
+    "support resistance": (
+        "**Support** is a price level where buying interest prevents further "
+        "decline. **Resistance** is where selling pressure prevents further "
+        "rise. When support breaks, it often becomes resistance and vice "
+        "versa. These levels come from historical price action."
+    ),
+    "intraday": (
+        "**Intraday trading** means opening and closing positions within "
+        "the same trading day. Common strategies use 1m, 5m, or 15m "
+        "timeframes with indicators like VWAP, EMA crossovers, and RSI. "
+        "This platform supports intraday backtesting and paper trading."
+    ),
+    "swing trading": (
+        "**Swing trading** holds positions for days to weeks, capturing "
+        "medium-term price moves. Uses daily or 4h timeframes with "
+        "indicators like EMA, RSI, and MACD. Less time-intensive than "
+        "intraday but requires overnight risk management."
+    ),
+    "value investing": (
+        "**Value investing** (popularized by Warren Buffett and Benjamin "
+        "Graham) focuses on buying undervalued stocks based on "
+        "fundamentals — low PE, high ROE, strong moat, margin of safety. "
+        "This platform has a 'conservative_value' persona for value-oriented "
+        "research."
+    ),
+    "momentum": (
+        "**Momentum trading** buys assets that are rising and sells those "
+        "falling, based on the tendency for trends to persist. Common "
+        "indicators: ROC, RSI, MACD. This platform has built-in momentum "
+        "strategies and an 'intraday_momentum' persona."
+    ),
+    "backtesting": (
+        "**Backtesting** applies a trading strategy to historical data to "
+        "see how it would have performed. Key metrics: total return, max "
+        "drawdown, Sharpe ratio, win rate. This platform runs deterministic "
+        "backtests on governed data with full audit trails."
+    ),
+    "sharpe ratio": (
+        "**Sharpe Ratio** measures risk-adjusted returns: (return - risk-free "
+        "rate) / standard deviation. A ratio > 1 is good, > 2 is very good, "
+        "> 3 is excellent. It penalizes strategies with high volatility."
+    ),
+    "drawdown": (
+        "**Drawdown** is the peak-to-trough decline in portfolio value, "
+        "expressed as a percentage. Maximum drawdown measures the worst "
+        "historical loss. It's critical for evaluating risk tolerance — "
+        "a 50% drawdown needs 100% gain to recover."
+    ),
+}
+
+
+def _educational_response(concept: str) -> str:
+    concept_lower = concept.lower().strip()
+    for key, explanation in _EDUCATION_MAP.items():
+        if key in concept_lower:
+            return explanation
+    return (
+        f"I don't have a built-in explanation for '{concept}', but you can "
+        f"try: 'search knowledge {concept}' to check the governed document "
+        f"base, or ask about specific indicators (RSI, EMA, MACD, "
+        f"Bollinger, VWAP, ATR), strategies (intraday, swing, momentum, "
+        f"value investing), or concepts (stop loss, PE ratio, Sharpe ratio, "
+        f"drawdown, options, candlestick patterns)."
+    )
+
+
 def _closest_action_response(text: str) -> str:
     """Point an unrecognized request at the nearest supported workflow."""
     suggestions: list[str] = []
@@ -1410,12 +1775,41 @@ def _closest_action_response(text: str) -> str:
             "To bring in market data, say: 'import historical data for "
             "RELIANCE NSE 5m from 2026-06-01 to 2026-07-16'."
         )
+    if any(word in text for word in ("option", "call", "put", "strike", "expiry")):
+        suggestions.append(
+            "For options, I can resolve option symbols ('option symbol for "
+            "NIFTY 24000 CE'), import options OHLCV data, and derive "
+            "IV/OI features. Describe what you need."
+        )
+    if any(word in text for word in ("risk", "exposure", "var", "drawdown")):
+        suggestions.append(
+            "I can show risk decisions for a specific backtest run "
+            "('risk for run_abc123'), or check portfolio exposure. "
+            "Run a backtest first to generate risk evidence."
+        )
+    if any(word in text for word in ("commodity", "gold", "silver", "crude", "mcx")):
+        suggestions.append(
+            "Commodity data flows through OpenAlgo on MCX exchange. Try: "
+            "'import historical data for GOLD MCX 5m' or 'price of GOLD MCX'."
+        )
+    if any(word in text for word in ("crypto", "bitcoin", "btc", "ethereum")):
+        suggestions.append(
+            "Crypto support depends on your broker's API. If available "
+            "through OpenAlgo, you can import and backtest crypto data "
+            "the same way as equities."
+        )
     if not suggestions:
         suggestions.append(
-            "I can help with instrument quotes ('price of Reliance'), "
-            "market news ('news for Tata Steel'), data imports, strategy "
-            "creation in plain language, backtests, readiness checks, "
-            "paper-order preparation, and OpenAlgo account monitoring."
+            "I can help with:\n"
+            "- **Quotes**: 'price of Reliance'\n"
+            "- **News**: 'news for Tata Steel' or 'market outlook'\n"
+            "- **Education**: 'what is RSI?' or 'explain MACD'\n"
+            "- **Strategy creation**: describe in plain language\n"
+            "- **Backtesting**: 'backtest EMA crossover on RELIANCE'\n"
+            "- **Account**: 'my positions' or 'my funds'\n"
+            "- **Paper trading**: prepare and approve sandbox orders\n"
+            "- **Comparison**: 'Reliance vs TCS'\n"
+            "- **Sectors**: 'how is banking sector doing?'"
         )
     return " ".join(suggestions)
 
