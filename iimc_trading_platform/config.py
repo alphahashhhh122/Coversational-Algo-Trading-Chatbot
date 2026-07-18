@@ -41,7 +41,7 @@ class AppConfig:
     market_news_api_key: str | None = None
     market_news_timeout_seconds: float = 10.0
     market_news_max_articles: int = 10
-    require_paper_approval: bool = False
+    require_paper_approval: bool = True
     paper_signal_max_age_minutes: int = 20
 
     def __post_init__(self) -> None:
@@ -131,7 +131,7 @@ def load_config() -> AppConfig:
             os.getenv("MARKET_NEWS_MAX_ARTICLES", "10")
         ),
         require_paper_approval=os.getenv(
-            "IIMC_REQUIRE_PAPER_APPROVAL", "false"
+            "IIMC_REQUIRE_PAPER_APPROVAL", "true"
         ).lower()
         in {"1", "true", "yes"},
         paper_signal_max_age_minutes=int(

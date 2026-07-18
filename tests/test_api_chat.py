@@ -181,6 +181,7 @@ class ApiChatTest(unittest.TestCase):
         self.assertIn("Next blocker", payload["answer"])
 
     def test_chat_can_prepare_analyzer_ready_paper_order_intent(self) -> None:
+        # Explicitly exercises the opt-out (no-approval) configuration.
         self._insert_approved_semi_auto_risk_decision()
         client = TestClient(
             create_app(
@@ -189,6 +190,7 @@ class ApiChatTest(unittest.TestCase):
                     artifacts_dir=self.artifacts_dir,
                     openalgo_root=Path(self.temp_dir.name),
                     openalgo_api_key="configured",
+                    require_paper_approval=False,
                 )
             )
         )
@@ -233,6 +235,47 @@ class ApiChatTest(unittest.TestCase):
                 0,
             ),
         )
+
+    def test_default_config_requires_human_approval_for_paper(self) -> None:
+        self._insert_approved_semi_auto_risk_decision()
+        client = TestClient(
+            create_app(
+                AppConfig(
+                    database_path=self.db_path,
+                    artifacts_dir=self.artifacts_dir,
+                    openalgo_root=Path(self.temp_dir.name),
+                    openalgo_api_key="configured",
+                )
+            )
+        )
+
+        response = client.post(
+            "/chat",
+            json={
+                "message": (
+                    "Prepare paper order for risk_chat BUY 2 NIFTY NFO "
+                    "MIS market strategy ema_crossover"
+                ),
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["data"]["status"], "pending_approval")
+        self.assertIsNotNone(payload["data"]["approval_id"])
+
+        con = connect(self.db_path)
+        try:
+            approval_count = con.execute(
+                """
+                SELECT COUNT(*)
+                FROM approval_requests
+                WHERE status = 'pending'
+                """
+            ).fetchone()[0]
+        finally:
+            con.close()
+        self.assertGreaterEqual(approval_count, 1)
 
     def test_chat_can_create_persisted_research_brief(self) -> None:
         response = self.client.post(

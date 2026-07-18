@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -33,6 +34,39 @@ class RiskPolicy:
         ExecutionMode.SEMI_AUTO,
     )
 
+    @classmethod
+    def from_env(cls) -> "RiskPolicy":
+        """Build the default policy with optional IIMC_RISK_* env overrides."""
+        defaults = cls()
+        return cls(
+            max_quantity=int(
+                os.getenv("IIMC_RISK_MAX_QUANTITY", defaults.max_quantity)
+            ),
+            max_order_value=float(
+                os.getenv(
+                    "IIMC_RISK_MAX_ORDER_VALUE", defaults.max_order_value
+                )
+            ),
+            max_position_value=float(
+                os.getenv(
+                    "IIMC_RISK_MAX_POSITION_VALUE",
+                    defaults.max_position_value,
+                )
+            ),
+            max_loss_per_trade=float(
+                os.getenv(
+                    "IIMC_RISK_MAX_LOSS_PER_TRADE",
+                    defaults.max_loss_per_trade,
+                )
+            ),
+            max_daily_loss=float(
+                os.getenv("IIMC_RISK_MAX_DAILY_LOSS", defaults.max_daily_loss)
+            ),
+            stop_loss_pct=float(
+                os.getenv("IIMC_RISK_STOP_LOSS_PCT", defaults.stop_loss_pct)
+            ),
+        )
+
 
 @dataclass(frozen=True)
 class RiskEvaluation:
@@ -54,13 +88,14 @@ class RiskService:
         allow_live_trading: bool = False,
     ) -> None:
         self.db_path = db_path
-        self.policy = policy or RiskPolicy()
+        self.policy = policy or RiskPolicy.from_env()
         if allow_live_trading and policy is None:
-            self.policy = RiskPolicy(
+            self.policy = replace(
+                self.policy,
                 allowed_modes=(
                     *self.policy.allowed_modes,
                     ExecutionMode.LIVE,
-                )
+                ),
             )
         self.allow_live_trading = allow_live_trading
         self._ensure_policy_stored()

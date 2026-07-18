@@ -328,5 +328,69 @@ class TradingRuntimeTest(unittest.TestCase):
         return dataset_id
 
 
+class RiskPolicyEnvTest(unittest.TestCase):
+    _RISK_ENV_KEYS = (
+        "IIMC_RISK_MAX_QUANTITY",
+        "IIMC_RISK_MAX_ORDER_VALUE",
+        "IIMC_RISK_MAX_POSITION_VALUE",
+        "IIMC_RISK_MAX_LOSS_PER_TRADE",
+        "IIMC_RISK_MAX_DAILY_LOSS",
+        "IIMC_RISK_STOP_LOSS_PCT",
+    )
+
+    def setUp(self) -> None:
+        import os
+
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.db_path = Path(self.temp_dir.name) / "risk.duckdb"
+        initialize_database(self.db_path)
+        self._saved_env = {
+            key: os.environ.pop(key)
+            for key in self._RISK_ENV_KEYS
+            if key in os.environ
+        }
+
+    def tearDown(self) -> None:
+        import os
+
+        for key in self._RISK_ENV_KEYS:
+            os.environ.pop(key, None)
+        os.environ.update(self._saved_env)
+        self.temp_dir.cleanup()
+
+    def test_from_env_defaults_match_dataclass_defaults(self) -> None:
+        from iimc_trading_platform.services.risk_service import RiskPolicy
+
+        self.assertEqual(RiskPolicy.from_env(), RiskPolicy())
+
+    def test_from_env_applies_overrides(self) -> None:
+        import os
+
+        from iimc_trading_platform.services.risk_service import RiskPolicy
+
+        os.environ["IIMC_RISK_MAX_QUANTITY"] = "10"
+        os.environ["IIMC_RISK_MAX_ORDER_VALUE"] = "500000"
+        os.environ["IIMC_RISK_STOP_LOSS_PCT"] = "0.01"
+
+        policy = RiskPolicy.from_env()
+
+        self.assertEqual(policy.max_quantity, 10)
+        self.assertEqual(policy.max_order_value, 500000.0)
+        self.assertEqual(policy.stop_loss_pct, 0.01)
+        self.assertEqual(
+            policy.max_daily_loss, RiskPolicy().max_daily_loss,
+        )
+
+    def test_live_mode_preserves_env_overrides(self) -> None:
+        import os
+
+        os.environ["IIMC_RISK_MAX_QUANTITY"] = "7"
+
+        service = RiskService(self.db_path, allow_live_trading=True)
+
+        self.assertEqual(service.policy.max_quantity, 7)
+        self.assertIn(ExecutionMode.LIVE, service.policy.allowed_modes)
+
+
 if __name__ == "__main__":
     unittest.main()
