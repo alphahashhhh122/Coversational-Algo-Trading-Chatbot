@@ -36,12 +36,21 @@ class OpenAlgoClient:
             "positionbook",
             "orderbook",
             "tradebook",
+            "holdings",
         }
         if snapshot_type not in allowed:
             raise ValueError(
                 f"Unsupported OpenAlgo snapshot type: {snapshot_type}"
             )
         return self._post(f"/api/v1/{snapshot_type}", {})
+
+    def cancel_all_orders(self, strategy: str = "iimc_platform") -> dict[str, Any]:
+        """Cancel every open order for the strategy tag (emergency control)."""
+        return self._post("/api/v1/cancelallorder", {"strategy": strategy})
+
+    def close_all_positions(self, strategy: str = "iimc_platform") -> dict[str, Any]:
+        """Square off all open positions for the strategy tag (emergency control)."""
+        return self._post("/api/v1/closeposition", {"strategy": strategy})
 
     def analyzer_status(self) -> dict[str, Any]:
         response = self._post("/api/v1/analyzer", {})

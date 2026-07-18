@@ -3585,6 +3585,34 @@ function wireEvents() {
       captureOpenAlgoSnapshot(button.dataset.snapshotType)
     ));
   });
+  document.querySelectorAll(".emergency-button").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const action = button.dataset.emergencyAction;
+      const label = action === "cancel_all_orders"
+        ? "cancel ALL open orders"
+        : "square off ALL open positions";
+      const typed = window.prompt(
+        `This will ${label} at the broker. Type CONFIRM to proceed.`,
+      );
+      if (typed !== "CONFIRM") {
+        toast("Emergency action aborted");
+        return;
+      }
+      button.disabled = true;
+      try {
+        const result = await api(
+          `/openalgo/emergency/${encodeURIComponent(action)}`,
+          { method: "POST" },
+        );
+        toast(`${label} requested (${result.record_id})`);
+        await loadOpenAlgoHistory();
+      } catch (error) {
+        toast(error.message);
+      } finally {
+        button.disabled = false;
+      }
+    });
+  });
   $("#chat-input").addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();

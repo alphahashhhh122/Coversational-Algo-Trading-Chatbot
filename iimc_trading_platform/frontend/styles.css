@@ -151,6 +151,7 @@ nav { display: grid; gap: 4px; }
   padding: 10px 14px; background: var(--surface); border: 1px solid var(--line);
 }
 .knowledge-doc-item p { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
+.emergency-divider { display: inline-block; width: 1px; height: 24px; margin: 0 6px; background: var(--line); vertical-align: middle; }
 .connection-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; font-size: 13px; }
 .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #d5a03c; }
 .status-dot.online { background: #49b477; }

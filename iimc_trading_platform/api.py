@@ -1518,6 +1518,52 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     ) -> dict[str, Any]:
         return openalgo_snapshot_service.list(limit)
 
+    @app.post("/openalgo/emergency/{action}")
+    def openalgo_emergency(
+        action: str,
+        principal: Principal = Depends(approver),
+    ) -> dict[str, Any]:
+        """Protective broker controls: cancel-all orders or square-off."""
+        if action not in {"cancel_all_orders", "square_off_positions"}:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "action must be cancel_all_orders or "
+                    "square_off_positions"
+                ),
+            )
+        if not active_config.openalgo_api_key:
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "ok": False,
+                    "status": "credential_required",
+                    "safe_failure": True,
+                    "message": "OPENALGO_API_KEY is not configured",
+                    "no_synthetic_fallback": True,
+                },
+            )
+        try:
+            result = openalgo_snapshot_service.emergency_action(
+                action,
+                actor=principal.username,
+            )
+        except OpenAlgoUnavailableError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        audit = AuditService(
+            DuckDBAuditRepository(active_config.database_path)
+        )
+        event = audit.record(
+            actor=principal.username,
+            action=f"openalgo_emergency_{action}",
+            entity_type="openalgo_emergency",
+            entity_id=result["record_id"],
+            payload={"broker_response": result["broker_response"]},
+        )
+        return {**result, "audit_id": event.audit_id}
+
     @app.get("/openalgo/{snapshot_type}")
     def openalgo_snapshot(
         snapshot_type: str,

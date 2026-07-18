@@ -60,6 +60,58 @@ class OpenAlgoSnapshotService:
             "data": data,
         }
 
+    def emergency_action(
+        self,
+        action: str,
+        *,
+        actor: str,
+        strategy: str = "iimc_platform",
+    ) -> dict[str, Any]:
+        """Run a protective broker action (cancel-all or square-off)."""
+        if self.client is None:
+            raise ValueError(
+                "OpenAlgo credentials are required for emergency actions"
+            )
+        if action == "cancel_all_orders":
+            response = self.client.cancel_all_orders(strategy)
+        elif action == "square_off_positions":
+            response = self.client.close_all_positions(strategy)
+        else:
+            raise ValueError(f"Unsupported emergency action: {action}")
+        record_id = f"oas_{uuid.uuid4().hex[:12]}"
+        executed_at = utc_now()
+        con = connect(self.db_path)
+        try:
+            con.execute(
+                """
+                INSERT INTO openalgo_snapshots (
+                    snapshot_id, snapshot_type, source_table,
+                    payload_json, captured_at
+                )
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                [
+                    record_id,
+                    f"emergency_{action}",
+                    "openalgo_api:emergency",
+                    json.dumps(
+                        {"actor": actor, "response": response},
+                        sort_keys=True,
+                        default=str,
+                    ),
+                    executed_at,
+                ],
+            )
+        finally:
+            con.close()
+        return {
+            "record_id": record_id,
+            "action": action,
+            "actor": actor,
+            "executed_at": executed_at,
+            "broker_response": response,
+        }
+
     def list(self, limit: int = 100) -> dict[str, Any]:
         if limit < 1 or limit > 500:
             raise ValueError("limit must be between 1 and 500")

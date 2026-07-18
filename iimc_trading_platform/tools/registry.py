@@ -206,6 +206,7 @@ class OpenAlgoSnapshotInput(ToolInput):
         "positionbook",
         "orderbook",
         "tradebook",
+        "holdings",
     ]
 
 
