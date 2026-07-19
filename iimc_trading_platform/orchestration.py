@@ -343,44 +343,65 @@ class GroqToolOrchestrator:
         decision: OrchestrationDecision,
         tool_result: dict[str, Any],
     ) -> str:
+        system_prompt = (
+            "You are a trading research assistant. Write a clear, "
+            "well-structured markdown answer to the user's question using "
+            "ONLY the values present in the provided tool result JSON. "
+            "Use short paragraphs, bold key figures, and bullet lists where "
+            "they help. Be genuinely informative: explain what the numbers "
+            "mean for the user's question, not just what they are. Never "
+            "invent prices, P&L, broker state, news, or any value missing "
+            "from the JSON — if something is unavailable, say so plainly "
+            "and suggest what the user can do next. Speak directly to the "
+            "user; never mention tools, JSON, field names, or internal "
+            "identifiers. Do not give buy/sell recommendations. NEVER state "
+            "or imply that an order was placed, submitted, confirmed, "
+            "approved, cancelled, or executed — this response performs no "
+            "actions; orders happen only through the platform's separate "
+            "approval workflow."
+        )
         if decision.call_id is None:
-            return _grounded_fallback_response(
-                decision.tool_name or "unknown",
-                tool_result,
-            )
+            tool_messages = [
+                {
+                    "role": "user",
+                    "content": (
+                        f"Question: {message}\n\n"
+                        f"Tool `{decision.tool_name}` returned this JSON:\n"
+                        f"{json.dumps(tool_result, default=str)}"
+                    ),
+                },
+            ]
+        else:
+            tool_messages = [
+                {"role": "user", "content": message},
+                *decision.provider_items,
+                {
+                    "role": "tool",
+                    "tool_call_id": decision.call_id,
+                    "content": json.dumps(tool_result, default=str),
+                },
+            ]
         try:
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
-                    {
-                        "role": "system",
-                        "content": (
-                            "Explain the tool result accurately and concisely. "
-                            "Do not invent prices, P&L, broker state, or missing "
-                            "evidence. State historical simulation limits when "
-                            "the result is a backtest."
-                        ),
-                    },
-                    {"role": "user", "content": message},
-                    *decision.provider_items,
-                    {
-                        "role": "tool",
-                        "tool_call_id": decision.call_id,
-                        "content": json.dumps(tool_result, default=str),
-                    },
+                    {"role": "system", "content": system_prompt},
+                    *tool_messages,
                 ],
                 temperature=0,
             )
-            return response.choices[0].message.content or ""
+            answer = (response.choices[0].message.content or "").strip()
+            if answer:
+                return answer
         except Exception as exc:
             logger.warning(
                 "Groq response composition failed; using grounded tool response",
                 extra={"error_type": type(exc).__name__},
             )
-            return _grounded_fallback_response(
-                decision.tool_name or "unknown",
-                tool_result,
-            )
+        return _grounded_fallback_response(
+            decision.tool_name or "unknown",
+            tool_result,
+        )
 
 
 class OfflineOrchestrator:
@@ -424,6 +445,27 @@ class OfflineOrchestrator:
                     "data imports, strategy creation in plain language, "
                     "backtests, readiness checks, and paper-order preparation. "
                     "What would you like to do?"
+                ),
+                authoritative=True,
+            )
+        if re.search(
+            r"(?:\b(?:ignore|bypass|skip|disable|override|remove)\b"
+            r".{0,40}\b(?:risk|approval|confirmation|safety|limit|rule)s?\b)"
+            r"|\bpretend\b"
+            r"|without\s+(?:approval|confirmation|asking)"
+            r"|don'?t\s+show\s+the\s+confirmation",
+            text,
+        ):
+            return OrchestrationDecision(
+                tool_name=None,
+                arguments={},
+                direct_response=(
+                    "I can't do that. Risk checks, order previews, and "
+                    "human approval are enforced by the platform itself — "
+                    "they cannot be bypassed, skipped, or simulated through "
+                    "conversation. No order has been placed. If you want to "
+                    "trade, I can prepare a governed order intent that you "
+                    "approve explicitly."
                 ),
                 authoritative=True,
             )

@@ -61,23 +61,20 @@ class ChatService:
         self.conversation_service = conversation_service
         self.evaluator = evaluator or ResponseEvaluator()
 
+    # Only tools whose exact wording is a safety or confirmation surface
+    # (order previews, strategy specs, backtest numbers) stay deterministic.
+    # Read-only data tools may be explained conversationally by the LLM,
+    # grounded in the tool JSON with the deterministic text as fallback.
     _DETERMINISTIC_RESPONSE_TOOLS = {
         "get_execution_readiness",
         "import_openalgo_history",
-        "get_openalgo_monitor",
-        "get_openalgo_snapshot",
-        "get_custom_strategy_capabilities",
         "compile_custom_strategy_spec",
         "create_custom_strategy_spec",
         "update_custom_strategy_spec",
-        "check_platform_readiness",
         "run_backtest",
         "run_custom_strategy_spec",
         "prepare_sandbox_order_intent",
         "prepare_live_order_intent",
-        "list_sandbox_intents",
-        "get_market_news",
-        "get_market_quote",
     }
 
     def answer(
