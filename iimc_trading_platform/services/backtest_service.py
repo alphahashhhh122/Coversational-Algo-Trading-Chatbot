@@ -288,6 +288,19 @@ class BacktestService:
                     "fees": round(float(fees), 2),
                 }
             )
+        buy_and_hold_pct = None
+        dataset_id = run["parameters"].get("dataset_id")
+        if dataset_id:
+            try:
+                _, candles = self.load_dataset_candles(dataset_id)
+                first_close = candles[0]["close"]
+                last_close = candles[-1]["close"]
+                if first_close:
+                    buy_and_hold_pct = round(
+                        (last_close - first_close) / first_close * 100, 4
+                    )
+            except Exception:
+                buy_and_hold_pct = None
         return {
             "run_id": run_id,
             "summary": {
@@ -295,6 +308,7 @@ class BacktestService:
                 "net_pnl": run["net_pnl"],
                 "max_drawdown": run["max_drawdown"],
                 "return_pct": run["return_pct"],
+                "buy_and_hold_return_pct": buy_and_hold_pct,
                 **run["metrics"],
             },
             "equity_curve": curve,

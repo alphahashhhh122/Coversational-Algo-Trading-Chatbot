@@ -43,6 +43,7 @@ from .api_models import (
     SandboxActionRequest,
 )
 from .config import AppConfig, load_config, public_config
+from .db import connect
 from .evaluator import ResponseEvaluator
 from .infrastructure import (
     DuckDBAuditRepository,
@@ -1413,6 +1414,45 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         return execute_tool(
             "analyze_fundamentals",
             {"symbol": symbol, "market_price": market_price},
+        )
+
+    @app.get("/runs/{run_id}/trades.csv")
+    def export_run_trades_csv(
+        run_id: str,
+        principal: Principal = Depends(viewer),
+    ) -> PlainTextResponse:
+        con = connect(active_config.database_path)
+        try:
+            rows = con.execute(
+                """
+                SELECT trade_id, symbol, side, quantity, price,
+                       realized_pnl, fees, filled_at
+                FROM trade_fills
+                WHERE run_id = ?
+                ORDER BY filled_at, trade_id
+                """,
+                [run_id],
+            ).fetchall()
+        finally:
+            con.close()
+        if not rows:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No trades stored for run {run_id!r}",
+            )
+        lines = ["trade_id,symbol,side,quantity,price,realized_pnl,fees,filled_at"]
+        for row in rows:
+            lines.append(
+                ",".join(str(value) for value in row)
+            )
+        return PlainTextResponse(
+            "\n".join(lines) + "\n",
+            media_type="text/csv",
+            headers={
+                "Content-Disposition": (
+                    f"attachment; filename={run_id}_trades.csv"
+                ),
+            },
         )
 
     @app.get("/screens")

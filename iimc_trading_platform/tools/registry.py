@@ -276,6 +276,13 @@ class FetchWebDocumentInput(ToolInput):
     title: str | None = Field(default=None, max_length=200)
 
 
+class OptionChainInput(ToolInput):
+    underlying: str = Field(min_length=1, max_length=40)
+    exchange: str = Field(default="NSE_INDEX", max_length=20)
+    expiry_date: str | None = Field(default=None, max_length=12)
+    strike_count: int = Field(default=10, ge=1, le=50)
+
+
 class PlatformReadinessInput(ToolInput):
     symbol: str = Field(min_length=1, max_length=80)
     exchange: str = Field(min_length=1, max_length=20)
@@ -1480,6 +1487,49 @@ def build_default_tool_registry(
         snapshots = OpenAlgoSnapshotService(
             db_path,
             OpenAlgoClient(openalgo_base_url, openalgo_api_key),
+        )
+        from ..services.options_analytics_service import (
+            OptionsAnalyticsService,
+        )
+
+        option_analytics = OptionsAnalyticsService(
+            db_path,
+            OpenAlgoClient(openalgo_base_url, openalgo_api_key),
+        )
+        tools.append(
+            ToolDefinition(
+                name="get_option_chain",
+                description=(
+                    "Fetch the live option chain from OpenAlgo for an "
+                    "underlying (default nearest expiry) and compute "
+                    "deterministic analytics: ATM strike and premiums, "
+                    "straddle cost, put-call OI ratio, and max-OI strikes."
+                ),
+                input_model=OptionChainInput,
+                handler=lambda value: option_analytics.chain_snapshot(
+                    underlying=OptionChainInput.model_validate(
+                        value.model_dump()
+                    ).underlying,
+                    exchange=OptionChainInput.model_validate(
+                        value.model_dump()
+                    ).exchange,
+                    expiry_date=OptionChainInput.model_validate(
+                        value.model_dump()
+                    ).expiry_date,
+                    strike_count=OptionChainInput.model_validate(
+                        value.model_dump()
+                    ).strike_count,
+                ),
+                side_effects="read-only OpenAlgo option-chain request",
+                retry_safe=True,
+                capabilities=ToolCapabilityMetadata(
+                    actions=("quote", "analyze"),
+                    asset_classes=("options",),
+                    execution_modes=("research",),
+                    required_providers=("openalgo",),
+                    risk_level="low",
+                ),
+            )
         )
         tools.append(
             ToolDefinition(

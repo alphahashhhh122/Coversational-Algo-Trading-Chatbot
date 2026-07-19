@@ -718,6 +718,34 @@ class OfflineOrchestrator:
                     {"persona_id": persona_id},
                 )
             return OrchestrationDecision("list_strategy_personas", {})
+        if (
+            "get_option_chain" in tool_names
+            and re.search(
+                r"\boption[\s-]*chain\b|\bput[\s-]*call\s+ratio\b|\bpcr\b"
+                r"|\bhighest\s+(?:call\s+|put\s+)?open\s+interest\b"
+                r"|\batm\s+(?:strike|straddle|call|put)\b"
+                r"|\bstraddle\s+(?:cost|premium)\b",
+                text,
+            )
+        ):
+            chain_symbol = None
+            named = re.search(
+                r"\b(banknifty|bank\s*nifty|finnifty|nifty|sensex)\b", text,
+            )
+            if named:
+                chain_symbol = named.group(1).replace(" ", "").upper()
+            chain_symbol = chain_symbol or _symbol_from_text(message) or "NIFTY"
+            exchange = (
+                "BSE_INDEX"
+                if chain_symbol == "SENSEX"
+                else "NSE_INDEX"
+                if chain_symbol in {"NIFTY", "BANKNIFTY", "FINNIFTY"}
+                else "NSE"
+            )
+            return OrchestrationDecision(
+                "get_option_chain",
+                {"underlying": chain_symbol, "exchange": exchange},
+            )
         url_match = re.search(r"https?://[^\s\"'<>]+", message)
         if (
             url_match
@@ -2622,6 +2650,22 @@ def _grounded_fallback_response(
             f"periods stored: {', '.join(result.get('periods_available', []))}):\n"
             + "\n".join(lines)
             + warning_text
+        )
+    if tool_name == "get_option_chain":
+        analytics = result.get("analytics", {})
+        pcr = analytics.get("put_call_oi_ratio")
+        return (
+            f"**{result.get('underlying')} option chain** "
+            f"(expiry {result.get('expiry_date')}, "
+            f"spot {result.get('underlying_ltp')}):\n"
+            f"- ATM strike: {analytics.get('atm_strike')} "
+            f"(call {analytics.get('atm_call_ltp')}, "
+            f"put {analytics.get('atm_put_ltp')})\n"
+            f"- ATM straddle cost: {analytics.get('atm_straddle_cost')}\n"
+            f"- Put-call OI ratio: {pcr}\n"
+            f"- Max call OI at {analytics.get('max_call_oi_strike')}; "
+            f"max put OI at {analytics.get('max_put_oi_strike')}\n"
+            f"- Strikes returned: {len(result.get('strike_rows', []))}"
         )
     if tool_name == "fetch_web_document":
         return (

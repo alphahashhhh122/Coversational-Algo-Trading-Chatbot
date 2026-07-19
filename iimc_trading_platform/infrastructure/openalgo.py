@@ -44,6 +44,70 @@ class OpenAlgoClient:
             )
         return self._post(f"/api/v1/{snapshot_type}", {})
 
+    def option_expiries(
+        self,
+        *,
+        symbol: str,
+        exchange: str = "NFO",
+        instrumenttype: str = "options",
+    ) -> dict[str, Any]:
+        return self._post(
+            "/api/v1/expiry",
+            {
+                "symbol": symbol,
+                "exchange": exchange,
+                "instrumenttype": instrumenttype,
+            },
+        )
+
+    def option_chain(
+        self,
+        *,
+        underlying: str,
+        exchange: str,
+        expiry_date: str,
+        strike_count: int | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "underlying": underlying,
+            "exchange": exchange,
+            "expiry_date": expiry_date,
+        }
+        if strike_count is not None:
+            payload["strike_count"] = strike_count
+        return self._post("/api/v1/optionchain", payload)
+
+    def modify_order(
+        self,
+        *,
+        order_id: str,
+        strategy: str,
+        symbol: str,
+        exchange: str,
+        action: str,
+        product: str,
+        price_type: str,
+        quantity: int,
+        price: float = 0.0,
+        trigger_price: float = 0.0,
+    ) -> dict[str, Any]:
+        return self._post(
+            "/api/v1/modifyorder",
+            {
+                "orderid": order_id,
+                "strategy": strategy,
+                "symbol": symbol,
+                "exchange": exchange,
+                "action": action,
+                "product": product,
+                "pricetype": price_type,
+                "quantity": str(quantity),
+                "price": str(price),
+                "trigger_price": str(trigger_price),
+                "disclosed_quantity": "0",
+            },
+        )
+
     def cancel_all_orders(self, strategy: str = "iimc_platform") -> dict[str, Any]:
         """Cancel every open order for the strategy tag (emergency control)."""
         return self._post("/api/v1/cancelallorder", {"strategy": strategy})
