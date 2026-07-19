@@ -18,6 +18,7 @@ from .api_models import (
     ApprovalDecisionRequest,
     AlertAcknowledgementRequest,
     AiEvaluationRequest,
+    BatchSubmitRequest,
     ChatRequest,
     ChatResponse,
     CreatePortfolioRequest,
@@ -1734,6 +1735,48 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             )
         except (ValueError, PermissionError) as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.post("/sandbox/intents/submit-batch")
+    def submit_sandbox_intent_batch(
+        request: BatchSubmitRequest,
+        principal: Principal = Depends(researcher),
+    ) -> dict[str, Any]:
+        """Submit several APPROVED intents as a basket.
+
+        Each intent passes through the same gates as a single submission
+        (approved status, atomic claim, idempotency, analyzer/live checks);
+        failures are reported per intent and never halt honest reporting
+        of the others.
+        """
+        results: list[dict[str, Any]] = []
+        submitted = 0
+        for intent_id in request.intent_ids:
+            try:
+                outcome = sandbox_service.submit(
+                    intent_id,
+                    actor=principal.username,
+                )
+                submitted += 1
+                results.append(
+                    {
+                        "intent_id": intent_id,
+                        "status": outcome.get("status", "submitted"),
+                        "broker_order_id": outcome.get("broker_order_id"),
+                    }
+                )
+            except (ValueError, PermissionError) as exc:
+                results.append(
+                    {
+                        "intent_id": intent_id,
+                        "status": "rejected",
+                        "reason": str(exc),
+                    }
+                )
+        return {
+            "requested": len(request.intent_ids),
+            "submitted": submitted,
+            "results": results,
+        }
 
     @app.post("/sandbox/intents/{intent_id}/reconcile")
     def reconcile_sandbox_intent(

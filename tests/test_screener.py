@@ -163,5 +163,44 @@ class PortfolioMarkToMarketTest(unittest.TestCase):
         )
 
 
+class BatchSubmitTest(unittest.TestCase):
+    def test_batch_reports_per_intent_rejections(self) -> None:
+        from fastapi.testclient import TestClient
+
+        from iimc_trading_platform.api import create_app
+        from iimc_trading_platform.config import AppConfig
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db = root / "batch.duckdb"
+            initialize_database(db)
+            client = TestClient(
+                create_app(
+                    AppConfig(
+                        database_path=db,
+                        artifacts_dir=root / "artifacts",
+                        openalgo_root=root,
+                        openalgo_api_key="configured",
+                    )
+                )
+            )
+
+            response = client.post(
+                "/sandbox/intents/submit-batch",
+                json={"intent_ids": ["intent_missing1", "intent_missing2"]},
+            )
+
+            self.assertEqual(response.status_code, 200)
+            payload = response.json()
+            self.assertEqual(payload["requested"], 2)
+            self.assertEqual(payload["submitted"], 0)
+            self.assertTrue(
+                all(
+                    item["status"] == "rejected"
+                    for item in payload["results"]
+                )
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

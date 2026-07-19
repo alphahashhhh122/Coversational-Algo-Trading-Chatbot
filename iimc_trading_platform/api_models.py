@@ -18,6 +18,10 @@ class McpCallRequest(BaseModel):
     arguments: dict[str, Any] = Field(default_factory=dict)
 
 
+class BatchSubmitRequest(BaseModel):
+    intent_ids: list[str] = Field(min_length=1, max_length=20)
+
+
 class ScreenDefinitionRequest(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     description: str = Field(min_length=1, max_length=500)
