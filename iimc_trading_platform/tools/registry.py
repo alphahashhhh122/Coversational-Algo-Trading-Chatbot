@@ -276,6 +276,13 @@ class FetchWebDocumentInput(ToolInput):
     title: str | None = Field(default=None, max_length=200)
 
 
+class CreatePriceAlertInput(ToolInput):
+    symbol: str = Field(min_length=1, max_length=40)
+    direction: Literal["above", "below"]
+    threshold: float = Field(gt=0)
+    exchange: str = Field(default="NSE", max_length=20)
+
+
 class OptionChainInput(ToolInput):
     underlying: str = Field(min_length=1, max_length=40)
     exchange: str = Field(default="NSE_INDEX", max_length=20)
@@ -512,10 +519,14 @@ def build_default_tool_registry(
     freshness = FreshnessService(db_path)
     knowledge = KnowledgeService(db_path)
     from ..services.fundamentals_service import FundamentalsService
+    from ..services.price_alert_service import PriceAlertService
     from ..services.screen_service import ScreenService
 
     fundamentals = FundamentalsService(db_path)
     screens = ScreenService(db_path)
+
+    def _price_alerts(path: Path) -> PriceAlertService:
+        return PriceAlertService(path)
     evidence = EvidenceService(db_path, artifacts_dir)
     from ..services.robustness_service import RobustnessService
 
@@ -726,6 +737,48 @@ def build_default_tool_registry(
                     execution_modes=("research",),
                     risk_level="low",
                 ),
+            ),
+            ToolDefinition(
+                name="create_price_alert",
+                description=(
+                    "Create a price alert that triggers when the live "
+                    "OpenAlgo quote crosses the threshold (checked every "
+                    "minute while the broker connection is configured)."
+                ),
+                input_model=CreatePriceAlertInput,
+                handler=lambda value: _price_alerts(db_path).create(
+                    symbol=CreatePriceAlertInput.model_validate(
+                        value.model_dump()
+                    ).symbol,
+                    direction=CreatePriceAlertInput.model_validate(
+                        value.model_dump()
+                    ).direction,
+                    threshold=CreatePriceAlertInput.model_validate(
+                        value.model_dump()
+                    ).threshold,
+                    exchange=CreatePriceAlertInput.model_validate(
+                        value.model_dump()
+                    ).exchange,
+                ),
+                side_effects="creates a persisted price alert",
+                required_role="researcher",
+                retry_safe=False,
+                capabilities=ToolCapabilityMetadata(
+                    actions=("monitor",),
+                    execution_modes=("research",),
+                    risk_level="low",
+                ),
+            ),
+            ToolDefinition(
+                name="list_price_alerts",
+                description=(
+                    "List price alerts with status, last checked price, and "
+                    "trigger timestamps."
+                ),
+                input_model=EmptyInput,
+                handler=lambda value: _price_alerts(db_path).list(),
+                side_effects="read-only database query",
+                retry_safe=True,
             ),
             ToolDefinition(
                 name="run_screen",

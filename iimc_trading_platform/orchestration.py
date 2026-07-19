@@ -718,6 +718,38 @@ class OfflineOrchestrator:
                     {"persona_id": persona_id},
                 )
             return OrchestrationDecision("list_strategy_personas", {})
+        alert_match = (
+            re.search(
+                r"([A-Za-z][\w&]{1,19})\s+(?:goes?\s+|is\s+|price\s+|falls?\s+"
+                r"|rises?\s+|drops?\s+|crosses?\s+)?"
+                r"(above|below|over|under|falls|rises|drops|crosses)\s+"
+                r"(?:rs\.?\s*|₹\s*)?(\d+(?:\.\d+)?)",
+                message,
+                flags=re.IGNORECASE,
+            )
+            if re.search(r"\b(?:alert|notify)\b", text)
+            else None
+        )
+        if alert_match and "create_price_alert" in tool_names:
+            direction_word = alert_match.group(2).lower()
+            direction = (
+                "below"
+                if direction_word in {"below", "under", "falls", "drops"}
+                else "above"
+            )
+            return OrchestrationDecision(
+                "create_price_alert",
+                {
+                    "symbol": alert_match.group(1).upper(),
+                    "direction": direction,
+                    "threshold": float(alert_match.group(3)),
+                },
+            )
+        if (
+            "list_price_alerts" in tool_names
+            and re.search(r"\b(?:my|list|show|active)\b.{0,20}\balerts?\b", text)
+        ):
+            return OrchestrationDecision("list_price_alerts", {})
         if (
             "get_option_chain" in tool_names
             and re.search(
@@ -2651,6 +2683,32 @@ def _grounded_fallback_response(
             + "\n".join(lines)
             + warning_text
         )
+    if tool_name == "create_price_alert":
+        return (
+            f"Price alert created: **{result.get('symbol')}** "
+            f"{result.get('direction')} {result.get('threshold')} "
+            f"({result.get('exchange')}). It is checked against live "
+            "quotes every minute while the broker connection is up; say "
+            "'show my alerts' to review it."
+        )
+    if tool_name == "list_price_alerts":
+        alerts = result.get("alerts", [])
+        if not alerts:
+            return (
+                "No price alerts yet. Say 'alert me when RELIANCE goes "
+                "above 1500' to create one."
+            )
+        lines = [
+            f"- **{item['symbol']}** {item['direction']} {item['threshold']} "
+            f"— {item['status']}"
+            + (
+                f" (last price {item['last_price']})"
+                if item.get("last_price") is not None
+                else ""
+            )
+            for item in alerts[:15]
+        ]
+        return f"Your price alerts:\n" + "\n".join(lines)
     if tool_name == "get_option_chain":
         analytics = result.get("analytics", {})
         pcr = analytics.get("put_call_oi_ratio")

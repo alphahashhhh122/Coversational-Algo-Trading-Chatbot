@@ -154,6 +154,21 @@ def build_job_service(config: AppConfig) -> JobService:
             }
 
         handlers["openalgo_snapshot"] = openalgo_snapshot
+
+        from .price_alert_service import PriceAlertService
+
+        price_alerts = PriceAlertService(
+            config.database_path,
+            OpenAlgoClient(
+                config.openalgo_base_url,
+                config.openalgo_api_key,
+            ),
+        )
+
+        def price_alert_evaluation(payload: dict[str, Any]) -> dict[str, Any]:
+            return price_alerts.evaluate()
+
+        handlers["price_alert_evaluation"] = price_alert_evaluation
     if config.market_news_provider and config.market_news_api_url:
         news = MarketNewsService(config)
 
@@ -244,6 +259,14 @@ def register_default_jobs(
                         "tradebook",
                     ]
                 },
+                max_retries=5,
+            )
+        )
+        job_ids.append(
+            service.register(
+                name="price_alert_evaluation",
+                job_type="price_alert_evaluation",
+                schedule_seconds=60,
                 max_retries=5,
             )
         )

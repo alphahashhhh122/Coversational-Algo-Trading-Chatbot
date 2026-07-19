@@ -96,5 +96,79 @@ class OptionChainAnalyticsTest(unittest.TestCase):
             )
 
 
+class FakeQuoteClient:
+    def __init__(self, prices: dict[str, float]) -> None:
+        self.prices = prices
+
+    def quote(self, *, symbol: str, exchange: str) -> dict:
+        return {"data": {"ltp": self.prices[symbol]}}
+
+
+class PriceAlertTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.db_path = Path(self.temp_dir.name) / "alerts.duckdb"
+        initialize_database(self.db_path)
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def test_alert_triggers_only_when_crossed(self) -> None:
+        from iimc_trading_platform.services.price_alert_service import (
+            PriceAlertService,
+        )
+
+        service = PriceAlertService(
+            self.db_path, FakeQuoteClient({"RELIANCE": 1490.0}),
+        )
+        created = service.create(
+            symbol="RELIANCE", direction="above", threshold=1500.0,
+        )
+        self.assertEqual(created["status"], "active")
+
+        first = service.evaluate()
+        self.assertEqual(first["checked"], 1)
+        self.assertEqual(first["triggered"], [])
+
+        service.client = FakeQuoteClient({"RELIANCE": 1505.0})
+        second = service.evaluate()
+        self.assertEqual(len(second["triggered"]), 1)
+
+        alerts = service.list()["alerts"]
+        self.assertEqual(alerts[0]["status"], "triggered")
+        self.assertEqual(alerts[0]["last_price"], 1505.0)
+
+    def test_invalid_direction_rejected(self) -> None:
+        from iimc_trading_platform.services.price_alert_service import (
+            PriceAlertService,
+        )
+
+        with self.assertRaises(ValueError):
+            PriceAlertService(self.db_path).create(
+                symbol="X", direction="sideways", threshold=1,
+            )
+
+    def test_router_creates_and_lists_alerts(self) -> None:
+        registry = build_default_tool_registry(Path("unused.duckdb"))
+        decision = OfflineOrchestrator().select_tool(
+            "Alert me when RELIANCE goes above 1500", [], registry,
+        )
+        self.assertEqual(decision.tool_name, "create_price_alert")
+        self.assertEqual(decision.arguments["symbol"], "RELIANCE")
+        self.assertEqual(decision.arguments["direction"], "above")
+        self.assertEqual(decision.arguments["threshold"], 1500.0)
+
+        below = OfflineOrchestrator().select_tool(
+            "Notify me if INFY falls below 1400.5", [], registry,
+        )
+        self.assertEqual(below.arguments["direction"], "below")
+        self.assertEqual(below.arguments["threshold"], 1400.5)
+
+        listing = OfflineOrchestrator().select_tool(
+            "show my alerts", [], registry,
+        )
+        self.assertEqual(listing.tool_name, "list_price_alerts")
+
+
 if __name__ == "__main__":
     unittest.main()
