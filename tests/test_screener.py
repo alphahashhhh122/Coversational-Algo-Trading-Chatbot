@@ -96,5 +96,72 @@ class ScreenerServiceTest(unittest.TestCase):
         self.assertEqual(listing.tool_name, "list_watchlist")
 
 
+class PortfolioMarkToMarketTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.db_path = Path(self.temp_dir.name) / "pf.duckdb"
+        initialize_database(self.db_path)
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def test_mark_to_market_computes_live_unrealized(self) -> None:
+        from iimc_trading_platform.services.portfolio_service import (
+            PortfolioService,
+        )
+
+        service = PortfolioService(self.db_path)
+        created = service.create(
+            name="paper_sim", starting_cash=100000.0, created_by="tester",
+        )
+        portfolio_id = created["portfolio_id"]
+        from datetime import datetime
+
+        from iimc_trading_platform.db import connect
+
+        con = connect(self.db_path)
+        try:
+            con.execute(
+                "INSERT INTO portfolio_positions VALUES "
+                "(?, 'RELIANCE', 10, 1400.0, 1400.0, 0.0, ?)",
+                [portfolio_id, datetime(2026, 7, 18, 10, 0)],
+            )
+        finally:
+            con.close()
+
+        marked = service.mark_to_market(
+            portfolio_id, lambda symbol: 1450.0,
+        )
+
+        self.assertEqual(marked["positions_marked"][0]["live_price"], 1450.0)
+        self.assertEqual(
+            marked["positions_marked"][0]["unrealized_pnl"], 500.0,
+        )
+        self.assertEqual(marked["total_unrealized_pnl"], 500.0)
+        self.assertEqual(marked["market_value"], 14500.0)
+        self.assertEqual(marked["quote_errors"], [])
+
+        failing = service.mark_to_market(
+            portfolio_id,
+            lambda symbol: (_ for _ in ()).throw(RuntimeError("no quote")),
+        )
+        self.assertEqual(failing["positions_marked"], [])
+        self.assertEqual(len(failing["quote_errors"]), 1)
+
+    def test_router_routes_mark_to_market(self) -> None:
+        registry = build_default_tool_registry(
+            Path("unused.duckdb"),
+            openalgo_base_url="http://127.0.0.1:5000",
+            openalgo_api_key="test",
+        )
+        decision = OfflineOrchestrator().select_tool(
+            "Mark portfolio_abc123 to market", [], registry,
+        )
+        self.assertEqual(decision.tool_name, "mark_portfolio_to_market")
+        self.assertEqual(
+            decision.arguments["portfolio_id"], "portfolio_abc123",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

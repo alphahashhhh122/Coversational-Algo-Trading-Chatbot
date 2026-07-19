@@ -718,6 +718,27 @@ class OfflineOrchestrator:
                     {"persona_id": persona_id},
                 )
             return OrchestrationDecision("list_strategy_personas", {})
+        if (
+            "mark_portfolio_to_market" in tool_names
+            and re.search(
+                r"\bmark\b.{0,30}\bmarket\b"
+                r"|\bportfolio\b.{0,25}\blive\s+(?:p&?l|pnl|value|equity)\b",
+                text,
+            )
+        ):
+            if portfolio_id:
+                return OrchestrationDecision(
+                    "mark_portfolio_to_market",
+                    {"portfolio_id": portfolio_id},
+                )
+            return OrchestrationDecision(
+                tool_name=None,
+                arguments={},
+                direct_response=(
+                    "Which portfolio? Provide its id (portfolio_...), or "
+                    "say 'list portfolios' to see them."
+                ),
+            )
         watchlist_add = re.search(
             r"\b(?:add|put)\s+([A-Za-z][\w&]{1,19})\s+"
             r"(?:to|on)\s+(?:my\s+|the\s+)?watch\s*list\b",
@@ -1184,6 +1205,19 @@ class OfflineOrchestrator:
             return OrchestrationDecision(
                 "list_robustness_experiments",
                 {},
+            )
+        if (
+            "mark_portfolio_to_market" in tool_names
+            and portfolio_id
+            and re.search(
+                r"\bmark(?:et)?\b.{0,40}\bmarket\b"
+                r"|\blive\s+(?:p&?l|pnl|value|equity)\b",
+                text,
+            )
+        ):
+            return OrchestrationDecision(
+                "mark_portfolio_to_market",
+                {"portfolio_id": portfolio_id},
             )
         if (
             "get_portfolio_snapshot" in tool_names
@@ -2747,6 +2781,30 @@ def _grounded_fallback_response(
             f"periods stored: {', '.join(result.get('periods_available', []))}):\n"
             + "\n".join(lines)
             + warning_text
+        )
+    if tool_name == "mark_portfolio_to_market":
+        marked = result.get("positions_marked", [])
+        lines = [
+            f"- **{item['symbol']}**: {item['quantity']:g} @ avg "
+            f"{item['average_price']:g}, live {item['live_price']:g} → "
+            f"unrealized {item['unrealized_pnl']:+,.2f}"
+            for item in marked
+        ] or ["- (no open positions)"]
+        error_note = (
+            f"\n{len(result.get('quote_errors', []))} position(s) could not "
+            "be quoted."
+            if result.get("quote_errors")
+            else ""
+        )
+        return (
+            f"**{result.get('name')}** ({result.get('portfolio_id')}) "
+            "marked to live quotes:\n"
+            + "\n".join(lines)
+            + f"\n\nCash: {result.get('cash_balance'):,.2f} · Market value: "
+            f"{result.get('market_value'):,.2f} · Total equity: "
+            f"{result.get('total_equity'):,.2f} · Unrealized P&L: "
+            f"{result.get('total_unrealized_pnl'):+,.2f}"
+            + error_note
         )
     if tool_name in {"add_watchlist_symbol", "remove_watchlist_symbol"}:
         return (

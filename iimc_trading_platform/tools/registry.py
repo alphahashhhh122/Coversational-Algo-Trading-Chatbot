@@ -1620,6 +1620,38 @@ def build_default_tool_registry(
             db_path,
             OpenAlgoClient(openalgo_base_url, openalgo_api_key),
         )
+        def _portfolio_quote(symbol: str) -> float:
+            quote_client = OpenAlgoClient(openalgo_base_url, openalgo_api_key)
+            data = quote_client.quote(symbol=symbol, exchange="NSE").get(
+                "data"
+            ) or {}
+            return float(data["ltp"])
+
+        tools.append(
+            ToolDefinition(
+                name="mark_portfolio_to_market",
+                description=(
+                    "Mark a virtual paper portfolio's open positions "
+                    "against live OpenAlgo quotes: per-position unrealized "
+                    "P&L, market value, and total equity."
+                ),
+                input_model=PortfolioIdInput,
+                handler=lambda value: portfolios.mark_to_market(
+                    PortfolioIdInput.model_validate(
+                        value.model_dump()
+                    ).portfolio_id,
+                    _portfolio_quote,
+                ),
+                side_effects="read-only OpenAlgo quote requests",
+                retry_safe=True,
+                capabilities=ToolCapabilityMetadata(
+                    actions=("monitor", "analyze"),
+                    execution_modes=("paper",),
+                    required_providers=("openalgo",),
+                    risk_level="low",
+                ),
+            )
+        )
         tools.append(
             ToolDefinition(
                 name="run_technical_screen",

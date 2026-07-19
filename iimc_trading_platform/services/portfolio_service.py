@@ -142,6 +142,54 @@ class PortfolioService:
             ]
         }
 
+    def mark_to_market(
+        self,
+        portfolio_id: str,
+        quote_fetcher,
+    ) -> dict[str, Any]:
+        """Mark open virtual positions against live quotes.
+
+        quote_fetcher(symbol) must return a live price or raise; failed
+        quotes are reported per position, never estimated.
+        """
+        snapshot = self.get(portfolio_id)
+        marked: list[dict[str, Any]] = []
+        errors: list[dict[str, str]] = []
+        total_unrealized = 0.0
+        market_value = 0.0
+        for position in snapshot.get("positions", []):
+            symbol = position["symbol"]
+            try:
+                live_price = float(quote_fetcher(symbol))
+            except Exception as exc:
+                errors.append({"symbol": symbol, "reason": str(exc)[:120]})
+                continue
+            quantity = float(position["quantity"])
+            average_price = float(position["average_price"])
+            unrealized = (live_price - average_price) * quantity
+            total_unrealized += unrealized
+            market_value += live_price * quantity
+            marked.append(
+                {
+                    "symbol": symbol,
+                    "quantity": quantity,
+                    "average_price": average_price,
+                    "live_price": live_price,
+                    "unrealized_pnl": round(unrealized, 2),
+                }
+            )
+        cash_balance = float(snapshot.get("cash_balance", 0))
+        return {
+            "portfolio_id": portfolio_id,
+            "name": snapshot.get("name"),
+            "cash_balance": cash_balance,
+            "positions_marked": marked,
+            "quote_errors": errors,
+            "total_unrealized_pnl": round(total_unrealized, 2),
+            "market_value": round(market_value, 2),
+            "total_equity": round(cash_balance + market_value, 2),
+        }
+
     def get(self, portfolio_id: str) -> dict[str, Any]:
         con = connect(self.db_path)
         try:
