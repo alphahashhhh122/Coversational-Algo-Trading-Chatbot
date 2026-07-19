@@ -99,24 +99,32 @@ class ResearchService:
             "end_date": end_date,
             "summary": [
                 (
-                    "Architecture supports this request."
+                    f"{data['symbol']} {data['asset_class']} on "
+                    f"{data['exchange']} is fully supported."
                     if data["supported_by_architecture"]
-                    else "Architecture does not support this asset request."
+                    else "This instrument type is not supported yet."
                 ),
                 (
-                    f"Local governed data is available with "
-                    f"{data['rows_available']} row(s)."
+                    f"Historical data is ready: "
+                    f"{data['rows_available']:,} candles of "
+                    f"{data['interval']} history."
                     if data["local_dataset_exists"]
-                    else "No local governed dataset is available."
+                    else (
+                        "No historical data imported yet — use the Data "
+                        "tab to pull candles from your broker."
+                    )
                 ),
                 (
-                    f"{len(articles)} stored provider-backed news article(s) "
-                    "are available."
+                    f"{len(articles)} recent news article(s) on file."
+                    if articles
+                    else "No stored news yet — ask the chat for the "
+                    "latest headlines to pull some in."
                 ),
                 (
-                    "OpenAlgo is configured."
+                    "Broker connection is ready for paper trading."
                     if readiness["openalgo"]["configured"]
-                    else "OpenAlgo credentials are not configured."
+                    else "Broker not connected yet — start OpenAlgo and "
+                    "sign in to enable paper trading."
                 ),
             ],
             "stage_readiness": stages,
