@@ -276,6 +276,24 @@ class FetchWebDocumentInput(ToolInput):
     title: str | None = Field(default=None, max_length=200)
 
 
+class WatchlistSymbolInput(ToolInput):
+    symbol: str = Field(min_length=1, max_length=40)
+    exchange: str = Field(default="NSE", max_length=20)
+
+
+class TechnicalScreenInput(ToolInput):
+    condition: Literal[
+        "rsi_below",
+        "rsi_above",
+        "price_above_ema",
+        "price_below_ema",
+        "volume_spike",
+    ]
+    threshold: float = Field(default=30.0, gt=0)
+    period: int = Field(default=14, ge=2, le=200)
+    interval: str = Field(default="D", max_length=8)
+
+
 class CreatePriceAlertInput(ToolInput):
     symbol: str = Field(min_length=1, max_length=40)
     direction: Literal["above", "below"]
@@ -527,6 +545,16 @@ def build_default_tool_registry(
 
     def _price_alerts(path: Path) -> PriceAlertService:
         return PriceAlertService(path)
+
+    from ..services.screener_service import ScreenerService
+
+    def _screener(path: Path) -> ScreenerService:
+        client = (
+            OpenAlgoClient(openalgo_base_url, openalgo_api_key)
+            if openalgo_base_url and openalgo_api_key
+            else None
+        )
+        return ScreenerService(path, client)
     evidence = EvidenceService(db_path, artifacts_dir)
     from ..services.robustness_service import RobustnessService
 
@@ -737,6 +765,49 @@ def build_default_tool_registry(
                     execution_modes=("research",),
                     risk_level="low",
                 ),
+            ),
+            ToolDefinition(
+                name="add_watchlist_symbol",
+                description=(
+                    "Add a symbol to the screening watchlist (the universe "
+                    "scanned by live technical screens)."
+                ),
+                input_model=WatchlistSymbolInput,
+                handler=lambda value: _screener(db_path).add_symbol(
+                    WatchlistSymbolInput.model_validate(
+                        value.model_dump()
+                    ).symbol,
+                    WatchlistSymbolInput.model_validate(
+                        value.model_dump()
+                    ).exchange,
+                ),
+                side_effects="adds a persisted watchlist row",
+                required_role="researcher",
+                retry_safe=True,
+            ),
+            ToolDefinition(
+                name="remove_watchlist_symbol",
+                description="Remove a symbol from the screening watchlist.",
+                input_model=WatchlistSymbolInput,
+                handler=lambda value: _screener(db_path).remove_symbol(
+                    WatchlistSymbolInput.model_validate(
+                        value.model_dump()
+                    ).symbol,
+                    WatchlistSymbolInput.model_validate(
+                        value.model_dump()
+                    ).exchange,
+                ),
+                side_effects="removes a persisted watchlist row",
+                required_role="researcher",
+                retry_safe=True,
+            ),
+            ToolDefinition(
+                name="list_watchlist",
+                description="List the screening watchlist symbols.",
+                input_model=EmptyInput,
+                handler=lambda value: _screener(db_path).list_symbols(),
+                side_effects="read-only database query",
+                retry_safe=True,
             ),
             ToolDefinition(
                 name="create_price_alert",
@@ -1548,6 +1619,41 @@ def build_default_tool_registry(
         option_analytics = OptionsAnalyticsService(
             db_path,
             OpenAlgoClient(openalgo_base_url, openalgo_api_key),
+        )
+        tools.append(
+            ToolDefinition(
+                name="run_technical_screen",
+                description=(
+                    "Scan the watchlist with live OpenAlgo candles for a "
+                    "technical condition: rsi_below/rsi_above <threshold>, "
+                    "price_above_ema/price_below_ema <period>, or "
+                    "volume_spike <multiplier>. Unfetchable symbols are "
+                    "reported as skipped."
+                ),
+                input_model=TechnicalScreenInput,
+                handler=lambda value: _screener(db_path).scan(
+                    condition=TechnicalScreenInput.model_validate(
+                        value.model_dump()
+                    ).condition,
+                    threshold=TechnicalScreenInput.model_validate(
+                        value.model_dump()
+                    ).threshold,
+                    period=TechnicalScreenInput.model_validate(
+                        value.model_dump()
+                    ).period,
+                    interval=TechnicalScreenInput.model_validate(
+                        value.model_dump()
+                    ).interval,
+                ),
+                side_effects="read-only OpenAlgo history requests",
+                retry_safe=True,
+                capabilities=ToolCapabilityMetadata(
+                    actions=("screen", "analyze"),
+                    execution_modes=("research",),
+                    required_providers=("openalgo",),
+                    risk_level="low",
+                ),
+            )
         )
         tools.append(
             ToolDefinition(

@@ -879,6 +879,17 @@ def initialize_database(db_path: Path) -> None:
         )
         con.execute(
             """
+            CREATE TABLE IF NOT EXISTS watchlist_symbols (
+                symbol VARCHAR NOT NULL,
+                exchange VARCHAR NOT NULL,
+                added_by VARCHAR NOT NULL,
+                added_at TIMESTAMP NOT NULL,
+                PRIMARY KEY (symbol, exchange)
+            )
+            """
+        )
+        con.execute(
+            """
             CREATE TABLE IF NOT EXISTS price_alerts (
                 alert_id VARCHAR PRIMARY KEY,
                 symbol VARCHAR NOT NULL,

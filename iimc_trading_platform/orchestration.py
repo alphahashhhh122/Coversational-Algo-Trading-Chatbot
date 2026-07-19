@@ -718,6 +718,71 @@ class OfflineOrchestrator:
                     {"persona_id": persona_id},
                 )
             return OrchestrationDecision("list_strategy_personas", {})
+        watchlist_add = re.search(
+            r"\b(?:add|put)\s+([A-Za-z][\w&]{1,19})\s+"
+            r"(?:to|on)\s+(?:my\s+|the\s+)?watch\s*list\b",
+            message,
+            flags=re.IGNORECASE,
+        )
+        if watchlist_add and "add_watchlist_symbol" in tool_names:
+            return OrchestrationDecision(
+                "add_watchlist_symbol",
+                {"symbol": watchlist_add.group(1).upper()},
+            )
+        watchlist_remove = re.search(
+            r"\b(?:remove|delete|drop)\s+([A-Za-z][\w&]{1,19})\s+from\s+"
+            r"(?:my\s+|the\s+)?watch\s*list\b",
+            message,
+            flags=re.IGNORECASE,
+        )
+        if watchlist_remove and "remove_watchlist_symbol" in tool_names:
+            return OrchestrationDecision(
+                "remove_watchlist_symbol",
+                {"symbol": watchlist_remove.group(1).upper()},
+            )
+        if (
+            "list_watchlist" in tool_names
+            and re.search(r"\b(?:show|list|my)\b.{0,15}\bwatch\s*list\b", text)
+        ):
+            return OrchestrationDecision("list_watchlist", {})
+        technical_screen = re.search(
+            r"\b(?:stocks?|symbols?|watchlist)\b.{0,40}?"
+            r"\b(rsi|volume|ema)\b.{0,30}?"
+            r"\b(below|above|under|over|spike|high)\b"
+            r".{0,15}?(\d+(?:\.\d+)?)?",
+            text,
+        )
+        if technical_screen and "run_technical_screen" in tool_names:
+            indicator = technical_screen.group(1)
+            comparator = technical_screen.group(2)
+            number = technical_screen.group(3)
+            if indicator == "rsi":
+                condition = (
+                    "rsi_below"
+                    if comparator in {"below", "under"}
+                    else "rsi_above"
+                )
+                threshold = float(number) if number else 30.0
+            elif indicator == "ema":
+                condition = (
+                    "price_below_ema"
+                    if comparator in {"below", "under"}
+                    else "price_above_ema"
+                )
+                threshold = 1.0
+            else:
+                condition = "volume_spike"
+                threshold = float(number) if number else 2.0
+            arguments: dict[str, Any] = {
+                "condition": condition,
+                "threshold": threshold,
+            }
+            if indicator == "ema" and number:
+                arguments["period"] = int(float(number))
+            return OrchestrationDecision(
+                "run_technical_screen",
+                arguments,
+            )
         alert_match = (
             re.search(
                 r"([A-Za-z][\w&]{1,19})\s+(?:goes?\s+|is\s+|price\s+|falls?\s+"
@@ -2682,6 +2747,48 @@ def _grounded_fallback_response(
             f"periods stored: {', '.join(result.get('periods_available', []))}):\n"
             + "\n".join(lines)
             + warning_text
+        )
+    if tool_name in {"add_watchlist_symbol", "remove_watchlist_symbol"}:
+        return (
+            f"Watchlist updated: **{result.get('symbol')}** "
+            f"{result.get('status')}."
+        )
+    if tool_name == "list_watchlist":
+        symbols = result.get("symbols", [])
+        if not symbols:
+            return (
+                "The watchlist is empty. Say 'add RELIANCE to watchlist' "
+                "to start building the screening universe."
+            )
+        listed = ", ".join(
+            f"{item['symbol']} ({item['exchange']})" for item in symbols
+        )
+        return f"Watchlist ({len(symbols)}): {listed}."
+    if tool_name == "run_technical_screen":
+        matches = result.get("matches", [])
+        skipped = result.get("skipped", [])
+        match_lines = [
+            f"- **{item['symbol']}**: close {item.get('last_close')}"
+            + (
+                f", RSI {item['rsi']}" if "rsi" in item else ""
+            )
+            + (
+                f", EMA {item['ema']}" if "ema" in item else ""
+            )
+            for item in matches
+        ] or ["- (no watchlist symbols matched)"]
+        skipped_note = (
+            f"\n{len(skipped)} symbol(s) skipped (data unavailable)."
+            if skipped
+            else ""
+        )
+        return (
+            f"Technical screen **{result.get('condition')} "
+            f"{result.get('threshold')}** over "
+            f"{result.get('watchlist_size', 0)} watchlist symbol(s), "
+            f"{result.get('interval')} candles:\n"
+            + "\n".join(match_lines)
+            + skipped_note
         )
     if tool_name == "create_price_alert":
         return (
