@@ -494,22 +494,24 @@ function renderResearchBriefs(message = "") {
     : "";
   container.innerHTML = status + (briefs.length
     ? briefs.map((brief) => {
-      const blocker = brief.next_blocker?.stage || "none";
-      const dataset = brief.evidence?.dataset_id || "none";
+      const summaryLines = (brief.summary || [])
+        .map((line) => `<li>${escapeHtml(line)}</li>`)
+        .join("");
+      const nextStep = brief.next_blocker?.next_action
+        || "Everything is ready — run a backtest from the Research tab.";
+      const created = String(brief.created_at || "").slice(0, 16).replace("T", " ");
       return `
         <article class="research-brief-item">
           <div>
             <strong>${escapeHtml(brief.title)}</strong>
-            <span>${escapeHtml(brief.brief_id)} · dataset ${escapeHtml(dataset)} · blocker ${escapeHtml(blocker)}</span>
+            <span>${escapeHtml(created)}</span>
           </div>
-          <details>
-            <summary>Inspect brief</summary>
-            <pre>${escapeHtml(JSON.stringify(brief, null, 2))}</pre>
-          </details>
+          <ul class="brief-summary">${summaryLines}</ul>
+          <p class="brief-next">Next step: ${escapeHtml(nextStep)}</p>
         </article>
       `;
     }).join("")
-    : `<div class="empty-state">No stored research briefs yet.</div>`);
+    : `<div class="empty-state">No research briefs yet — press Create brief above.</div>`);
 }
 
 async function createResearchBrief() {
@@ -773,22 +775,46 @@ function stageTone(stage) {
   return "attention";
 }
 
+const STAGE_LABELS = {
+  research: "Research",
+  backtest: "Backtesting",
+  paper_trading: "Paper trading",
+  live_trading: "Live trading",
+};
+
+const BLOCKER_LABELS = {
+  openalgo_not_ready: "connect your broker first",
+  live_trading_disabled: "live trading is switched off",
+  current_paper_signal_missing: "run a fresh semi-auto backtest first",
+  no_local_dataset: "import market data first",
+};
+
+function friendlyBlockers(blockers) {
+  return (blockers || [])
+    .map((item) => BLOCKER_LABELS[item] || item.replaceAll("_", " "))
+    .join("; ");
+}
+
 function renderExecutionStage(stage) {
-  const blockers = stage.blockers?.length
-    ? stage.blockers.join(", ")
-    : "none";
+  const ready = stage.can_start;
+  const label = STAGE_LABELS[stage.stage] || stage.stage.replaceAll("_", " ");
+  const statusText = ready
+    ? "Ready"
+    : stage.status === "disabled"
+      ? "Off"
+      : "Waiting";
+  const detail = ready
+    ? ""
+    : `<p>${escapeHtml(
+      friendlyBlockers(stage.blockers) || stage.next_action || "",
+    )}</p>`;
   return `
     <article class="execution-stage ${stageTone(stage)}">
       <div class="stage-title">
-        <strong>${escapeHtml(stage.stage.replaceAll("_", " "))}</strong>
-        <span>${escapeHtml(stage.status)}</span>
+        <strong>${ready ? "✓" : "•"} ${escapeHtml(label)}</strong>
+        <span>${escapeHtml(statusText)}</span>
       </div>
-      <div class="stage-flags">
-        <span>${stage.requires_human_approval ? "approval required" : "no manual approval"}</span>
-        <span>${stage.external_side_effects ? "external action" : "internal only"}</span>
-      </div>
-      <small>Blockers: ${escapeHtml(blockers)}</small>
-      <p>${escapeHtml(stage.next_action)}</p>
+      ${detail}
     </article>
   `;
 }
@@ -813,20 +839,17 @@ function renderReadinessResult(payload, message = "") {
       <span>${escapeHtml(message || status)}</span>
     </div>
     <div class="readiness-grid">
-      <div><span>Architecture</span><strong>${result.supported_by_architecture ? "supported" : "unsupported"}</strong></div>
-      <div><span>Local data</span><strong>${result.local_dataset_exists ? `${formatNumber(result.rows_available, 0)} rows` : "none"}</strong></div>
-      <div><span>Provider</span><strong>${result.provider_configured ? "configured" : "not configured"}</strong></div>
-      <div><span>OpenAlgo</span><strong>${escapeHtml(result.analyzer_path_status || payload.openalgo?.status || "unknown")}</strong></div>
-      <div><span>Live path</span><strong>${escapeHtml(result.live_path_status || "unknown")}</strong></div>
-      <div><span>Fallback</span><strong>${payload.no_synthetic_fallback ? "no synthetic data" : "attention"}</strong></div>
+      <div><span>Market data</span><strong>${result.local_dataset_exists ? `${formatNumber(result.rows_available, 0)} candles stored` : "not imported yet"}</strong></div>
+      <div><span>Broker</span><strong>${escapeHtml((result.analyzer_path_status || payload.openalgo?.status || "unknown").replaceAll("_", " "))}</strong></div>
+      <div><span>Supported</span><strong>${result.supported_by_architecture ? "yes" : "no"}</strong></div>
     </div>
     <div class="execution-stage-list">
       ${stages.map(renderExecutionStage).join("")}
     </div>
     ${blocker ? `
       <div class="readiness-blocker">
-        <strong>Next blocker: ${escapeHtml(blocker.stage)}</strong>
-        <span>${escapeHtml(blocker.next_action)}</span>
+        <strong>To unlock ${escapeHtml(STAGE_LABELS[blocker.stage] || blocker.stage.replaceAll("_", " "))}:</strong>
+        <span>${escapeHtml(friendlyBlockers(blocker.blockers) || blocker.next_action)}</span>
       </div>
     ` : ""}
   `;
@@ -3100,6 +3123,10 @@ async function decideApproval(approvalId, approved, button) {
 function renderKnowledgeDocuments() {
   const container = $("#knowledge-doc-list");
   if (!container) return;
+  // Show only user-facing documents; internal platform docs stay backend-only.
+  state.knowledgeDocuments = state.knowledgeDocuments.filter(
+    (doc) => doc.corpus !== "curated_project_docs",
+  );
   if (!state.knowledgeDocuments.length) {
     container.innerHTML = `<div class="empty-state">No stored documents yet. Upload one above.</div>`;
     return;

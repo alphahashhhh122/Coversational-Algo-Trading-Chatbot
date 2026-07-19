@@ -1507,7 +1507,7 @@ class OfflineOrchestrator:
                     direct_response=_educational_response(concept),
                 )
 
-        if any(
+        if not re.search(r"\bdocuments?\b", text) and any(
             phrase in text
             for phrase in (
                 "pe ratio",
@@ -2920,18 +2920,19 @@ def _grounded_fallback_response(
     if tool_name == "search_knowledge":
         matches = result.get("matches", [])
         if not matches:
-            return "No governed knowledge chunks matched the question."
+            return (
+                "I couldn't find anything about that in your stored "
+                "documents. You can upload reports in the Data tab or say "
+                "'fetch <url> and store it'."
+            )
         excerpts = []
         for item in matches[:3]:
             content = " ".join(str(item.get("content", "")).split())
-            if len(content) > 240:
-                content = content[:240].rstrip() + "…"
-            excerpts.append(
-                f"- **{item['title']}** ({item['chunk_id']}): {content}"
-            )
+            if len(content) > 260:
+                content = content[:260].rstrip() + "…"
+            excerpts.append(f"- **{item['title']}**: {content}")
         return (
-            f"Retrieved {len(matches)} governed knowledge chunk(s):\n"
-            + "\n".join(excerpts)
+            "Here's what your documents say:\n" + "\n".join(excerpts)
         )
     if tool_name == "check_platform_readiness":
         blocked_reasons = []

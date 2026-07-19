@@ -165,7 +165,8 @@ class KnowledgeService:
             rows = con.execute(
                 """
                 SELECT d.document_id, d.title, d.source_uri, d.document_type,
-                       d.status, d.ingested_at, COUNT(c.chunk_id)
+                       d.status, d.ingested_at, COUNT(c.chunk_id),
+                       ANY_VALUE(d.metadata_json)
                 FROM knowledge_documents AS d
                 LEFT JOIN knowledge_chunks AS c
                   ON c.document_id = d.document_id
@@ -176,8 +177,13 @@ class KnowledgeService:
             ).fetchall()
         finally:
             con.close()
-        return {
-            "documents": [
+        documents = []
+        for row in rows:
+            try:
+                metadata = json.loads(row[7] or "{}")
+            except (TypeError, ValueError):
+                metadata = {}
+            documents.append(
                 {
                     "document_id": row[0],
                     "title": row[1],
@@ -186,10 +192,10 @@ class KnowledgeService:
                     "status": row[4],
                     "ingested_at": row[5],
                     "chunk_count": row[6],
+                    "corpus": metadata.get("corpus", "unknown"),
                 }
-                for row in rows
-            ]
-        }
+            )
+        return {"documents": documents}
 
     def fetch_and_index_url(
         self,
@@ -338,6 +344,10 @@ class KnowledgeService:
                 JOIN knowledge_documents AS d
                   ON d.document_id = c.document_id
                 WHERE d.status = 'indexed'
+                  AND (
+                    d.metadata_json IS NULL
+                    OR d.metadata_json NOT LIKE '%curated_project_docs%'
+                  )
                 ORDER BY d.ingested_at DESC, c.chunk_index
                 """
             ).fetchall()
