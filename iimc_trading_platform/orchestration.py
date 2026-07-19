@@ -1596,6 +1596,8 @@ class OfflineOrchestrator:
         ):
             if "get_openalgo_snapshot" in tool_names:
                 snapshot_type = "positionbook"
+                if "holding" in text:
+                    snapshot_type = "holdings"
                 if any(
                     word in text
                     for word in ("fund", "balance", "margin", "cash")
@@ -1809,7 +1811,6 @@ def _normalize_intent_text(message: str) -> str:
     """Correct only close matches to known intent words, never entities."""
     normalized = message.lower()
     aliases = {
-        "holdings": "positions",
         "ltp": "price",
         "quotation": "quote",
         "rate": "price",
@@ -1836,7 +1837,8 @@ def _contains_any_word(text: str, words: tuple[str, ...]) -> bool:
 
 def _openalgo_snapshot_types(text: str) -> list[str]:
     categories = (
-        ("positionbook", ("position", "positions", "holding", "holdings")),
+        ("holdings", ("holding", "holdings")),
+        ("positionbook", ("position", "positions")),
         ("orderbook", ("orderbook", "open order", "orders", "order")),
         ("tradebook", ("tradebook", "trade book", "trades", "fills", "my trade")),
         (

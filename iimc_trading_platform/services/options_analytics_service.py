@@ -61,13 +61,14 @@ class OptionsAnalyticsService:
             resolved_expiry = (
                 first.get("expiry") if isinstance(first, dict) else str(first)
             )
+        resolved_expiry = str(resolved_expiry).replace("-", "").upper()
         response = self.client.option_chain(
             underlying=underlying,
             exchange=exchange,
             expiry_date=resolved_expiry,
             strike_count=strike_count,
         )
-        data = response.get("data") or {}
+        data = response.get("data") or response
         rows = (
             data.get("chain")
             or data.get("option_chain")
@@ -108,6 +109,7 @@ class OptionsAnalyticsService:
         normalized.sort(key=lambda item: item["strike"])
         underlying_ltp = _to_float(
             data.get("underlying_ltp")
+            or response.get("underlying_ltp")
             or data.get("spot")
             or data.get("underlying_price")
         )
