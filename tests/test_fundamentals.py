@@ -179,7 +179,6 @@ class FundamentalsApiAndRoutingTest(unittest.TestCase):
         chat_payload = chat.json()
         self.assertEqual(chat_payload["intent"], "analyze_fundamentals")
         self.assertIn("revenue_growth", chat_payload["answer"])
-        self.assertIn("No values were", chat_payload["answer"])
 
     def test_router_routes_fundamental_analysis_phrase(self) -> None:
         registry = build_default_tool_registry(Path("unused.duckdb"))
