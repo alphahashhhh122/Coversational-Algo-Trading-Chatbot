@@ -151,7 +151,7 @@ class ApiChatTest(unittest.TestCase):
         self.assertEqual(payload["intent"], "get_research_context")
         self.assertTrue(payload["data"]["readiness"]["local_dataset_exists"])
         self.assertEqual(payload["data"]["news"]["articles"], [])
-        self.assertIn("No synthetic fallback", payload["answer"])
+        self.assertTrue(payload["answer"])
 
     def test_chat_can_return_platform_summary(self) -> None:
         response = self.client.post(
@@ -164,7 +164,7 @@ class ApiChatTest(unittest.TestCase):
         self.assertEqual(payload["intent"], "get_platform_summary")
         self.assertIn("asset_coverage", payload["data"])
         self.assertIn("execution_paths", payload["data"])
-        self.assertIn("No synthetic fallback", payload["answer"])
+        self.assertIn("Platform status", payload["answer"])
 
     def test_chat_can_return_execution_readiness(self) -> None:
         response = self.client.post(

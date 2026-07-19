@@ -1992,8 +1992,10 @@ async function restoreChatHistory() {
 }
 
 function renderEvidence(payload) {
-  $("#evidence-empty").classList.add("hidden");
+  // Evidence stays backend-only (persisted + audit); no chat-side panel.
   const container = $("#evidence-content");
+  if (!container) return;
+  $("#evidence-empty")?.classList.add("hidden");
   container.classList.remove("hidden");
   const ids = payload.evaluation?.evidence_ids || [];
   container.innerHTML = `
@@ -3740,9 +3742,9 @@ function wireEvents() {
     state.sessionId = `session_ui_${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
     localStorage.setItem("iimc_chat_session", state.sessionId);
     $("#messages").innerHTML = "";
-    appendMessage("assistant", "New audited session started. What would you like to inspect?");
-    $("#evidence-content").classList.add("hidden");
-    $("#evidence-empty").classList.remove("hidden");
+    appendMessage("assistant", "New session started. What would you like to look at?");
+    $("#evidence-content")?.classList.add("hidden");
+    $("#evidence-empty")?.classList.remove("hidden");
   });
   const refreshActions = {
     "refresh-overview": loadOverview,

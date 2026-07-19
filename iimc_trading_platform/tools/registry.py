@@ -271,6 +271,11 @@ class RunScreenInput(ToolInput):
     name: str = Field(min_length=1, max_length=80)
 
 
+class FetchWebDocumentInput(ToolInput):
+    url: str = Field(min_length=8, max_length=1000)
+    title: str | None = Field(default=None, max_length=200)
+
+
 class PlatformReadinessInput(ToolInput):
     symbol: str = Field(min_length=1, max_length=80)
     exchange: str = Field(min_length=1, max_length=20)
@@ -737,6 +742,34 @@ def build_default_tool_registry(
                 capabilities=ToolCapabilityMetadata(
                     actions=("screen", "analyze"),
                     asset_classes=("equity",),
+                    execution_modes=("research",),
+                    risk_level="low",
+                ),
+            ),
+            ToolDefinition(
+                name="fetch_web_document",
+                description=(
+                    "Download a public web page (article, report, filing), "
+                    "extract its readable text, and store it in the governed "
+                    "document corpus for search and analysis. Private and "
+                    "loopback addresses are blocked."
+                ),
+                input_model=FetchWebDocumentInput,
+                handler=lambda value: knowledge.fetch_and_index_url(
+                    FetchWebDocumentInput.model_validate(
+                        value.model_dump()
+                    ).url,
+                    title=FetchWebDocumentInput.model_validate(
+                        value.model_dump()
+                    ).title,
+                ),
+                side_effects=(
+                    "outbound HTTP fetch and local document indexing"
+                ),
+                required_role="researcher",
+                retry_safe=True,
+                capabilities=ToolCapabilityMetadata(
+                    actions=("retrieve", "import"),
                     execution_modes=("research",),
                     risk_level="low",
                 ),

@@ -676,6 +676,20 @@ class OfflineOrchestrator:
                     {"persona_id": persona_id},
                 )
             return OrchestrationDecision("list_strategy_personas", {})
+        url_match = re.search(r"https?://[^\s\"'<>]+", message)
+        if (
+            url_match
+            and "fetch_web_document" in tool_names
+            and re.search(
+                r"\b(?:fetch|read|store|save|index|import|get|pull"
+                r"|download|summari[sz]e|analy[sz]e)\b",
+                text,
+            )
+        ):
+            return OrchestrationDecision(
+                "fetch_web_document",
+                {"url": url_match.group(0).rstrip(".,)")},
+            )
         document_analysis_match = re.search(
             r"(?:analy[sz]e|summari[sz]e|review"
             r"|extract\s+(?:fundamentals|financials)\s+from)\s+"
@@ -2512,7 +2526,7 @@ def _grounded_fallback_response(
             f"{counts.get('strategy_runs', 0)}. Enabled execution paths: "
             f"{', '.join(enabled_paths) or 'none'}. Live trading enabled: "
             f"{result.get('safety', {}).get('live_trading_enabled')}. "
-            "No synthetic fallback is allowed."
+            ""
         )
     if tool_name == "run_screen":
         matches = result.get("matches", [])
@@ -2566,9 +2580,14 @@ def _grounded_fallback_response(
             f"periods stored: {', '.join(result.get('periods_available', []))}):\n"
             + "\n".join(lines)
             + warning_text
-            + "\n\nAll ratios are deterministic calculations over imported "
-            "statements with recorded formulas and inputs. No values were "
-            "fabricated."
+        )
+    if tool_name == "fetch_web_document":
+        return (
+            f"Saved **{result.get('title')}** from {result.get('source_url')} "
+            f"into the document corpus ({result.get('chunk_count', 0)} "
+            "chunk(s)).\n\n"
+            f"You can now ask: 'analyze document {result.get('title')}' or "
+            "'search knowledge <topic>'."
         )
     if tool_name == "analyze_knowledge_document":
         chunks = result.get("chunks", [])
@@ -2585,9 +2604,7 @@ def _grounded_fallback_response(
             f"{result.get('chunk_count', 0)} stored chunk(s), "
             f"{result.get('total_words', 0)} words.\n\n"
             f"Key excerpts in document order:\n{excerpts}\n\n"
-            "These are retrieval-based excerpts from the stored document; "
-            "no fundamentals were fabricated. Ask 'search knowledge <topic>' "
-            "to pull specific passages."
+            "Ask 'search knowledge <topic>' to pull specific passages."
         )
     if tool_name == "search_knowledge":
         matches = result.get("matches", [])
@@ -2629,7 +2646,7 @@ def _grounded_fallback_response(
             f"{result.get('paper_path_status')}; live path: "
             f"{result.get('live_path_status')}. Blockers: "
             f"{'; '.join(unique_blockers) if unique_blockers else 'none'}. "
-            "No synthetic market fallback was used."
+            ""
         )
     if tool_name == "get_research_context":
         readiness = result["readiness"]
@@ -2640,7 +2657,7 @@ def _grounded_fallback_response(
             f"{readiness['supported_by_architecture']}. Local dataset: "
             f"{readiness['local_dataset_exists']} with "
             f"{readiness['rows_available']} row(s). Stored news articles: "
-            f"{len(news.get('articles', []))}. No synthetic fallback was used."
+            f"{len(news.get('articles', []))}."
         )
     if tool_name == "create_research_brief":
         actions = result.get("next_actions", [])
@@ -2649,7 +2666,7 @@ def _grounded_fallback_response(
             f"{result['symbol']} {result['asset_class']}. "
             f"Evidence dataset: {result.get('evidence', {}).get('dataset_id') or 'none'}; "
             f"next action: {actions[0] if actions else 'none'}. "
-            "No synthetic fallback was used."
+            ""
         )
     if tool_name == "get_execution_readiness":
         stages = result.get("stages", [])
@@ -2664,7 +2681,7 @@ def _grounded_fallback_response(
             f"{result['asset_class']} checked. Ready stages: "
             f"{', '.join(ready) or 'none'}. Next blocker: "
             f"{blocker['stage'] if blocker else 'none'}. "
-            "No synthetic fallback was used."
+            ""
         )
         data = result.get("data_readiness", {})
         paper_signal = result.get("paper_signal", {})
@@ -2720,7 +2737,7 @@ def _grounded_fallback_response(
         return (
             f"OpenAlgo instrument search status: {result.get('status')}. "
             f"Matches: {result.get('match_count', 0)}. "
-            "No synthetic contract data was used."
+            ""
         )
     if tool_name == "validate_instrument_symbol":
         instrument = result.get("instrument", {})
@@ -2728,20 +2745,20 @@ def _grounded_fallback_response(
             f"Symbol validation status: {result.get('status')}. "
             f"Resolved: {instrument.get('symbol', result.get('symbol'))} "
             f"on {instrument.get('exchange', result.get('exchange'))}. "
-            "No synthetic contract data was used."
+            ""
         )
     if tool_name == "resolve_option_symbol":
         return (
             f"Option symbol resolution status: {result.get('status')}. "
             f"Resolved: {result.get('resolved_symbol')} on "
             f"{result.get('resolved_exchange')}. "
-            "No synthetic contract data was used."
+            ""
         )
     if tool_name == "get_market_news":
         if not result.get("ok"):
             return (
                 f"Market news unavailable: {result.get('message')}. "
-                "No fake news was generated."
+                ""
             )
         articles = result.get("articles", [])
         if not articles:
@@ -2768,18 +2785,15 @@ def _grounded_fallback_response(
                 break
         subject = result.get("symbol") or result.get("query") or "the market"
         return (
-            f"**Latest headlines for {subject}** "
-            f"({result.get('article_count', 0)} article(s) fetched):\n"
+            f"**Latest headlines for {subject}**\n"
             + "\n".join(unique_headlines)
-            + "\n\nThis is a current catalyst snapshot from the configured "
-            "news provider, not a prediction or a stock recommendation."
         )
     if tool_name == "get_market_quote":
         if not result.get("ok"):
             return (
                 f"Market quote unavailable: "
                 f"{str(result.get('message') or '').rstrip('.')}. "
-                "No synthetic price was generated."
+                ""
             )
         quote = result.get("quote", {})
         fields = [

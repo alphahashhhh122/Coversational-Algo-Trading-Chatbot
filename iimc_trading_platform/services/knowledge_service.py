@@ -1,15 +1,23 @@
 from __future__ import annotations
 
 import hashlib
+import html as html_module
+import ipaddress
 import json
 import re
+import socket
+import urllib.request
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from ..db import connect
 from .retrieval import BM25Retriever, RetrievalDocument, Retriever, tokenize
+
+_MAX_FETCH_BYTES = 1_500_000
+_FETCH_TIMEOUT_SECONDS = 20.0
 
 
 def utc_now() -> datetime:
@@ -183,6 +191,58 @@ class KnowledgeService:
             ]
         }
 
+    def fetch_and_index_url(
+        self,
+        url: str,
+        *,
+        title: str | None = None,
+        fetched_by: str = "chat",
+    ) -> dict[str, Any]:
+        """Download a public web page, extract its text, and index it."""
+        parsed = urlparse(url.strip())
+        if parsed.scheme not in {"http", "https"}:
+            raise ValueError("Only http and https URLs can be fetched")
+        if not parsed.hostname:
+            raise ValueError("The URL has no hostname")
+        _reject_private_host(parsed.hostname)
+        request = urllib.request.Request(
+            url.strip(),
+            headers={"User-Agent": "iimc-trading-platform/1.0 (+local)"},
+        )
+        try:
+            with urllib.request.urlopen(
+                request, timeout=_FETCH_TIMEOUT_SECONDS
+            ) as response:
+                raw = response.read(_MAX_FETCH_BYTES + 1)
+                final_url = response.geturl()
+        except Exception as exc:
+            raise ValueError(f"Could not fetch the page: {exc}") from exc
+        final_parsed = urlparse(final_url)
+        if final_parsed.hostname:
+            _reject_private_host(final_parsed.hostname)
+        if len(raw) > _MAX_FETCH_BYTES:
+            raise ValueError(
+                "The page is larger than the 1.5 MB fetch limit"
+            )
+        html_text = raw.decode("utf-8", errors="replace")
+        page_title, text = _extract_web_text(html_text)
+        if not text.strip():
+            raise ValueError(
+                "No readable text could be extracted from that page"
+            )
+        document = self.index_text(
+            title=title or page_title or parsed.hostname,
+            source_uri=final_url,
+            text=text,
+            document_type="web",
+            metadata={
+                "corpus": "web_fetched",
+                "fetched_by": fetched_by,
+                "fetched_at": utc_now().isoformat(),
+            },
+        )
+        return {**document, "source_url": final_url}
+
     def get_document(self, document_id: str) -> dict[str, Any]:
         documents = self.list_documents()["documents"]
         for document in documents:
@@ -335,6 +395,61 @@ class KnowledgeService:
             "method": self.retriever.name,
             "matches": matches,
         }
+
+
+def _reject_private_host(hostname: str) -> None:
+    """Block loopback/private/link-local targets (SSRF guard)."""
+    try:
+        infos = socket.getaddrinfo(hostname, None)
+    except OSError as exc:
+        raise ValueError(f"Could not resolve host {hostname!r}") from exc
+    for info in infos:
+        address = ipaddress.ip_address(info[4][0])
+        if (
+            address.is_private
+            or address.is_loopback
+            or address.is_link_local
+            or address.is_reserved
+        ):
+            raise ValueError(
+                "Fetching private, loopback, or link-local addresses is "
+                "not allowed"
+            )
+
+
+def _extract_web_text(html_text: str) -> tuple[str | None, str]:
+    """Return (title, readable text) from raw HTML."""
+    title_match = re.search(
+        r"<title[^>]*>(.*?)</title>", html_text,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    title = (
+        html_module.unescape(title_match.group(1)).strip()[:200]
+        if title_match
+        else None
+    )
+    cleaned = re.sub(
+        r"<(script|style|noscript|svg|head)\b[^>]*>.*?</\1>",
+        " ",
+        html_text,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    cleaned = re.sub(
+        r"</(p|div|li|h[1-6]|tr|section|article|br)>", "\n\n", cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(r"<[^>]+>", " ", cleaned)
+    cleaned = html_module.unescape(cleaned)
+    lines = [
+        re.sub(r"[ \t]+", " ", line).strip()
+        for line in cleaned.splitlines()
+    ]
+    paragraphs: list[str] = []
+    for line in lines:
+        if line:
+            paragraphs.append(line)
+    text = "\n\n".join(paragraphs)
+    return title, text
 
 
 def _chunk_text(text: str, max_words: int = 220) -> list[str]:
