@@ -477,6 +477,19 @@ class OfflineOrchestrator:
                 direct_response=_domain_refusal_response(off_topic_category),
                 authoritative=True,
             )
+        if (
+            "approve_pending_order" in tool_names
+            and re.search(r"\bapprove\b", text)
+            and re.search(
+                r"\b(?:order|intent|trade|pending|it)\b"
+                r"|intent_\w+|^\s*approve\s*[?!.]*$",
+                text,
+            )
+        ):
+            return OrchestrationDecision(
+                "approve_pending_order",
+                {"intent_id": _extract_identifier(message, "intent_")},
+            )
         if re.match(
             r"\s*(?:help(?:\s+me)?|please\s+help)\s*[?!.]*$",
             text,
@@ -3266,6 +3279,33 @@ def _grounded_fallback_response(
             f"{result['symbol']} {result['side']} {result['quantity']}. "
             f"Approval {result['approval_id']} is required before OpenAlgo "
             "submission."
+        )
+    if tool_name == "approve_pending_order":
+        status = result.get("status")
+        if status == "nothing_pending":
+            return (
+                "There are no orders waiting for approval right now."
+            )
+        if status == "not_found":
+            return (
+                f"I couldn't find a pending order for {result.get('intent_id')}. "
+                "Say 'show pending orders' to see what's waiting."
+            )
+        if status == "multiple_pending":
+            lines = [
+                f"- {a['intent_id']}: {a['requested_action']}"
+                for a in result.get("approvals", [])[:10]
+            ]
+            return (
+                "You have several orders waiting. Which one? Say "
+                "'approve <intent_id>':\n" + "\n".join(lines)
+            )
+        broker = result.get("broker_order_id")
+        return (
+            f"Approved and submitted. Order status: "
+            f"**{result.get('order_status')}**"
+            + (f" · broker order {broker}" if broker else "")
+            + ". You can see it in Monitor and in your broker's orderbook."
         )
     if tool_name == "prepare_direct_order":
         approval = result.get("approval_id")

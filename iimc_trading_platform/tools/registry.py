@@ -294,6 +294,10 @@ class TechnicalScreenInput(ToolInput):
     interval: str = Field(default="D", max_length=8)
 
 
+class ApprovePendingOrderInput(ToolInput):
+    intent_id: str | None = Field(default=None, max_length=60)
+
+
 class DirectOrderInput(ToolInput):
     symbol: str = Field(min_length=1, max_length=40)
     quantity: int = Field(ge=1, le=100_000)
@@ -1903,6 +1907,34 @@ def build_default_tool_registry(
                         execution_modes=("live",),
                         required_data=("risk_decision", "instrument_metadata"),
                         required_providers=("openalgo",),
+                        requires_approval=True,
+                        risk_level="high",
+                    ),
+                ),
+                ToolDefinition(
+                    name="approve_pending_order",
+                    description=(
+                        "Approve and submit a pending order when the user "
+                        "explicitly says to approve it (optionally by "
+                        "intent_id). Only the user's explicit approval "
+                        "triggers this; submission still passes all broker "
+                        "and analyzer/live gates."
+                    ),
+                    input_model=ApprovePendingOrderInput,
+                    handler=lambda value: sandbox.approve_from_chat(
+                        actor="chat_user",
+                        intent_id=ApprovePendingOrderInput.model_validate(
+                            value.model_dump()
+                        ).intent_id,
+                    ),
+                    side_effects=(
+                        "approves an order and submits it to the broker"
+                    ),
+                    required_role="approver",
+                    retry_safe=False,
+                    capabilities=ToolCapabilityMetadata(
+                        actions=("approve",),
+                        execution_modes=("paper", "live"),
                         requires_approval=True,
                         risk_level="high",
                     ),

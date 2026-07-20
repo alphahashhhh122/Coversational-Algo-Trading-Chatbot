@@ -890,7 +890,7 @@ tbody tr:hover { background: var(--row-hover); }
   overflow-wrap: anywhere;
 }
 
-.notice { margin-bottom: 12px; padding: 12px 14px; color: var(--amber); background: var(--amber-soft); border: 1px solid var(--amber-line); font-size: 13px; }
+.notice { margin-bottom: 12px; padding: 12px 14px; color: var(--muted); background: var(--surface-soft); border: 1px solid var(--line); font-size: 13px; }
 .approval-list, .dataset-list { min-height: 180px; }
 .approval-item, .dataset-item { padding: 16px 18px; border-bottom: 1px solid var(--line); }
 .approval-item:last-child, .dataset-item:last-child { border-bottom: 0; }

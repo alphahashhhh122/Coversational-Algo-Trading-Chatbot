@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>IIMC Trading Research Workspace</title>
-  <link rel="stylesheet" href="/static/styles.css?v=20260720b">
+  <link rel="stylesheet" href="/static/styles.css?v=20260720c">
 </head>
 <body>
   <div class="app-shell">
@@ -344,13 +344,9 @@
           </div>
           <button class="secondary-button" id="refresh-data">Refresh</button>
         </div>
-        <section class="rag-panel">
-          <div class="section-heading">
-            <div>
-              <h2>OpenAlgo History Import</h2>
-              <p>Fetch verified provider candles into the governed catalog for backtesting and paper-trade preparation.</p>
-            </div>
-          </div>
+        <details class="workspace-tools">
+          <summary>Advanced: manually import market data (backtests do this automatically)</summary>
+          <div class="workspace-tools-content">
           <form class="knowledge-search-form" id="openalgo-history-import-form">
             <label><span>Symbol</span><input id="openalgo-history-symbol" placeholder="RELIANCE" required></label>
             <label><span>Exchange</span><input id="openalgo-history-exchange" value="NSE" required></label>
@@ -362,14 +358,11 @@
             <button type="submit" class="primary-button" id="import-openalgo-history">Import provider history</button>
           </form>
           <pre class="json-view hidden" id="openalgo-history-import-result"></pre>
-        </section>
-        <section class="command-panel">
-          <div class="panel-heading compact-heading">
-            <div>
-              <h2>Asset Readiness</h2>
-              <p>Check instrument support, local data, and OpenAlgo paths before research or execution.</p>
-            </div>
           </div>
+        </details>
+        <details class="workspace-tools">
+          <summary>Advanced: check instrument readiness</summary>
+          <div class="workspace-tools-content">
           <form class="readiness-form" id="readiness-form">
             <label><span>Symbol</span><input id="readiness-symbol" value="RELIANCE" required></label>
             <label><span>Exchange</span><input id="readiness-exchange" value="NSE" required></label>
@@ -379,8 +372,9 @@
             <label><span>End</span><input id="readiness-end" value="2026-05-23" required></label>
             <button type="submit" class="primary-button" id="run-readiness">Check</button>
           </form>
-          <div class="readiness-result" id="readiness-result">Run a readiness check to see local data, provider status, and OpenAlgo path.</div>
-        </section>
+          <div class="readiness-result" id="readiness-result">Run a readiness check to see local data and broker path.</div>
+          </div>
+        </details>
         <section class="rag-panel">
           <div class="section-heading">
             <div>
@@ -850,6 +844,6 @@
     </form>
   </div>
   <div class="toast" id="toast" role="status"></div>
-  <script src="/static/app.js?v=20260720b" defer></script>
+  <script src="/static/app.js?v=20260720c" defer></script>
 </body>
 </html>

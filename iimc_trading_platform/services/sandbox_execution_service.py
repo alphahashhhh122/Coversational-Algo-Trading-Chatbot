@@ -815,6 +815,45 @@ class SandboxExecutionService:
             ]
         }
 
+    def approve_from_chat(
+        self,
+        *,
+        actor: str,
+        intent_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Approve a pending order by explicit chat command, then submit it.
+
+        This is a human action: the user typed 'approve'. The model never
+        calls this on its own. Submission still passes every downstream
+        gate (analyzer/live checks, idempotency, atomic claim).
+        """
+        pending = self.list_pending_approvals()["approvals"]
+        if not pending:
+            return {"status": "nothing_pending"}
+        if intent_id:
+            match = next(
+                (a for a in pending if a["intent_id"] == intent_id), None
+            )
+            if match is None:
+                return {"status": "not_found", "intent_id": intent_id}
+        elif len(pending) == 1:
+            match = pending[0]
+        else:
+            return {"status": "multiple_pending", "approvals": pending}
+        self.decide(
+            match["approval_id"],
+            approved=True,
+            decided_by=actor,
+            reason="Approved via chat by the user",
+        )
+        submitted = self.submit(match["intent_id"], actor=actor)
+        return {
+            "status": "submitted",
+            "intent_id": match["intent_id"],
+            "order_status": submitted.get("status"),
+            "broker_order_id": submitted.get("broker_order_id"),
+        }
+
     def list_pending_approvals(self) -> dict[str, Any]:
         con = connect(self.db_path)
         try:

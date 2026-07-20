@@ -67,6 +67,8 @@ class ChatService:
     # grounded in the tool JSON with the deterministic text as fallback.
     _DETERMINISTIC_RESPONSE_TOOLS = {
         "get_execution_readiness",
+        "prepare_direct_order",
+        "approve_pending_order",
         "import_openalgo_history",
         "compile_custom_strategy_spec",
         "create_custom_strategy_spec",

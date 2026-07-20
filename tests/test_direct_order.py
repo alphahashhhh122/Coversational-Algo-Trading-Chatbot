@@ -126,6 +126,52 @@ class DirectOrderRoutingTest(unittest.TestCase):
         d = self._decide("Prepare paper order for risk_abc123 BUY 1 TCS")
         self.assertNotEqual(d.tool_name, "prepare_direct_order")
 
+    def test_approve_routes_to_approve_tool(self) -> None:
+        for msg in (
+            "approve",
+            "approve the pending order",
+            "approve intent_abc123",
+        ):
+            d = self._decide(msg)
+            self.assertEqual(
+                d.tool_name, "approve_pending_order", msg,
+            )
+        specific = self._decide("approve intent_abc123")
+        self.assertEqual(specific.arguments["intent_id"], "intent_abc123")
+
+
+class ChatApprovalServiceTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.db_path = Path(self.temp_dir.name) / "approve.duckdb"
+        initialize_database(self.db_path)
+        self.audit = AuditService(DuckDBAuditRepository(self.db_path))
+        self.risk = RiskService(self.db_path)
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def test_approve_from_chat_nothing_pending(self) -> None:
+        service = SandboxExecutionService(
+            self.db_path, self.audit, QuoteBroker(), require_approval=True,
+        )
+        result = service.approve_from_chat(actor="user")
+        self.assertEqual(result["status"], "nothing_pending")
+
+    def test_approve_from_chat_approves_and_submits(self) -> None:
+        service = SandboxExecutionService(
+            self.db_path, self.audit, QuoteBroker(ltp=1000.0),
+            require_approval=True,
+        )
+        intent = service.prepare_direct_intent(
+            risk_service=self.risk, symbol="RELIANCE", side="BUY", quantity=1,
+        )
+        self.assertEqual(intent["status"], "pending_approval")
+
+        result = service.approve_from_chat(actor="user")
+        self.assertEqual(result["status"], "submitted")
+        self.assertEqual(result["intent_id"], intent["intent_id"])
+
 
 if __name__ == "__main__":
     unittest.main()
