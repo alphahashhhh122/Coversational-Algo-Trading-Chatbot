@@ -21,6 +21,8 @@ def utc_now() -> datetime:
 class SandboxBroker(Protocol):
     def analyzer_status(self) -> dict[str, Any]: ...
 
+    def quote(self, *, symbol: str, exchange: str) -> dict[str, Any]: ...
+
     def place_sandbox_order(self, **kwargs) -> dict[str, Any]: ...
 
     def place_live_order(self, **kwargs) -> dict[str, Any]: ...
@@ -53,6 +55,98 @@ class SandboxExecutionService:
         self.provider_readiness = provider_readiness
         self.max_signal_age_minutes = max_signal_age_minutes
         self.orders = OrderService(db_path)
+
+    def prepare_direct_intent(
+        self,
+        *,
+        risk_service,
+        symbol: str,
+        side: str,
+        quantity: int,
+        exchange: str = "NSE",
+        product: str = "MIS",
+        order_type: str = "MARKET",
+        limit_price: float | None = None,
+        strategy_name: str = "manual_order",
+        requested_by: str = "chat",
+    ) -> dict[str, Any]:
+        """Quote-anchored discretionary paper order.
+
+        Fetches a fresh broker quote, records a manual signal at the live
+        price, runs the deterministic risk policy, and then flows through
+        the exact same intent/approval/submission machine as strategy
+        orders. Nothing is executed here — the intent still requires
+        human approval before submission.
+        """
+        if self.broker is None:
+            raise ValueError(
+                "OpenAlgo credentials are required for direct orders"
+            )
+        side = side.upper().strip()
+        if side != "BUY":
+            raise ValueError(
+                "Direct orders currently support BUY entries. To exit or "
+                "reduce a position, use Square off in the Monitor tab or a "
+                "strategy exit."
+            )
+        symbol = symbol.upper().strip()
+        quote = self.broker.quote(symbol=symbol, exchange=exchange)
+        live_price = float((quote.get("data") or {}).get("ltp") or 0)
+        if live_price <= 0:
+            raise ValueError(
+                f"No fresh quote is available for {symbol}; the order was "
+                "not prepared"
+            )
+        now = utc_now()
+        run_id = f"manual_{uuid.uuid4().hex[:10]}"
+        signal_id = f"sig_manual_{uuid.uuid4().hex[:12]}"
+        signal_type = "entry" if side == "BUY" else "exit"
+        con = connect(self.db_path)
+        try:
+            con.execute(
+                "INSERT INTO strategy_signals VALUES "
+                "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    signal_id,
+                    run_id,
+                    now,
+                    symbol,
+                    signal_type,
+                    "long" if side == "BUY" else "flat",
+                    1.0,
+                    f"Manual {side} request at live price {live_price}",
+                    json.dumps({"source": "direct_order", "ltp": live_price}),
+                    now,
+                ],
+            )
+        finally:
+            con.close()
+        evaluation = risk_service.evaluate(
+            run_id=run_id,
+            signal_id=signal_id,
+            signal_type=signal_type,
+            symbol=symbol,
+            price=live_price,
+            requested_quantity=quantity,
+            confidence=1.0,
+            execution_mode=ExecutionMode.SEMI_AUTO,
+        )
+        if not evaluation.approved:
+            raise ValueError(
+                f"Risk policy rejected the order: {evaluation.reason}"
+            )
+        return self.prepare_intent(
+            decision_id=evaluation.decision_id,
+            symbol=symbol,
+            exchange=exchange,
+            side=side,
+            product=product,
+            order_type=order_type,
+            quantity=quantity,
+            limit_price=limit_price,
+            strategy_name=strategy_name,
+            requested_by=requested_by,
+        )
 
     def prepare_intent(
         self,

@@ -22,6 +22,16 @@ class BatchSubmitRequest(BaseModel):
     intent_ids: list[str] = Field(min_length=1, max_length=20)
 
 
+class DirectOrderRequest(BaseModel):
+    symbol: str = Field(min_length=1, max_length=40)
+    quantity: int = Field(ge=1, le=100_000)
+    side: Literal["BUY"] = "BUY"
+    exchange: str = Field(default="NSE", max_length=20)
+    product: Literal["MIS", "CNC", "NRML"] = "MIS"
+    order_type: Literal["MARKET", "LIMIT"] = "MARKET"
+    limit_price: float | None = Field(default=None, gt=0)
+
+
 class ScreenDefinitionRequest(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     description: str = Field(min_length=1, max_length=500)

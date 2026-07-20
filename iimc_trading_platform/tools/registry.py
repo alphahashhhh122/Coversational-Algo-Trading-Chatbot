@@ -294,6 +294,16 @@ class TechnicalScreenInput(ToolInput):
     interval: str = Field(default="D", max_length=8)
 
 
+class DirectOrderInput(ToolInput):
+    symbol: str = Field(min_length=1, max_length=40)
+    quantity: int = Field(ge=1, le=100_000)
+    side: Literal["BUY"] = "BUY"
+    exchange: str = Field(default="NSE", max_length=20)
+    product: Literal["MIS", "CNC", "NRML"] = "MIS"
+    order_type: Literal["MARKET", "LIMIT"] = "MARKET"
+    limit_price: float | None = Field(default=None, gt=0)
+
+
 class CreatePriceAlertInput(ToolInput):
     symbol: str = Field(min_length=1, max_length=40)
     direction: Literal["above", "below"]
@@ -598,8 +608,31 @@ def build_default_tool_registry(
             asset_class=request.asset_class,
             interval=request.interval,
         )
+        if (
+            dataset_id is None
+            and request.symbol
+            and active_config.openalgo_api_key
+        ):
+            # Auto-fetch history from the broker so users never import
+            # manually: last 45 days at the requested (default 5m) interval.
+            from datetime import date, timedelta
+
+            end = date.today()
+            start = end - timedelta(days=45)
+            imported = openalgo_history_import.import_history(
+                symbol=request.symbol,
+                exchange=request.exchange or "NSE",
+                asset_class=request.asset_class or "equity",
+                interval=request.interval or "5m",
+                start_date=start.isoformat(),
+                end_date=end.isoformat(),
+            )
+            dataset_id = imported.get("dataset_id")
         if dataset_id is None:
-            raise ValueError("No cataloged dataset is available")
+            raise ValueError(
+                "No historical data is available for this instrument and "
+                "the broker connection is not configured to fetch it."
+            )
         return backtests.run(
             strategy_name=request.strategy_name,
             dataset_id=dataset_id,
@@ -1620,6 +1653,63 @@ def build_default_tool_registry(
             db_path,
             OpenAlgoClient(openalgo_base_url, openalgo_api_key),
         )
+        from ..services.risk_service import RiskService as _RiskService
+
+        direct_risk = _RiskService(
+            db_path,
+            allow_live_trading=allow_live_trading,
+        )
+        tools.append(
+            ToolDefinition(
+                name="prepare_direct_order",
+                description=(
+                    "Prepare a discretionary BUY paper order anchored to a "
+                    "fresh live quote (no strategy needed). Runs the "
+                    "deterministic risk policy and creates an order intent "
+                    "that still requires explicit human approval before "
+                    "analyzer submission. Never submits or executes."
+                ),
+                input_model=DirectOrderInput,
+                handler=lambda value: sandbox.prepare_direct_intent(
+                    risk_service=direct_risk,
+                    symbol=DirectOrderInput.model_validate(
+                        value.model_dump()
+                    ).symbol,
+                    side=DirectOrderInput.model_validate(
+                        value.model_dump()
+                    ).side,
+                    quantity=DirectOrderInput.model_validate(
+                        value.model_dump()
+                    ).quantity,
+                    exchange=DirectOrderInput.model_validate(
+                        value.model_dump()
+                    ).exchange,
+                    product=DirectOrderInput.model_validate(
+                        value.model_dump()
+                    ).product,
+                    order_type=DirectOrderInput.model_validate(
+                        value.model_dump()
+                    ).order_type,
+                    limit_price=DirectOrderInput.model_validate(
+                        value.model_dump()
+                    ).limit_price,
+                ),
+                side_effects=(
+                    "creates a manual signal, risk decision, and a "
+                    "pending-approval order intent"
+                ),
+                required_role="researcher",
+                retry_safe=False,
+                capabilities=ToolCapabilityMetadata(
+                    actions=("order_preparation",),
+                    execution_modes=("paper",),
+                    required_providers=("openalgo",),
+                    requires_approval=True,
+                    risk_level="high",
+                ),
+            )
+        )
+
         def _portfolio_quote(symbol: str) -> float:
             quote_client = OpenAlgoClient(openalgo_base_url, openalgo_api_key)
             data = quote_client.quote(symbol=symbol, exchange="NSE").get(

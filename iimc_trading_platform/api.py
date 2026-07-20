@@ -20,6 +20,7 @@ from .api_models import (
     AiEvaluationRequest,
     BatchSubmitRequest,
     ChatRequest,
+    DirectOrderRequest,
     ChatResponse,
     CreatePortfolioRequest,
     CustomStrategyBacktestRequest,
@@ -191,6 +192,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         allow_live_trading=active_config.allow_live_trading,
         provider_readiness=openalgo_readiness_service.monitor,
         max_signal_age_minutes=active_config.paper_signal_max_age_minutes,
+    )
+    from .services.risk_service import RiskService as _DirectRiskService
+
+    direct_risk_service = _DirectRiskService(
+        active_config.database_path,
+        allow_live_trading=active_config.allow_live_trading,
     )
     evidence_service = EvidenceService(
         active_config.database_path,
@@ -1678,6 +1685,27 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         payload["requested_by"] = principal.username
         try:
             return sandbox_service.prepare_intent(**payload)
+        except (ValueError, PermissionError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/sandbox/direct-order")
+    def prepare_direct_order(
+        request: DirectOrderRequest,
+        principal: Principal = Depends(researcher),
+    ) -> dict[str, Any]:
+        """Discretionary buy anchored to a fresh quote (no strategy needed)."""
+        try:
+            return sandbox_service.prepare_direct_intent(
+                risk_service=direct_risk_service,
+                symbol=request.symbol,
+                side=request.side,
+                quantity=request.quantity,
+                exchange=request.exchange,
+                product=request.product,
+                order_type=request.order_type,
+                limit_price=request.limit_price,
+                requested_by=principal.username,
+            )
         except (ValueError, PermissionError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 

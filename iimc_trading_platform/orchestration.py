@@ -1056,6 +1056,12 @@ class OfflineOrchestrator:
             and "approval" in text
         ):
             return OrchestrationDecision("list_pending_approvals", {})
+        direct_order = _parse_direct_order(message, text)
+        if direct_order and "prepare_direct_order" in tool_names:
+            return OrchestrationDecision(
+                "prepare_direct_order",
+                direct_order,
+            )
         if (
             "prepare_sandbox_order_intent" in tool_names
             and sandbox_intent_request
@@ -1874,6 +1880,47 @@ def _is_sandbox_intent_request(text: str) -> bool:
             )
         )
     )
+
+
+def _parse_direct_order(message: str, text: str) -> dict[str, Any] | None:
+    """Parse a discretionary buy like 'buy 10 RELIANCE at market'.
+
+    Requires an explicit quantity and symbol so nothing is assumed. Only
+    BUY is supported for direct orders; a risk decision id present means
+    the user wants the strategy path, not a direct order.
+    """
+    if _extract_identifier(message, "risk_"):
+        return None
+    if not re.search(r"\bbuy\b", text):
+        return None
+    match = re.search(
+        r"\bbuy\s+(\d+)\s+([A-Za-z][\w&-]{1,29})\b",
+        message,
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return None
+    quantity = int(match.group(1))
+    symbol = match.group(2).upper()
+    if symbol in {"SHARE", "SHARES", "LOT", "LOTS", "QTY", "UNITS"}:
+        return None
+    if quantity < 1 or quantity > 100_000:
+        return None
+    order = {"symbol": symbol, "quantity": quantity, "side": "BUY"}
+    price_match = re.search(
+        r"\b(?:at|@)\s*(?:limit\s+)?(?:rs\.?\s*|₹\s*)?(\d+(?:\.\d+)?)",
+        message,
+        flags=re.IGNORECASE,
+    )
+    if price_match and "limit" in text:
+        order["order_type"] = "LIMIT"
+        order["limit_price"] = float(price_match.group(1))
+    if "cnc" in text or "delivery" in text:
+        order["product"] = "CNC"
+    exchange = _exchange_from_text(message, default="NSE")
+    if exchange:
+        order["exchange"] = exchange
+    return order
 
 
 def _is_paper_trade_workflow_request(text: str) -> bool:
@@ -3219,6 +3266,24 @@ def _grounded_fallback_response(
             f"{result['symbol']} {result['side']} {result['quantity']}. "
             f"Approval {result['approval_id']} is required before OpenAlgo "
             "submission."
+        )
+    if tool_name == "prepare_direct_order":
+        approval = result.get("approval_id")
+        approval_line = (
+            f"Approve it in the Execution tab (approval {approval}) to send "
+            "it to your broker's paper account."
+            if approval
+            else "It is pre-approved and ready to submit from the Execution "
+            "tab."
+        )
+        return (
+            f"**Order ready for your approval**\n"
+            f"- {result['side']} {result['quantity']} {result['symbol']} "
+            f"({result.get('exchange', 'NSE')})\n"
+            f"- Type: {result.get('order_type', 'MARKET')} · "
+            f"Product: {result.get('product', 'MIS')}\n"
+            f"- Status: {result.get('status')}\n\n"
+            f"{approval_line} Nothing has been placed yet."
         )
     if tool_name == "import_openalgo_history":
         return (
