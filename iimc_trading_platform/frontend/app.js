@@ -221,13 +221,13 @@ function setAutoRefresh(enabled, persist = true) {
 
 function setView(view) {
   const labels = {
-    workspace: ["Chat", "Ask naturally; every market answer is tied to live providers or stored evidence."],
-    runs: ["Research", "Run, compare, and inspect governed strategy research with market news."],
-    strategies: ["Strategies", "Describe in plain language, compile to governed specs, backtest with real data."],
-    data: ["Data", "Coverage, quality, provenance, and OpenAlgo history imports."],
-    approvals: ["Execution", "Paper trading, human approvals, portfolio risk, and governed order intents."],
-    monitor: ["Monitor", "OpenAlgo account state, workflow evidence, and platform operations."],
-    settings: ["Settings", "Runtime configuration, capabilities, personas, and dashboard widgets."],
+    workspace: ["Chat", "Ask anything in plain language."],
+    runs: ["Backtests", "Test strategies on historical data."],
+    strategies: ["Strategies", "Create and save strategies in plain English."],
+    data: ["Data", "Market data, documents, and financials."],
+    approvals: ["Execution", "Approve pending orders, then submit."],
+    monitor: ["Monitor", "Your live broker account."],
+    settings: ["Settings", "Configuration and overview."],
   };
   document.querySelectorAll(".view").forEach((node) => node.classList.remove("active"));
   document.querySelectorAll(".nav-item").forEach((node) => node.classList.remove("active"));

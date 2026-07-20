@@ -156,6 +156,13 @@ nav { display: grid; gap: 4px; }
 .brief-summary { margin: 8px 0 6px; padding-left: 18px; font-size: 12.5px; line-height: 1.5; }
 .brief-summary li { margin-bottom: 3px; }
 .brief-next { margin: 4px 0 0; color: var(--green); font-size: 12.5px; font-weight: 600; }
+.approvals-panel { margin-bottom: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+.approval-list { padding: 8px 14px; }
+.approval-item { padding: 12px 14px; border: 1px solid var(--green-line); border-radius: 8px; margin-bottom: 8px; background: var(--green-soft); }
+.approval-actions { display: flex; gap: 8px; margin-top: 10px; }
+.decision-button { min-height: 34px; padding: 0 16px; border-radius: 8px; font-weight: 600; color: #fff; }
+.decision-button.approve { background: var(--green); }
+.decision-button.reject { background: var(--red); }
 .guide-panel {
   margin-top: 16px; background: var(--surface); border: 1px solid var(--line);
   border-radius: 10px;

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>IIMC Trading Research Workspace</title>
-  <link rel="stylesheet" href="/static/styles.css?v=20260719">
+  <link rel="stylesheet" href="/static/styles.css?v=20260720b">
 </head>
 <body>
   <div class="app-shell">
@@ -54,7 +54,7 @@
       <header class="topbar">
         <div>
           <h1 id="view-title">Chat</h1>
-          <p id="view-subtitle">Ask naturally; every market answer is tied to live providers or stored evidence.</p>
+          <p id="view-subtitle">Ask anything in plain language.</p>
         </div>
         <div class="environment-badges">
           <span class="badge" id="user-badge">Local development</span>
@@ -77,8 +77,8 @@
           <section class="chat-panel">
             <div class="panel-heading">
               <div>
-                <h2>Trading Assistant</h2>
-                <p>Quotes, news, data imports, strategy creation, backtests, readiness, and paper orders — in plain language.</p>
+                <h2>Assistant</h2>
+                <p>Ask anything about markets, your account, strategies, or trades.</p>
               </div>
               <div class="section-actions">
                 <button class="icon-button" id="export-chat" title="Download conversation as Markdown" aria-label="Download conversation">↓</button>
@@ -122,8 +122,8 @@
       <section class="view" id="view-runs">
         <div class="section-heading">
           <div>
-            <h2>Strategy Runs</h2>
-            <p>Local historical simulations with deterministic performance evidence. These are not broker results.</p>
+            <h2>Backtests</h2>
+            <p>Test strategies on historical data.</p>
           </div>
           <div class="section-actions">
             <button class="secondary-button" id="compare-runs" disabled>Compare selected</button>
@@ -339,8 +339,8 @@
       <section class="view" id="view-data">
         <div class="section-heading">
           <div>
-            <h2>Data Catalog</h2>
-            <p>Coverage, quality, provenance, and purpose-aware freshness.</p>
+            <h2>Data</h2>
+            <p>Market data, documents, and financials.</p>
           </div>
           <button class="secondary-button" id="refresh-data">Refresh</button>
         </div>
@@ -507,22 +507,27 @@
       <section class="view" id="view-approvals">
         <div class="section-heading">
           <div>
-            <h2>Execution Controls</h2>
-            <p>Paper trading uses OpenAlgo analyzer mode; live execution is separately gated and disabled by default.</p>
+            <h2>Execution</h2>
+            <p>Approve pending orders, then submit to your broker.</p>
           </div>
           <button class="secondary-button" id="refresh-approvals">Refresh</button>
         </div>
         <div class="mode-banner" id="execution-mode-banner">Checking execution mode...</div>
-        <div class="notice">
-          The chatbot can prepare governed intents. Paper submission uses analyzer mode; live submission requires configuration, broker readiness, risk approval, and explicit human approval.
-        </div>
-        <section class="paper-trading-panel">
-          <div class="panel-heading">
-            <div>
-              <h2>Paper Trading / OpenAlgo Sandbox</h2>
-              <p>Create an OpenAlgo analyzer intent from a semi-auto risk decision.</p>
-            </div>
+        <section class="approvals-panel">
+          <div class="panel-heading compact-heading">
+            <div><h2>Pending approvals</h2><p>Orders waiting for your go-ahead.</p></div>
           </div>
+          <div class="approval-list" id="approval-list"></div>
+          <div class="table-wrap paper-intents-table">
+            <table>
+              <thead><tr><th>Order</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Status</th><th>Broker order</th><th>Action</th></tr></thead>
+              <tbody id="paper-intents-table"></tbody>
+            </table>
+          </div>
+        </section>
+        <details class="workspace-tools">
+          <summary>Advanced: build an order from a backtest</summary>
+          <div class="workspace-tools-content">
           <form class="paper-intent-form" id="paper-intent-form">
             <label><span>Run</span><select id="paper-run" required></select></label>
             <label><span>Risk decision</span><select id="paper-decision" required></select></label>
@@ -534,15 +539,9 @@
             <label><span>Trigger price</span><input id="paper-trigger-price" type="number" min="0" step="0.05"></label>
             <button type="submit" class="primary-button" id="prepare-paper-intent">Prepare intent</button>
           </form>
-          <div class="paper-helper" id="paper-helper">Run a semi-auto backtest, then select an approved risk decision. Limit orders need a price; analyzer orders require explicit approval when enabled.</div>
-          <div class="table-wrap paper-intents-table">
-            <table>
-              <thead><tr><th>Intent</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Status</th><th>Broker order</th><th>Action</th></tr></thead>
-              <tbody id="paper-intents-table"></tbody>
-            </table>
+          <div class="paper-helper" id="paper-helper">Run a semi-auto backtest, then select an approved risk decision. Limit orders need a price.</div>
           </div>
-        </section>
-        <div class="approval-list" id="approval-list"></div>
+        </details>
         <details class="workspace-tools">
           <summary>Portfolio risk accounts</summary>
           <div class="workspace-tools-content">
@@ -581,8 +580,8 @@
       <section class="view" id="view-monitor">
         <div class="section-heading">
           <div>
-            <h2>OpenAlgo Monitor</h2>
-            <p>Read-only broker account state captured with persisted provenance. Local backtests never appear here.</p>
+            <h2>Monitor</h2>
+            <p>Your live broker account: funds, positions, orders, trades.</p>
           </div>
           <div class="section-actions">
             <button class="secondary-button" id="refresh-openalgo">Refresh history</button>
@@ -747,7 +746,7 @@
         <div class="section-heading">
           <div>
             <h2>Settings</h2>
-            <p>Runtime configuration (read-only, secrets redacted). Change values in the local .env file and restart.</p>
+            <p>Configuration and platform overview.</p>
           </div>
           <button class="secondary-button" id="refresh-settings">Refresh</button>
         </div>
@@ -851,6 +850,6 @@
     </form>
   </div>
   <div class="toast" id="toast" role="status"></div>
-  <script src="/static/app.js?v=20260719" defer></script>
+  <script src="/static/app.js?v=20260720b" defer></script>
 </body>
 </html>
