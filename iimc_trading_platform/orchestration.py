@@ -490,6 +490,23 @@ class OfflineOrchestrator:
                 "approve_pending_order",
                 {"intent_id": _extract_identifier(message, "intent_")},
             )
+        if (
+            "square_off_all" in tool_names
+            and re.search(
+                r"\b(?:square[\s-]*off|exit\s+all|close\s+(?:all|everything|"
+                r"my\s+positions?))\b",
+                text,
+            )
+        ):
+            return OrchestrationDecision("square_off_all", {})
+        if (
+            "cancel_all_orders" in tool_names
+            and re.search(
+                r"\bcancel\s+(?:all|my|pending|every)\b.*\border",
+                text,
+            )
+        ):
+            return OrchestrationDecision("cancel_all_orders", {})
         if re.match(
             r"\s*(?:help(?:\s+me)?|please\s+help)\s*[?!.]*$",
             text,
@@ -1896,30 +1913,29 @@ def _is_sandbox_intent_request(text: str) -> bool:
 
 
 def _parse_direct_order(message: str, text: str) -> dict[str, Any] | None:
-    """Parse a discretionary buy like 'buy 10 RELIANCE at market'.
+    """Parse a discretionary order like 'buy 10 RELIANCE' or 'sell 5 TCS'.
 
-    Requires an explicit quantity and symbol so nothing is assumed. Only
-    BUY is supported for direct orders; a risk decision id present means
-    the user wants the strategy path, not a direct order.
+    Requires an explicit quantity and symbol so nothing is assumed. A risk
+    decision id present means the user wants the strategy path, not a
+    direct order.
     """
     if _extract_identifier(message, "risk_"):
         return None
-    if not re.search(r"\bbuy\b", text):
-        return None
     match = re.search(
-        r"\bbuy\s+(\d+)\s+([A-Za-z][\w&-]{1,29})\b",
+        r"\b(buy|sell)\s+(\d+)\s+([A-Za-z][\w&-]{1,29})\b",
         message,
         flags=re.IGNORECASE,
     )
     if not match:
         return None
-    quantity = int(match.group(1))
-    symbol = match.group(2).upper()
+    side = match.group(1).upper()
+    quantity = int(match.group(2))
+    symbol = match.group(3).upper()
     if symbol in {"SHARE", "SHARES", "LOT", "LOTS", "QTY", "UNITS"}:
         return None
     if quantity < 1 or quantity > 100_000:
         return None
-    order = {"symbol": symbol, "quantity": quantity, "side": "BUY"}
+    order = {"symbol": symbol, "quantity": quantity, "side": side}
     price_match = re.search(
         r"\b(?:at|@)\s*(?:limit\s+)?(?:rs\.?\s*|₹\s*)?(\d+(?:\.\d+)?)",
         message,
@@ -2755,6 +2771,124 @@ def _sandbox_intent_arguments(message: str, decision_id: str) -> dict[str, Any]:
     }
 
 
+def _pick(row: dict[str, Any], *names: str) -> Any:
+    for name in names:
+        if name in row and row[name] not in (None, ""):
+            return row[name]
+    return None
+
+
+def _num(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _render_account_snapshot(result: dict[str, Any]) -> str:
+    snapshot_type = result.get("snapshot_type", "account")
+    data = result.get("data")
+
+    if snapshot_type == "funds" and isinstance(data, dict):
+        cash = _num(_pick(data, "availablecash", "available_cash", "cash"))
+        unrealized = _num(_pick(data, "m2munrealized", "unrealized_pnl"))
+        realized = _num(_pick(data, "m2mrealized", "realized_pnl"))
+        used = _num(_pick(data, "utiliseddebits", "utilised_margin", "used_margin"))
+        lines = []
+        if cash is not None:
+            lines.append(f"- **Available cash**: ₹{cash:,.2f}")
+        if used is not None:
+            lines.append(f"- **Used margin**: ₹{used:,.2f}")
+        if unrealized is not None:
+            lines.append(f"- **Unrealized P&L**: ₹{unrealized:,.2f}")
+        if realized is not None:
+            lines.append(f"- **Realized P&L**: ₹{realized:,.2f}")
+        return "**Your account**\n" + ("\n".join(lines) or "- No balance details returned.")
+
+    rows = data if isinstance(data, list) else []
+
+    if snapshot_type in {"positionbook", "holdings"}:
+        if not rows:
+            return "You have no open positions right now."
+        lines = []
+        total_pnl = 0.0
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            sym = _pick(row, "symbol", "tradingsymbol", "tsym")
+            qty = _num(_pick(row, "quantity", "netqty", "qty", "netQuantity"))
+            avg = _num(_pick(row, "average_price", "averageprice", "avgprice", "buyavgprice"))
+            ltp = _num(_pick(row, "ltp", "lastprice", "last_price"))
+            pnl = _num(_pick(row, "pnl", "unrealized_pnl", "m2m", "profitandloss"))
+            if pnl is None and None not in (qty, avg, ltp):
+                pnl = (ltp - avg) * qty
+            if pnl is not None:
+                total_pnl += pnl
+            parts = [f"**{sym}**"]
+            if qty is not None:
+                parts.append(f"qty {qty:g}")
+            if avg is not None:
+                parts.append(f"avg ₹{avg:,.2f}")
+            if ltp is not None:
+                parts.append(f"LTP ₹{ltp:,.2f}")
+            if pnl is not None:
+                parts.append(f"P&L ₹{pnl:,.2f}")
+            lines.append("- " + " · ".join(parts))
+        header = "**Your holdings**" if snapshot_type == "holdings" else "**Your open positions**"
+        return (
+            f"{header}\n" + "\n".join(lines)
+            + f"\n\n**Total P&L: ₹{total_pnl:,.2f}**"
+        )
+
+    if snapshot_type == "orderbook":
+        if not rows:
+            return "You have no orders today."
+        lines = []
+        for row in rows[:15]:
+            if not isinstance(row, dict):
+                continue
+            sym = _pick(row, "symbol", "tradingsymbol", "tsym")
+            side = _pick(row, "action", "transaction_type", "side")
+            qty = _num(_pick(row, "quantity", "qty"))
+            price = _num(_pick(row, "price", "average_price", "averageprice"))
+            status = _pick(row, "order_status", "status", "orderstatus")
+            parts = [f"**{sym}**", str(side or "")]
+            if qty is not None:
+                parts.append(f"qty {qty:g}")
+            if price is not None:
+                parts.append(f"₹{price:,.2f}")
+            if status:
+                parts.append(str(status))
+            lines.append("- " + " · ".join(p for p in parts if p))
+        return "**Your orders**\n" + "\n".join(lines)
+
+    if snapshot_type == "tradebook":
+        if not rows:
+            return "You have no trades today."
+        lines = []
+        for row in rows[:15]:
+            if not isinstance(row, dict):
+                continue
+            sym = _pick(row, "symbol", "tradingsymbol", "tsym")
+            side = _pick(row, "action", "transaction_type", "side")
+            qty = _num(_pick(row, "quantity", "qty", "fillsize"))
+            price = _num(_pick(row, "average_price", "averageprice", "price", "fillprice"))
+            parts = [f"**{sym}**", str(side or "")]
+            if qty is not None:
+                parts.append(f"qty {qty:g}")
+            if price is not None:
+                parts.append(f"₹{price:,.2f}")
+            lines.append("- " + " · ".join(p for p in parts if p))
+        return "**Your trades today**\n" + "\n".join(lines)
+
+    if isinstance(data, list):
+        return "No records returned." if not data else (
+            "**Account snapshot**\n"
+            + "\n".join(f"- {row}" for row in data[:10] if isinstance(row, (str, int, float)))
+        )
+    return "Account snapshot retrieved."
+
+
 def _grounded_fallback_response(
     tool_name: str,
     result: dict[str, Any],
@@ -3081,30 +3215,7 @@ def _grounded_fallback_response(
             f"{result['live_trading_enabled']}."
         )
     if tool_name == "get_openalgo_snapshot":
-        snapshot_type = result.get("snapshot_type", "account")
-        data = result.get("data")
-        if snapshot_type == "funds" and isinstance(data, dict):
-            fields = [
-                f"{name}={data[name]}"
-                for name in (
-                    "availablecash",
-                    "collateral",
-                    "utiliseddebits",
-                    "m2munrealized",
-                    "m2mrealized",
-                )
-                if name in data
-            ]
-            return (
-                "OpenAlgo funds snapshot captured: "
-                f"{', '.join(fields) or 'no balance fields returned'}."
-            )
-        if isinstance(data, list):
-            return (
-                f"OpenAlgo {snapshot_type} snapshot captured with "
-                f"{len(data)} record(s)."
-            )
-        return f"OpenAlgo {snapshot_type} snapshot captured for audit."
+        return _render_account_snapshot(result)
     if tool_name == "search_instruments":
         return (
             f"OpenAlgo instrument search status: {result.get('status')}. "
@@ -3280,6 +3391,16 @@ def _grounded_fallback_response(
             f"Approval {result['approval_id']} is required before OpenAlgo "
             "submission."
         )
+    if tool_name == "square_off_all":
+        return (
+            "Square-off sent — all open positions are being closed at "
+            "market. Check Monitor or your broker orderbook to confirm."
+        )
+    if tool_name == "cancel_all_orders":
+        return (
+            "Cancel-all sent — your pending orders are being cancelled. "
+            "Check Monitor to confirm."
+        )
     if tool_name == "approve_pending_order":
         status = result.get("status")
         if status == "nothing_pending":
@@ -3310,19 +3431,16 @@ def _grounded_fallback_response(
     if tool_name == "prepare_direct_order":
         approval = result.get("approval_id")
         approval_line = (
-            f"Approve it in the Execution tab (approval {approval}) to send "
-            "it to your broker's paper account."
+            "Reply **approve** to send it to your broker."
             if approval
-            else "It is pre-approved and ready to submit from the Execution "
-            "tab."
+            else "It's approved and ready — reply **approve** to submit it."
         )
         return (
             f"**Order ready for your approval**\n"
             f"- {result['side']} {result['quantity']} {result['symbol']} "
             f"({result.get('exchange', 'NSE')})\n"
             f"- Type: {result.get('order_type', 'MARKET')} · "
-            f"Product: {result.get('product', 'MIS')}\n"
-            f"- Status: {result.get('status')}\n\n"
+            f"Product: {result.get('product', 'MIS')}\n\n"
             f"{approval_line} Nothing has been placed yet."
         )
     if tool_name == "import_openalgo_history":

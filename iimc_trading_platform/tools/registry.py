@@ -301,7 +301,7 @@ class ApprovePendingOrderInput(ToolInput):
 class DirectOrderInput(ToolInput):
     symbol: str = Field(min_length=1, max_length=40)
     quantity: int = Field(ge=1, le=100_000)
-    side: Literal["BUY"] = "BUY"
+    side: Literal["BUY", "SELL"] = "BUY"
     exchange: str = Field(default="NSE", max_length=20)
     product: Literal["MIS", "CNC", "NRML"] = "MIS"
     order_type: Literal["MARKET", "LIMIT"] = "MARKET"
@@ -611,6 +611,7 @@ def build_default_tool_registry(
             exchange=request.exchange,
             asset_class=request.asset_class,
             interval=request.interval,
+            raise_on_missing=False,
         )
         if (
             dataset_id is None
@@ -623,19 +624,27 @@ def build_default_tool_registry(
 
             end = date.today()
             start = end - timedelta(days=45)
-            imported = openalgo_history_import.import_history(
-                symbol=request.symbol,
-                exchange=request.exchange or "NSE",
-                asset_class=request.asset_class or "equity",
-                interval=request.interval or "5m",
-                start_date=start.isoformat(),
-                end_date=end.isoformat(),
-            )
-            dataset_id = imported.get("dataset_id")
+            try:
+                imported = openalgo_history_import.import_history(
+                    symbol=request.symbol,
+                    exchange=request.exchange or "NSE",
+                    asset_class=request.asset_class or "equity",
+                    interval=request.interval or "5m",
+                    start_date=start.isoformat(),
+                    end_date=end.isoformat(),
+                )
+                dataset_id = imported.get("dataset_id")
+            except Exception as exc:
+                raise ValueError(
+                    f"I couldn't pull {request.symbol} history from your "
+                    f"broker ({exc}). Check the symbol and your broker "
+                    "connection."
+                ) from exc
         if dataset_id is None:
             raise ValueError(
-                "No historical data is available for this instrument and "
-                "the broker connection is not configured to fetch it."
+                f"No historical data is available for {request.symbol or 'this instrument'} "
+                "and the broker connection isn't set up to fetch it. Connect "
+                "OpenAlgo to enable automatic data."
             )
         return backtests.run(
             strategy_name=request.strategy_name,
@@ -1649,6 +1658,51 @@ def build_default_tool_registry(
             db_path,
             OpenAlgoClient(openalgo_base_url, openalgo_api_key),
         )
+        tools.append(
+            ToolDefinition(
+                name="square_off_all",
+                description=(
+                    "Close ALL open positions at market (square off) through "
+                    "the broker. Use when the user explicitly says to exit "
+                    "all / close everything / square off."
+                ),
+                input_model=EmptyInput,
+                handler=lambda value: snapshots.emergency_action(
+                    "square_off_positions", actor="chat_user",
+                ),
+                side_effects="closes all broker positions",
+                required_role="approver",
+                retry_safe=False,
+                capabilities=ToolCapabilityMetadata(
+                    actions=("execute",),
+                    execution_modes=("paper", "live"),
+                    requires_approval=True,
+                    risk_level="high",
+                ),
+            )
+        )
+        tools.append(
+            ToolDefinition(
+                name="cancel_all_orders",
+                description=(
+                    "Cancel ALL pending/open orders at the broker. Use when "
+                    "the user explicitly says to cancel all orders."
+                ),
+                input_model=EmptyInput,
+                handler=lambda value: snapshots.emergency_action(
+                    "cancel_all_orders", actor="chat_user",
+                ),
+                side_effects="cancels all broker orders",
+                required_role="approver",
+                retry_safe=False,
+                capabilities=ToolCapabilityMetadata(
+                    actions=("execute",),
+                    execution_modes=("paper", "live"),
+                    requires_approval=True,
+                    risk_level="high",
+                ),
+            )
+        )
         from ..services.options_analytics_service import (
             OptionsAnalyticsService,
         )
@@ -2004,6 +2058,7 @@ def _dataset_for_request(
     exchange: str | None = None,
     asset_class: str | None = None,
     interval: str | None = None,
+    raise_on_missing: bool = True,
 ) -> str | None:
     con = connect(db_path)
     try:
@@ -2029,15 +2084,14 @@ def _dataset_for_request(
         ).fetchone()
     finally:
         con.close()
-    if row is None and symbol:
+    if row is None and symbol and raise_on_missing:
         scope = " ".join(
             value
             for value in (symbol.upper(), (exchange or "").upper(), interval or "")
             if value
         )
         raise ValueError(
-            f"No governed dataset matches {scope}. Import verified OpenAlgo "
-            "history first, then run the backtest again."
+            f"No stored data matches {scope}."
         )
     return row[0] if row else None
 

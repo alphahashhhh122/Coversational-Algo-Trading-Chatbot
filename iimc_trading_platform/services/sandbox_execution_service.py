@@ -83,12 +83,8 @@ class SandboxExecutionService:
                 "OpenAlgo credentials are required for direct orders"
             )
         side = side.upper().strip()
-        if side != "BUY":
-            raise ValueError(
-                "Direct orders currently support BUY entries. To exit or "
-                "reduce a position, use Square off in the Monitor tab or a "
-                "strategy exit."
-            )
+        if side not in {"BUY", "SELL"}:
+            raise ValueError("side must be BUY or SELL")
         symbol = symbol.upper().strip()
         quote = self.broker.quote(symbol=symbol, exchange=exchange)
         live_price = float((quote.get("data") or {}).get("ltp") or 0)
@@ -100,7 +96,9 @@ class SandboxExecutionService:
         now = utc_now()
         run_id = f"manual_{uuid.uuid4().hex[:10]}"
         signal_id = f"sig_manual_{uuid.uuid4().hex[:12]}"
-        signal_type = "entry" if side == "BUY" else "exit"
+        # Direct orders (BUY or SELL) are discretionary entries that must
+        # carry full risk scope, so always evaluate as an "entry" signal.
+        signal_type = "entry"
         con = connect(self.db_path)
         try:
             con.execute(
@@ -112,7 +110,7 @@ class SandboxExecutionService:
                     now,
                     symbol,
                     signal_type,
-                    "long" if side == "BUY" else "flat",
+                    "long" if side == "BUY" else "short",
                     1.0,
                     f"Manual {side} request at live price {live_price}",
                     json.dumps({"source": "direct_order", "ltp": live_price}),
@@ -953,10 +951,17 @@ class SandboxExecutionService:
         if row is None:
             return {}
         signal_type = str(row[2]).lower()
+        direction = str(row[3]).lower()
+        if direction == "long":
+            expected_side = "BUY"
+        elif direction == "short":
+            expected_side = "SELL"
+        else:
+            expected_side = "BUY" if signal_type == "entry" else "SELL"
         return {
             "signal_timestamp": row[0],
             "signal_symbol": str(row[1]).upper(),
-            "expected_side": "BUY" if signal_type == "entry" else "SELL",
+            "expected_side": expected_side,
         }
 
     def _assert_signal_is_current(self, risk: dict[str, Any]) -> None:

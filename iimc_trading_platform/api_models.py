@@ -25,7 +25,7 @@ class BatchSubmitRequest(BaseModel):
 class DirectOrderRequest(BaseModel):
     symbol: str = Field(min_length=1, max_length=40)
     quantity: int = Field(ge=1, le=100_000)
-    side: Literal["BUY"] = "BUY"
+    side: Literal["BUY", "SELL"] = "BUY"
     exchange: str = Field(default="NSE", max_length=20)
     product: Literal["MIS", "CNC", "NRML"] = "MIS"
     order_type: Literal["MARKET", "LIMIT"] = "MARKET"

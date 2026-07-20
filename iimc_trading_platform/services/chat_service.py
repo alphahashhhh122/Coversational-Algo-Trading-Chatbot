@@ -69,6 +69,8 @@ class ChatService:
         "get_execution_readiness",
         "prepare_direct_order",
         "approve_pending_order",
+        "square_off_all",
+        "cancel_all_orders",
         "import_openalgo_history",
         "compile_custom_strategy_spec",
         "create_custom_strategy_spec",

@@ -92,11 +92,19 @@ class DirectOrderServiceTest(unittest.TestCase):
                 quantity=100,
             )
 
-    def test_sell_direct_order_refused(self) -> None:
+    def test_sell_direct_order_creates_intent(self) -> None:
+        service = self._service(QuoteBroker(ltp=1000.0))
+        intent = service.prepare_direct_intent(
+            risk_service=self.risk, symbol="INFY", side="SELL", quantity=1,
+        )
+        self.assertEqual(intent["side"], "SELL")
+        self.assertEqual(intent["status"], "pending_approval")
+
+    def test_invalid_side_rejected(self) -> None:
         service = self._service(QuoteBroker())
-        with self.assertRaisesRegex(ValueError, "support BUY"):
+        with self.assertRaisesRegex(ValueError, "BUY or SELL"):
             service.prepare_direct_intent(
-                risk_service=self.risk, symbol="INFY", side="SELL", quantity=1,
+                risk_service=self.risk, symbol="INFY", side="HOLD", quantity=1,
             )
 
 
@@ -125,6 +133,34 @@ class DirectOrderRoutingTest(unittest.TestCase):
     def test_buy_with_risk_id_uses_strategy_path(self) -> None:
         d = self._decide("Prepare paper order for risk_abc123 BUY 1 TCS")
         self.assertNotEqual(d.tool_name, "prepare_direct_order")
+
+    def test_sell_routes_to_direct_order(self) -> None:
+        d = self._decide("sell 5 TCS")
+        self.assertEqual(d.tool_name, "prepare_direct_order")
+        self.assertEqual(d.arguments["side"], "SELL")
+        self.assertEqual(d.arguments["symbol"], "TCS")
+        self.assertEqual(d.arguments["quantity"], 5)
+
+    def test_square_off_and_cancel_routing(self) -> None:
+        for msg in ("square off everything", "exit all positions", "close all my positions"):
+            self.assertEqual(self._decide(msg).tool_name, "square_off_all", msg)
+        self.assertEqual(
+            self._decide("cancel all my orders").tool_name, "cancel_all_orders",
+        )
+
+    def test_account_snapshot_renders_real_rows(self) -> None:
+        from iimc_trading_platform.orchestration import grounded_tool_response
+
+        answer = grounded_tool_response(
+            "get_openalgo_snapshot",
+            {"snapshot_type": "positionbook", "data": [
+                {"symbol": "RELIANCE", "quantity": 10, "average_price": 1400,
+                 "ltp": 1450, "pnl": 500},
+            ]},
+        )
+        self.assertIn("RELIANCE", answer)
+        self.assertIn("Total P&L", answer)
+        self.assertNotIn("record(s)", answer)
 
     def test_approve_routes_to_approve_tool(self) -> None:
         for msg in (
