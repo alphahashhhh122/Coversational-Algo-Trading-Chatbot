@@ -772,7 +772,7 @@ class OrchestrationContractsTest(unittest.TestCase):
 
         self.assertIsNone(decision.tool_name)
         self.assertEqual(decision.arguments, {})
-        self.assertIn("dataset_id", decision.direct_response or "")
+        self.assertIn("which instrument", (decision.direct_response or "").lower())
 
     def test_offline_router_parses_dataset_after_on_dataset_phrase(self) -> None:
         registry = build_default_tool_registry(Path("unused.duckdb"))
@@ -825,8 +825,7 @@ class OrchestrationContractsTest(unittest.TestCase):
         )
 
         self.assertIsNone(decision.tool_name)
-        self.assertIn("approved risk decision_id", decision.direct_response)
-        self.assertIn("cannot approve or submit", decision.direct_response)
+        self.assertIn("buy 10 RELIANCE", decision.direct_response)
 
     def test_offline_router_treats_a_paper_trade_request_as_readiness_not_tradebook(self) -> None:
         registry = build_default_tool_registry(Path("unused.duckdb"))

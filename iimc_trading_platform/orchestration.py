@@ -985,8 +985,8 @@ class OfflineOrchestrator:
                 arguments={},
                 direct_response=(
                     "Which company should I analyze fundamentally? Say "
-                    "'analyze TCS fundamentally'. Statements must be "
-                    "imported first via POST /fundamentals/statements."
+                    "'analyze TCS fundamentally'. You'll need to add its "
+                    "financial statements in the Data tab first."
                 ),
             )
         if (
@@ -1102,10 +1102,9 @@ class OfflineOrchestrator:
                     tool_name=None,
                     arguments={},
                     direct_response=(
-                        "Please provide the approved risk decision_id "
-                        "(for example risk_...) before I prepare an "
-                        "OpenAlgo sandbox intent. I cannot approve or submit "
-                        "orders from chat."
+                        "To place a paper order, just tell me the order — "
+                        "e.g. 'buy 10 RELIANCE at market' — and I'll prepare "
+                        "it for your approval."
                     ),
                 )
             return OrchestrationDecision(
@@ -1155,7 +1154,8 @@ class OfflineOrchestrator:
                 tool_name=None,
                 arguments={},
                 direct_response=(
-                    "Please provide the dataset_id to assess freshness."
+                    "Which instrument's data freshness should I check? "
+                    "For example: 'is my RELIANCE data fresh?'"
                 ),
             )
         if any(
@@ -1389,9 +1389,8 @@ class OfflineOrchestrator:
                     tool_name=None,
                     arguments={},
                     direct_response=(
-                        "Please provide the dataset_id to backtest the custom "
-                        "strategy spec, for example: backtest custom_... on "
-                        "nifty_options."
+                        "Tell me which instrument to backtest this saved "
+                        "strategy on, e.g. 'backtest my strategy on RELIANCE'."
                     ),
                 )
             arguments = {
@@ -1447,9 +1446,9 @@ class OfflineOrchestrator:
                     tool_name=None,
                     arguments={},
                     direct_response=(
-                        "Please name the built-in strategy, plugin, or saved "
-                        "custom_... strategy spec to backtest. I will not "
-                        "silently substitute a different strategy."
+                        "Which strategy should I backtest? Name one (like "
+                        "'EMA crossover') or describe it, e.g. 'backtest EMA "
+                        "9/21 crossover on RELIANCE'."
                     ),
                 )
             arguments: dict[str, Any] = {
