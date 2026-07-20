@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>IIMC Trading Research Workspace</title>
-  <link rel="stylesheet" href="/static/styles.css?v=20260720c">
+  <link rel="stylesheet" href="/static/styles.css?v=20260721a">
 </head>
 <body>
   <div class="app-shell">
@@ -175,18 +175,16 @@
           <div class="panel-heading compact-heading">
             <div>
               <h2>Market News</h2>
-              <p>Provider-backed headlines with stored provenance and article links.</p>
+              <p>Latest headlines for a symbol or theme.</p>
             </div>
           </div>
           <form class="market-news-form" id="market-news-form">
             <label><span>Query</span><input id="market-news-query" value="NIFTY" required></label>
             <label><span>Symbol</span><input id="market-news-symbol" value="NIFTY"></label>
             <button type="submit" class="primary-button" id="fetch-market-news">Fetch</button>
-            <button type="button" class="secondary-button" id="create-research-brief">Create brief</button>
           </form>
-          <div class="market-news-status" id="market-news-status">Loading news status...</div>
+          <div class="market-news-status" id="market-news-status">Loading news...</div>
           <div class="market-news-list" id="market-news-list"></div>
-          <div class="research-brief-list" id="research-brief-list"></div>
         </section>
 
         <details class="workspace-tools">
@@ -358,21 +356,6 @@
             <button type="submit" class="primary-button" id="import-openalgo-history">Import provider history</button>
           </form>
           <pre class="json-view hidden" id="openalgo-history-import-result"></pre>
-          </div>
-        </details>
-        <details class="workspace-tools">
-          <summary>Advanced: check instrument readiness</summary>
-          <div class="workspace-tools-content">
-          <form class="readiness-form" id="readiness-form">
-            <label><span>Symbol</span><input id="readiness-symbol" value="RELIANCE" required></label>
-            <label><span>Exchange</span><input id="readiness-exchange" value="NSE" required></label>
-            <label><span>Asset</span><select id="readiness-asset"><option>equity</option><option>options</option><option>futures</option><option>commodity</option><option>crypto</option></select></label>
-            <label><span>Interval</span><input id="readiness-interval" value="5m" required></label>
-            <label><span>Start</span><input id="readiness-start" value="2026-04-23" required></label>
-            <label><span>End</span><input id="readiness-end" value="2026-05-23" required></label>
-            <button type="submit" class="primary-button" id="run-readiness">Check</button>
-          </form>
-          <div class="readiness-result" id="readiness-result">Run a readiness check to see local data and broker path.</div>
           </div>
         </details>
         <section class="rag-panel">
@@ -578,161 +561,27 @@
             <p>Your live broker account: funds, positions, orders, trades.</p>
           </div>
           <div class="section-actions">
-            <button class="secondary-button" id="refresh-openalgo">Refresh history</button>
-            <button class="secondary-button" id="refresh-operator">Refresh evidence</button>
+            <button class="secondary-button" id="refresh-openalgo">Refresh</button>
           </div>
         </div>
         <div class="notice" id="openalgo-notice"></div>
         <div class="openalgo-status-grid" id="openalgo-monitor"></div>
-        <div class="snapshot-actions" id="snapshot-actions">
-          <button class="secondary-button snapshot-button" data-snapshot-type="analyzer">Analyzer mode</button>
-          <button class="secondary-button snapshot-button" data-snapshot-type="funds">Funds</button>
-          <button class="secondary-button snapshot-button" data-snapshot-type="positionbook">Positions</button>
-          <button class="secondary-button snapshot-button" data-snapshot-type="orderbook">Orders</button>
-          <button class="secondary-button snapshot-button" data-snapshot-type="tradebook">Trades</button>
-          <button class="secondary-button snapshot-button" data-snapshot-type="holdings">Holdings</button>
-          <span class="emergency-divider" aria-hidden="true"></span>
-          <button class="secondary-button danger emergency-button" data-emergency-action="cancel_all_orders">Cancel all orders</button>
-          <button class="secondary-button danger emergency-button" data-emergency-action="square_off_positions">Square off positions</button>
+        <div class="account-tabs" id="account-tabs">
+          <button class="secondary-button account-tab active" data-account="funds">Funds</button>
+          <button class="secondary-button account-tab" data-account="positionbook">Positions</button>
+          <button class="secondary-button account-tab" data-account="holdings">Holdings</button>
+          <button class="secondary-button account-tab" data-account="orderbook">Orders</button>
+          <button class="secondary-button account-tab" data-account="tradebook">Trades</button>
         </div>
-        <div class="openalgo-grid">
-          <section class="snapshot-current">
-            <div class="panel-heading">
-              <div><h2>Latest Capture</h2><p id="snapshot-current-label">Select a snapshot type.</p></div>
-            </div>
-            <pre class="json-view" id="snapshot-current-data">No snapshot selected.</pre>
-          </section>
-          <section class="snapshot-history">
-            <div class="panel-heading">
-              <div><h2>Persisted History</h2><p>Sanitized responses stored in the platform database.</p></div>
-            </div>
-            <div class="table-wrap">
-              <table>
-                <thead><tr><th>Captured</th><th>Type</th><th>Snapshot ID</th></tr></thead>
-                <tbody id="openalgo-snapshots-table"></tbody>
-              </table>
-            </div>
-          </section>
-        </div>
-        <section class="snapshot-history openalgo-paper-evidence">
-          <div class="panel-heading">
-            <div><h2>Paper Execution Evidence</h2><p>Backtests remain in Research; analyzer order state below is the OpenAlgo-linked execution record.</p></div>
-          </div>
-          <div class="table-wrap">
-            <table>
-              <thead><tr><th>Intent / run</th><th>Instrument</th><th>Order</th><th>Status</th><th>Broker order</th><th>Reason</th></tr></thead>
-              <tbody id="openalgo-paper-intents-table"></tbody>
-            </table>
+        <div class="account-view" id="account-view">Connect your broker to see your account.</div>
+        <section class="danger-zone">
+          <h2>Danger zone</h2>
+          <p>These act on your live broker account immediately.</p>
+          <div class="section-actions">
+            <button class="secondary-button danger emergency-button" data-emergency-action="cancel_all_orders">Cancel all orders</button>
+            <button class="secondary-button danger emergency-button" data-emergency-action="square_off_positions">Square off all positions</button>
           </div>
         </section>
-
-        <section class="operator-panel workflow-panel">
-          <div class="panel-heading">
-            <div><h2>Latest Workflow Evidence</h2><p id="operator-goal">Loading persisted evidence.</p></div>
-          </div>
-          <div class="metric-grid operator-metrics">
-            <div class="metric"><span>Latest run</span><strong id="operator-run-id">-</strong><small id="operator-run-status">No completed run loaded</small></div>
-            <div class="metric"><span>Net P&amp;L</span><strong id="operator-net-pnl">-</strong><small>Historical simulation only</small></div>
-            <div class="metric"><span>Trades</span><strong id="operator-trades">-</strong><small>Closed simulated trades</small></div>
-            <div class="metric"><span>Drawdown</span><strong id="operator-drawdown">-</strong><small>Maximum drawdown</small></div>
-          </div>
-          <div class="operator-actions" id="operator-actions"></div>
-          <div class="workflow-step-list" id="operator-workflow"></div>
-          <div class="table-wrap">
-            <table>
-              <thead><tr><th>Table</th><th>Rows</th></tr></thead>
-              <tbody id="operator-storage-table"></tbody>
-            </table>
-          </div>
-        </section>
-
-        <details class="workspace-tools">
-          <summary>Platform operations: jobs, tasks, alerts, backups, evaluations</summary>
-          <div class="workspace-tools-content">
-            <div class="section-heading">
-              <div>
-                <h2>Platform Operations</h2>
-                <p>Readiness, scheduled maintenance, and failure visibility.</p>
-              </div>
-              <div class="section-actions">
-                <button class="secondary-button hidden" id="export-analytical">Export analytical data</button>
-                <button class="secondary-button hidden" id="generate-storage-plan">Generate storage plan</button>
-                <button class="secondary-button hidden" id="evaluate-alerts">Evaluate alerts</button>
-                <button class="secondary-button hidden" id="preview-retention">Preview retention</button>
-                <button class="secondary-button hidden" id="run-retrieval-eval">Run retrieval evaluation</button>
-                <button class="secondary-button hidden" id="run-ai-eval">Run AI evaluation</button>
-                <button class="secondary-button hidden" id="create-backup">Create backup</button>
-                <button class="secondary-button" id="refresh-operations">Refresh</button>
-              </div>
-            </div>
-            <div class="metric-grid operations-metrics">
-              <div class="metric"><span>Enabled jobs</span><strong id="ops-enabled">-</strong><small>Persistent schedules</small></div>
-              <div class="metric"><span>Failed runs</span><strong id="ops-failed">-</strong><small>Recent job failures</small></div>
-              <div class="metric"><span>Stale assessments</span><strong id="ops-stale">-</strong><small>Data freshness findings</small></div>
-              <div class="metric"><span>Uncertain submissions</span><strong id="ops-uncertain">-</strong><small>Broker reconciliation required</small></div>
-              <div class="metric"><span>Active tasks</span><strong id="ops-active-tasks">-</strong><small>Queued, retrying, or running</small></div>
-              <div class="metric"><span>Failed tasks</span><strong id="ops-failed-tasks">-</strong><small>Terminal work failures</small></div>
-              <div class="metric"><span>Critical alerts</span><strong id="ops-critical-alerts">-</strong><small>Active or acknowledged</small></div>
-              <div class="metric"><span>Warning alerts</span><strong id="ops-warning-alerts">-</strong><small>Active or acknowledged</small></div>
-            </div>
-            <div class="table-wrap operations-table">
-              <table>
-                <thead>
-                  <tr><th>Severity</th><th>Rule</th><th>State</th><th>Message</th><th>Runbook</th><th>Action</th></tr>
-                </thead>
-                <tbody id="alerts-table"></tbody>
-              </table>
-            </div>
-            <div class="table-wrap operations-table">
-              <table>
-                <thead>
-                  <tr><th>Job</th><th>Type</th><th>State</th><th>Next run</th><th>Last result</th></tr>
-                </thead>
-                <tbody id="jobs-table"></tbody>
-              </table>
-            </div>
-            <div class="table-wrap operations-table">
-              <table>
-                <thead>
-                  <tr><th>Task</th><th>Type</th><th>State</th><th>Attempts</th><th>Result / error</th></tr>
-                </thead>
-                <tbody id="tasks-table"></tbody>
-              </table>
-            </div>
-            <div class="table-wrap operations-table">
-              <table>
-                <thead>
-                  <tr><th>Backup</th><th>Created</th><th>Bytes</th><th>Tables</th><th>State</th></tr>
-                </thead>
-                <tbody id="backups-table"></tbody>
-              </table>
-            </div>
-            <div class="table-wrap operations-table">
-              <table>
-                <thead>
-                  <tr><th>Evaluation</th><th>Mode</th><th>Passed</th><th>Score</th><th>State</th></tr>
-                </thead>
-                <tbody id="evaluations-table"></tbody>
-              </table>
-            </div>
-            <div class="table-wrap operations-table">
-              <table>
-                <thead>
-                  <tr><th>Retrieval evaluation</th><th>Method</th><th>Recall@K</th><th>MRR</th><th>nDCG@K</th><th>State</th></tr>
-                </thead>
-                <tbody id="retrieval-evaluations-table"></tbody>
-              </table>
-            </div>
-            <div class="table-wrap operations-table">
-              <table>
-                <thead>
-                  <tr><th>Retention policy</th><th>Days</th><th>State</th><th>Execution</th><th>Latest candidates</th></tr>
-                </thead>
-                <tbody id="retention-table"></tbody>
-              </table>
-            </div>
-          </div>
-        </details>
       </section>
 
       <!-- ============================ SETTINGS ============================ -->
@@ -844,6 +693,6 @@
     </form>
   </div>
   <div class="toast" id="toast" role="status"></div>
-  <script src="/static/app.js?v=20260720c" defer></script>
+  <script src="/static/app.js?v=20260721a" defer></script>
 </body>
 </html>

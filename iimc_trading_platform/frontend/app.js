@@ -24,8 +24,6 @@ const state = {
   knowledgeDocuments: [],
   customStrategySpecs: [],
   nlCompiledResult: null,
-  researchBriefs: [],
-  executionReadiness: null,
   platformSummary: null,
   operatorReview: null,
   dashboardWidgets: JSON.parse(
@@ -322,34 +320,6 @@ function renderPrincipal() {
     "hidden",
     !hasRole("researcher"),
   );
-  $("#create-backup").classList.toggle(
-    "hidden",
-    !hasRole("approver"),
-  );
-  $("#run-ai-eval").classList.toggle(
-    "hidden",
-    !hasRole("approver"),
-  );
-  $("#run-retrieval-eval").classList.toggle(
-    "hidden",
-    !hasRole("approver"),
-  );
-  $("#preview-retention").classList.toggle(
-    "hidden",
-    !hasRole("approver"),
-  );
-  $("#evaluate-alerts").classList.toggle(
-    "hidden",
-    !hasRole("approver"),
-  );
-  $("#generate-storage-plan").classList.toggle(
-    "hidden",
-    !hasRole("admin"),
-  );
-  $("#export-analytical").classList.toggle(
-    "hidden",
-    !hasRole("admin"),
-  );
 }
 
 function showLogin() {
@@ -402,7 +372,7 @@ async function logout() {
 
 async function loadOverview() {
   const canApprove = hasRole("approver");
-  const [datasets, runs, strategies, customSpecs, experiments, portfolios, approvals, intents, documents, operations, platform, marketNews, personas, researchBriefs, executionReadiness, preferences] = await Promise.all([
+  const [datasets, runs, strategies, customSpecs, experiments, portfolios, approvals, intents, documents, operations, platform, marketNews, personas, preferences] = await Promise.all([
     api("/datasets"),
     api("/runs?limit=50"),
     api("/strategies"),
@@ -416,8 +386,6 @@ async function loadOverview() {
     api("/platform/summary"),
     api("/market-news/latest?limit=5"),
     api("/personas"),
-    api("/platform/research/briefs?limit=5"),
-    api("/platform/execution/readiness"),
     api("/platform/dashboard/preferences").catch(() => null),
   ]);
   applyDashboardPreferences(preferences);
@@ -434,8 +402,6 @@ async function loadOverview() {
   state.platformSummary = platform;
   state.marketNews = marketNews;
   state.personas = personas.personas || [];
-  state.researchBriefs = researchBriefs.briefs || [];
-  state.executionReadiness = executionReadiness;
   const rowCount = state.datasets.reduce((sum, item) => sum + Number(item.row_count || 0), 0);
   $("#metric-rows").textContent = formatNumber(rowCount, 0);
   $("#metric-quality").textContent = state.datasets[0]?.quality?.status || "No dataset loaded";
@@ -446,10 +412,8 @@ async function loadOverview() {
   renderKnowledgeDocuments();
   $("#approval-count").textContent = state.approvals.length;
   renderCommandCenter(documents.documents?.length || 0);
-  renderReadinessResult(executionReadiness);
   renderPersonas();
   renderMarketNewsPanel();
-  renderResearchBriefs();
   renderRuns();
   renderApprovals();
   renderPaperTrading();
@@ -458,9 +422,7 @@ async function loadOverview() {
   renderPortfolios();
   // Heavy secondary panels load in the background so the workspace is
   // interactive immediately.
-  loadOperatorConsole().catch(() => {});
-  loadOpenAlgoHistory().catch(() => {});
-  loadOperations().catch(() => {});
+  loadAccount().catch(() => {});
   loadSettings();
 }
 
@@ -483,66 +445,6 @@ function renderMarketNewsPanel(message = "") {
       </article>
     `).join("")
     : `<div class="empty-state">No stored provider-backed headlines.</div>`;
-}
-
-function renderResearchBriefs(message = "") {
-  const container = $("#research-brief-list");
-  if (!container) return;
-  const briefs = state.researchBriefs || [];
-  const status = message
-    ? `<div class="market-news-status ready">${escapeHtml(message)}</div>`
-    : "";
-  container.innerHTML = status + (briefs.length
-    ? briefs.map((brief) => {
-      const summaryLines = (brief.summary || [])
-        .map((line) => `<li>${escapeHtml(line)}</li>`)
-        .join("");
-      const nextStep = brief.next_blocker?.next_action
-        || "Everything is ready — run a backtest from the Research tab.";
-      const created = String(brief.created_at || "").slice(0, 16).replace("T", " ");
-      return `
-        <article class="research-brief-item">
-          <div>
-            <strong>${escapeHtml(brief.title)}</strong>
-            <span>${escapeHtml(created)}</span>
-          </div>
-          <ul class="brief-summary">${summaryLines}</ul>
-          <p class="brief-next">Next step: ${escapeHtml(nextStep)}</p>
-        </article>
-      `;
-    }).join("")
-    : `<div class="empty-state">No research briefs yet — press Create brief above.</div>`);
-}
-
-async function createResearchBrief() {
-  const button = $("#create-research-brief");
-  button.disabled = true;
-  try {
-    const symbol = $("#market-news-symbol")?.value?.trim()
-      || $("#readiness-symbol")?.value?.trim()
-      || "NIFTY";
-    const exchange = $("#readiness-exchange")?.value?.trim() || "NSE";
-    const asset_class = $("#readiness-asset")?.value || "equity";
-    const interval = $("#readiness-interval")?.value?.trim() || "5m";
-    const start_date = $("#readiness-start")?.value?.trim() || "";
-    const end_date = $("#readiness-end")?.value?.trim() || "";
-    const payload = { symbol, exchange, asset_class, interval, start_date, end_date };
-    const brief = await api("/platform/research/briefs", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    });
-    state.researchBriefs = [brief, ...state.researchBriefs]
-      .filter((item, index, items) => (
-        items.findIndex((candidate) => candidate.brief_id === item.brief_id) === index
-      ))
-      .slice(0, 5);
-    renderResearchBriefs(`Stored ${brief.brief_id}`);
-    toast(`Research brief ${brief.brief_id} stored`);
-  } catch (error) {
-    toast(error.message);
-  } finally {
-    button.disabled = false;
-  }
 }
 
 async function submitMarketNews(event) {
@@ -769,169 +671,90 @@ function renderQuickActions() {
   });
 }
 
-function stageTone(stage) {
-  if (stage.can_start) return "ready";
-  if (stage.status === "disabled") return "blocked";
-  return "attention";
-}
 
-const STAGE_LABELS = {
-  research: "Research",
-  backtest: "Backtesting",
-  paper_trading: "Paper trading",
-  live_trading: "Live trading",
-};
-
-const BLOCKER_LABELS = {
-  openalgo_not_ready: "connect your broker first",
-  live_trading_disabled: "live trading is switched off",
-  current_paper_signal_missing: "run a fresh semi-auto backtest first",
-  no_local_dataset: "import market data first",
-};
-
-function friendlyBlockers(blockers) {
-  return (blockers || [])
-    .map((item) => BLOCKER_LABELS[item] || item.replaceAll("_", " "))
-    .join("; ");
-}
-
-function renderExecutionStage(stage) {
-  const ready = stage.can_start;
-  const label = STAGE_LABELS[stage.stage] || stage.stage.replaceAll("_", " ");
-  const statusText = ready
-    ? "Ready"
-    : stage.status === "disabled"
-      ? "Off"
-      : "Waiting";
-  const detail = ready
-    ? ""
-    : `<p>${escapeHtml(
-      friendlyBlockers(stage.blockers) || stage.next_action || "",
-    )}</p>`;
-  return `
-    <article class="execution-stage ${stageTone(stage)}">
-      <div class="stage-title">
-        <strong>${ready ? "✓" : "•"} ${escapeHtml(label)}</strong>
-        <span>${escapeHtml(statusText)}</span>
-      </div>
-      ${detail}
-    </article>
-  `;
-}
-
-function renderReadinessResult(payload, message = "") {
-  const box = $("#readiness-result");
-  if (!payload) {
-    box.textContent = "Run a readiness check to see local data, provider status, and OpenAlgo path.";
+async function loadAccount() {
+  let monitor;
+  try {
+    monitor = await api("/platform/openalgo/monitor");
+  } catch (error) {
+    monitor = { status: "unavailable", checks: {}, configured: false };
+  }
+  state.openalgoMonitor = monitor;
+  const notConfigured = monitor.configured === false;
+  $("#openalgo-notice").textContent = notConfigured
+    ? "Connect your broker (OpenAlgo) to see live funds, positions, and orders."
+    : (monitor.message || "");
+  renderOpenAlgoMonitor(monitor);
+  document.querySelectorAll(".account-tab").forEach((button) => {
+    button.disabled = notConfigured;
+  });
+  if (notConfigured) {
+    $("#account-view").textContent = "Connect your broker to see your account.";
     return;
   }
-  const result = payload.data_readiness || payload.readiness || {};
-  const stages = payload.stages || [];
-  const blocker = payload.next_blocker;
-  const status = result.verified_now
-    ? "verified now"
-    : result.local_dataset_exists
-      ? "local data available"
-      : result.unsupported_reason || "not verified";
-  box.innerHTML = `
-    <div class="readiness-head ${blocker ? "attention" : ""}">
-      <strong>${escapeHtml(result.symbol || payload.symbol)} ${escapeHtml(result.exchange || payload.exchange)}</strong>
-      <span>${escapeHtml(message || status)}</span>
-    </div>
-    <div class="readiness-grid">
-      <div><span>Market data</span><strong>${result.local_dataset_exists ? `${formatNumber(result.rows_available, 0)} candles stored` : "not imported yet"}</strong></div>
-      <div><span>Broker</span><strong>${escapeHtml((result.analyzer_path_status || payload.openalgo?.status || "unknown").replaceAll("_", " "))}</strong></div>
-      <div><span>Supported</span><strong>${result.supported_by_architecture ? "yes" : "no"}</strong></div>
-    </div>
-    <div class="execution-stage-list">
-      ${stages.map(renderExecutionStage).join("")}
-    </div>
-    ${blocker ? `
-      <div class="readiness-blocker">
-        <strong>To unlock ${escapeHtml(STAGE_LABELS[blocker.stage] || blocker.stage.replaceAll("_", " "))}:</strong>
-        <span>${escapeHtml(friendlyBlockers(blocker.blockers) || blocker.next_action)}</span>
-      </div>
-    ` : ""}
-  `;
+  const active = document.querySelector(".account-tab.active")?.dataset.account || "funds";
+  await loadAccountView(active);
 }
 
-async function submitReadiness(event) {
-  event.preventDefault();
-  const button = $("#run-readiness");
-  const box = $("#readiness-result");
-  button.disabled = true;
-  box.textContent = "Checking readiness...";
-  const params = new URLSearchParams({
-    symbol: $("#readiness-symbol").value.trim(),
-    exchange: $("#readiness-exchange").value.trim(),
-    asset_class: $("#readiness-asset").value,
-    interval: $("#readiness-interval").value.trim(),
-    start_date: $("#readiness-start").value.trim(),
-    end_date: $("#readiness-end").value.trim(),
-  });
-  try {
-    const readiness = await api(`/platform/execution/readiness?${params.toString()}`);
-    state.executionReadiness = readiness;
-    renderReadinessResult(readiness);
-  } catch (error) {
-    box.innerHTML = `<div class="readiness-head attention"><strong>Safe failure</strong><span>${escapeHtml(error.message)}</span></div>`;
-  } finally {
-    button.disabled = false;
+const _pickField = (row, ...names) => {
+  for (const name of names) {
+    if (row[name] !== undefined && row[name] !== null && row[name] !== "") return row[name];
   }
+  return null;
+};
+const _numField = (value) => {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+};
+
+function renderAccountData(type, data) {
+  if (type === "funds") {
+    const d = data || {};
+    const cash = _numField(_pickField(d, "availablecash", "available_cash", "cash"));
+    const used = _numField(_pickField(d, "utiliseddebits", "utilised_margin", "used_margin"));
+    const unreal = _numField(_pickField(d, "m2munrealized", "unrealized_pnl"));
+    const real = _numField(_pickField(d, "m2mrealized", "realized_pnl"));
+    const row = (label, v) => v === null ? "" : `<div><span>${label}</span><strong>₹${v.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></div>`;
+    return `<div class="account-funds">${row("Available cash", cash)}${row("Used margin", used)}${row("Unrealized P&amp;L", unreal)}${row("Realized P&amp;L", real)}</div>`;
+  }
+  const rows = Array.isArray(data) ? data : [];
+  if (!rows.length) {
+    const empties = { positionbook: "no open positions", holdings: "no holdings", orderbook: "no orders today", tradebook: "no trades today" };
+    return `<div class="empty-state">You have ${empties[type] || "nothing here"}.</div>`;
+  }
+  const cell = (v) => `<td>${escapeHtml(v == null ? "-" : String(v))}</td>`;
+  const money = (v) => v == null ? "-" : "₹" + Number(v).toLocaleString("en-IN", { maximumFractionDigits: 2 });
+  if (type === "positionbook" || type === "holdings") {
+    let total = 0;
+    const body = rows.map((r) => {
+      const qty = _numField(_pickField(r, "quantity", "netqty", "qty"));
+      const avg = _numField(_pickField(r, "average_price", "averageprice", "avgprice", "buyavgprice"));
+      const ltp = _numField(_pickField(r, "ltp", "lastprice", "last_price"));
+      let pnl = _numField(_pickField(r, "pnl", "unrealized_pnl", "m2m", "profitandloss"));
+      if (pnl == null && qty != null && avg != null && ltp != null) pnl = (ltp - avg) * qty;
+      if (pnl != null) total += pnl;
+      return `<tr>${cell(_pickField(r, "symbol", "tradingsymbol", "tsym"))}<td>${qty ?? "-"}</td><td>${money(avg)}</td><td>${money(ltp)}</td><td>${money(pnl)}</td></tr>`;
+    }).join("");
+    return `<div class="table-wrap"><table><thead><tr><th>Symbol</th><th>Qty</th><th>Avg</th><th>LTP</th><th>P&amp;L</th></tr></thead><tbody>${body}</tbody></table></div><p class="account-total">Total P&amp;L: <strong>${money(total)}</strong></p>`;
+  }
+  if (type === "orderbook") {
+    const body = rows.map((r) => `<tr>${cell(_pickField(r, "symbol", "tradingsymbol"))}${cell(_pickField(r, "action", "transaction_type", "side"))}<td>${_pickField(r, "quantity", "qty") ?? "-"}</td><td>${money(_numField(_pickField(r, "price", "average_price", "averageprice")))}</td>${cell(_pickField(r, "order_status", "status", "orderstatus"))}</tr>`).join("");
+    return `<div class="table-wrap"><table><thead><tr><th>Symbol</th><th>Side</th><th>Qty</th><th>Price</th><th>Status</th></tr></thead><tbody>${body}</tbody></table></div>`;
+  }
+  const body = rows.map((r) => `<tr>${cell(_pickField(r, "symbol", "tradingsymbol"))}${cell(_pickField(r, "action", "transaction_type", "side"))}<td>${_pickField(r, "quantity", "qty", "fillsize") ?? "-"}</td><td>${money(_numField(_pickField(r, "average_price", "averageprice", "price", "fillprice")))}</td></tr>`).join("");
+  return `<div class="table-wrap"><table><thead><tr><th>Symbol</th><th>Side</th><th>Qty</th><th>Price</th></tr></thead><tbody>${body}</tbody></table></div>`;
 }
 
-async function loadOpenAlgoHistory() {
-  const [payload, monitor] = await Promise.all([
-    api("/openalgo/snapshots?limit=50"),
-    api("/platform/openalgo/monitor"),
-  ]);
-  state.openalgoMonitor = monitor;
-  state.openalgoSnapshots = payload.snapshots || [];
-  const configured = Boolean(payload.configured);
-  $("#openalgo-notice").textContent = configured
-    ? `${monitor.message} Captures are read-only; paper orders use analyzer mode and risk gates.`
-    : "OpenAlgo credentials are not configured yet. Stored history remains visible, and capture controls activate when the key is supplied.";
-  document.querySelectorAll(".snapshot-button").forEach((button) => {
-    button.disabled = !configured;
-  });
-  renderOpenAlgoMonitor(monitor);
-  const table = $("#openalgo-snapshots-table");
-  table.innerHTML = state.openalgoSnapshots.length
-    ? state.openalgoSnapshots.map((snapshot) => `
-      <tr data-snapshot-id="${escapeHtml(snapshot.snapshot_id)}">
-        <td>${escapeHtml(snapshot.captured_at)}</td>
-        <td>${escapeHtml(snapshot.snapshot_type)}</td>
-        <td>${escapeHtml(snapshot.snapshot_id)}</td>
-      </tr>
-    `).join("")
-    : `<tr><td colspan="3">No OpenAlgo snapshots have been captured.</td></tr>`;
-  table.querySelectorAll("[data-snapshot-id]").forEach((row) => {
-    row.addEventListener("click", () => {
-      const snapshot = state.openalgoSnapshots.find(
-        (item) => item.snapshot_id === row.dataset.snapshotId,
-      );
-      if (snapshot) renderOpenAlgoSnapshot(snapshot);
-    });
-  });
-  renderOpenAlgoPaperEvidence();
-  renderDashboardWidgets(state.platformSummary?.latest_completed_run || state.runs[0]);
-}
-
-function renderOpenAlgoPaperEvidence() {
-  const table = $("#openalgo-paper-intents-table");
-  if (!table) return;
-  table.innerHTML = state.sandboxIntents.length
-    ? state.sandboxIntents.map((intent) => `
-      <tr>
-        <td>${escapeHtml(intent.intent_id)}<br><small>${escapeHtml(intent.run_id || "-")}</small></td>
-        <td>${escapeHtml(intent.symbol)} ${escapeHtml(intent.exchange)}</td>
-        <td>${escapeHtml(intent.side)} ${formatNumber(intent.quantity, 0)} ${escapeHtml(intent.order_type)}</td>
-        <td><span class="status-pill">${escapeHtml(intent.status)}</span></td>
-        <td>${escapeHtml(intent.broker_order_id || "-")}</td>
-        <td>${escapeHtml(intent.rejection_reason || "-")}</td>
-      </tr>
-    `).join("")
-    : `<tr><td colspan="6">No analyzer-paper intents are stored yet.</td></tr>`;
+async function loadAccountView(type) {
+  const box = $("#account-view");
+  if (!box) return;
+  box.textContent = "Loading...";
+  try {
+    const payload = await api(`/openalgo/${encodeURIComponent(type)}`);
+    box.innerHTML = renderAccountData(type, payload.data);
+  } catch (error) {
+    box.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
+  }
 }
 
 function renderOpenAlgoMonitor(monitor) {
@@ -946,86 +769,6 @@ function renderOpenAlgoMonitor(monitor) {
       </article>
     `;
   }).join("");
-}
-
-async function loadOperatorConsole() {
-  const payload = await api("/platform/operator-review");
-  state.operatorReview = payload;
-  const run = payload.latest_completed_run;
-  $("#operator-goal").textContent = payload.operator_goal;
-  $("#operator-run-id").textContent = run?.run_id || "-";
-  $("#operator-run-status").textContent = run
-    ? `${run.strategy} on ${run.dataset_id}`
-    : "Run a research backtest to populate this panel.";
-  $("#operator-net-pnl").textContent = run ? formatNumber(run.net_pnl) : "-";
-  $("#operator-trades").textContent = run ? formatNumber(run.total_trades, 0) : "-";
-  $("#operator-drawdown").textContent = run ? formatNumber(run.max_drawdown) : "-";
-
-  const storageEntries = Object.entries(payload.run_storage_evidence || {});
-  $("#operator-storage-table").innerHTML = storageEntries.length
-    ? storageEntries.map(([tableName, count]) => `
-      <tr>
-        <td>${escapeHtml(tableName)}</td>
-        <td>${formatNumber(count, 0)}</td>
-      </tr>
-    `).join("")
-    : `<tr><td colspan="2">No completed run storage evidence yet.</td></tr>`;
-
-  $("#operator-workflow").innerHTML = payload.workflow.map((step, index) => `
-    <article class="workflow-step">
-      <strong>${formatNumber(index + 1, 0)}. ${escapeHtml(step.stage.replaceAll("_", " "))}</strong>
-      <p>${escapeHtml(step.purpose)}</p>
-      <small>${escapeHtml(step.stored_in.join(", "))}</small>
-    </article>
-  `).join("");
-
-  $("#operator-actions").innerHTML = payload.ui_actions.map((action) => `
-    <button class="secondary-button operator-action" data-target-view="${escapeHtml(action.target_view)}">
-      ${escapeHtml(action.label)}
-    </button>
-  `).join("");
-  $("#operator-actions").querySelectorAll(".operator-action").forEach((button) => {
-    button.addEventListener("click", () => setView(button.dataset.targetView));
-  });
-}
-
-function renderOpenAlgoSnapshot(snapshot) {
-  $("#snapshot-current-label").textContent = `${snapshot.snapshot_type} · ${snapshot.snapshot_id} · ${snapshot.captured_at}`;
-  $("#snapshot-current-data").textContent = JSON.stringify(
-    snapshot.data,
-    null,
-    2,
-  );
-}
-
-async function captureOpenAlgoSnapshot(snapshotType) {
-  const button = document.querySelector(`[data-snapshot-type="${snapshotType}"]`);
-  const originalLabel = button?.textContent;
-  if (button) {
-    button.disabled = true;
-    button.textContent = "Loading...";
-  }
-  try {
-    const snapshot = await api(
-      `/openalgo/${encodeURIComponent(snapshotType)}`,
-    );
-    renderOpenAlgoSnapshot(snapshot);
-    toast(`${snapshotType} snapshot captured`);
-    await loadOpenAlgoHistory();
-  } catch (error) {
-    $("#snapshot-current-label").textContent = `${snapshotType} capture failed safely`;
-    $("#snapshot-current-data").textContent = JSON.stringify(
-      { ok: false, safe_failure: true, message: error.message },
-      null,
-      2,
-    );
-    toast(error.message);
-  } finally {
-    if (button) {
-      button.disabled = !state.openalgoMonitor?.configured;
-      button.textContent = originalLabel;
-    }
-  }
 }
 
 function renderPortfolios() {
@@ -2058,9 +1801,9 @@ async function submitChat(event) {
     renderEvidence(payload);
     if (["get_openalgo_snapshot", "get_openalgo_monitor"].includes(payload.intent)) {
       try {
-        await loadOpenAlgoHistory();
+        await loadAccount();
       } catch (error) {
-        toast(`OpenAlgo view refresh paused: ${error.message}`);
+        toast(`Account view refresh paused: ${error.message}`);
       }
     }
   } catch (error) {
@@ -2340,306 +2083,6 @@ async function compareSelectedRuns() {
   }
 }
 
-async function loadOperations() {
-  if (!state.operations) state.operations = await api("/operations/summary");
-  $("#ops-enabled").textContent = formatNumber(state.operations.enabled_jobs, 0);
-  $("#ops-failed").textContent = formatNumber(state.operations.failed_job_runs, 0);
-  $("#ops-stale").textContent = formatNumber(state.operations.stale_assessments, 0);
-  $("#ops-uncertain").textContent = formatNumber(state.operations.uncertain_submissions, 0);
-  $("#ops-active-tasks").textContent = formatNumber(state.operations.active_tasks, 0);
-  $("#ops-failed-tasks").textContent = formatNumber(state.operations.failed_tasks, 0);
-  $("#ops-critical-alerts").textContent = formatNumber(
-    state.operations.active_critical_alerts,
-    0,
-  );
-  $("#ops-warning-alerts").textContent = formatNumber(
-    state.operations.active_warning_alerts,
-    0,
-  );
-  const taskPayload = await api("/tasks?limit=25");
-  state.tasks = taskPayload.tasks || [];
-  const evaluationPayload = await api("/evaluations?limit=25");
-  state.evaluations = evaluationPayload.evaluations || [];
-  const retrievalEvaluationPayload = await api(
-    "/evaluations/retrieval?limit=25",
-  );
-  state.retrievalEvaluations = (
-    retrievalEvaluationPayload.evaluations || []
-  );
-  if (hasRole("approver")) {
-    const [
-      jobPayload,
-      backupPayload,
-      retentionPayload,
-      alertPayload,
-    ] = await Promise.all([
-      api("/jobs"),
-      api("/operations/backups"),
-      api("/operations/retention"),
-      api("/operations/alerts"),
-    ]);
-    state.jobs = jobPayload.jobs || [];
-    state.backups = backupPayload.backups || [];
-    state.retention = retentionPayload;
-    state.alerts = alertPayload.alerts || [];
-  } else {
-    state.jobs = [];
-    state.backups = [];
-    state.retention = null;
-    state.alerts = [];
-  }
-  const table = $("#jobs-table");
-  table.innerHTML = state.jobs.length
-    ? state.jobs.map((job) => `
-      <tr>
-        <td>${escapeHtml(job.name)}</td>
-        <td>${escapeHtml(job.job_type)}</td>
-        <td>${job.enabled ? "enabled" : "disabled"}</td>
-        <td>${escapeHtml(job.next_run_at)}</td>
-        <td>${escapeHtml(job.last_status || "never run")}</td>
-      </tr>
-    `).join("")
-    : `<tr><td colspan="5">${hasRole("approver") ? "No scheduled jobs." : "Job details require approver access."}</td></tr>`;
-  const taskTable = $("#tasks-table");
-  taskTable.innerHTML = state.tasks.length
-    ? state.tasks.map((task) => `
-      <tr>
-        <td>${escapeHtml(task.task_id)}</td>
-        <td>${escapeHtml(task.task_type)}</td>
-        <td>${escapeHtml(task.status)}</td>
-        <td>${formatNumber(task.attempt, 0)} / ${formatNumber(task.max_attempts, 0)}</td>
-        <td>${escapeHtml(task.error_type || task.result?.experiment_id || "-")}</td>
-      </tr>
-    `).join("")
-    : `<tr><td colspan="5">No durable tasks.</td></tr>`;
-  const backupTable = $("#backups-table");
-  backupTable.innerHTML = state.backups.length
-    ? state.backups.map((backup) => `
-      <tr>
-        <td>${escapeHtml(backup.backup_id)}</td>
-        <td>${escapeHtml(backup.created_at || "-")}</td>
-        <td>${formatNumber(backup.archive_size_bytes, 0)}</td>
-        <td>${formatNumber(Object.keys(backup.table_counts || {}).length, 0)}</td>
-        <td>${escapeHtml(backup.status)}</td>
-      </tr>
-    `).join("")
-    : `<tr><td colspan="5">${hasRole("approver") ? "No backups created." : "Backup details require approver access."}</td></tr>`;
-  const evaluationTable = $("#evaluations-table");
-  evaluationTable.innerHTML = state.evaluations.length
-    ? state.evaluations.map((evaluation) => `
-      <tr>
-        <td>${escapeHtml(evaluation.eval_run_id)}</td>
-        <td>${escapeHtml(evaluation.orchestration_mode)}</td>
-        <td>${formatNumber(evaluation.passed_count, 0)} / ${formatNumber(evaluation.case_count, 0)}</td>
-        <td>${formatNumber(Number(evaluation.pass_rate) * 100, 1)}%</td>
-        <td>${escapeHtml(evaluation.status)}</td>
-      </tr>
-    `).join("")
-    : `<tr><td colspan="5">No AI evaluation runs.</td></tr>`;
-  const retrievalEvaluationTable = $("#retrieval-evaluations-table");
-  retrievalEvaluationTable.innerHTML = state.retrievalEvaluations.length
-    ? state.retrievalEvaluations.map((evaluation) => `
-      <tr>
-        <td>${escapeHtml(evaluation.eval_run_id)}</td>
-        <td>${escapeHtml(evaluation.retrieval_method)}</td>
-        <td>${formatNumber(Number(evaluation.recall_at_k) * 100, 1)}%</td>
-        <td>${formatNumber(evaluation.mean_reciprocal_rank, 4)}</td>
-        <td>${formatNumber(evaluation.ndcg_at_k, 4)}</td>
-        <td>${escapeHtml(evaluation.status)}</td>
-      </tr>
-    `).join("")
-    : `<tr><td colspan="6">No retrieval evaluation runs.</td></tr>`;
-  const retentionTable = $("#retention-table");
-  const latestRetention = state.retention?.runs?.[0];
-  retentionTable.innerHTML = state.retention?.policies?.length
-    ? state.retention.policies.map((policy) => {
-      const counts = latestRetention?.candidate_counts?.[policy.policy_name] || {};
-      const candidates = Object.values(counts).reduce(
-        (total, value) => total + Number(value || 0),
-        0,
-      );
-      return `
-        <tr>
-          <td>${escapeHtml(policy.policy_name)}</td>
-          <td>${formatNumber(policy.retention_days, 0)}</td>
-          <td>${policy.enabled ? "enabled" : "disabled"}</td>
-          <td>${policy.automatic_execution ? "automatic" : "manual only"}</td>
-          <td>${formatNumber(candidates, 0)}</td>
-        </tr>
-      `;
-    }).join("")
-    : `<tr><td colspan="5">${hasRole("approver") ? "No retention policies." : "Retention details require approver access."}</td></tr>`;
-  const alertsTable = $("#alerts-table");
-  alertsTable.innerHTML = state.alerts.length
-    ? state.alerts.map((alert) => `
-      <tr>
-        <td>${escapeHtml(alert.severity)}</td>
-        <td>${escapeHtml(alert.rule_key)}</td>
-        <td>${escapeHtml(alert.status)}</td>
-        <td>${escapeHtml(alert.message)}</td>
-        <td>${escapeHtml(alert.runbook_uri)}</td>
-        <td>
-          ${alert.status === "active" ? `<button class="secondary-button acknowledge-alert" data-alert-id="${escapeHtml(alert.alert_id)}">Acknowledge</button>` : "-"}
-        </td>
-      </tr>
-    `).join("")
-    : `<tr><td colspan="6">${hasRole("approver") ? "No active operational alerts." : "Alert details require approver access."}</td></tr>`;
-  alertsTable.querySelectorAll(".acknowledge-alert").forEach((button) => {
-    button.addEventListener("click", () => acknowledgeAlert(button.dataset.alertId));
-  });
-}
-
-async function createBackup() {
-  const button = $("#create-backup");
-  button.disabled = true;
-  try {
-    const backup = await api("/operations/backups", { method: "POST" });
-    toast(`Backup ${backup.backup_id} created and verified`);
-    state.operations = null;
-    await loadOperations();
-  } catch (error) {
-    toast(error.message);
-  } finally {
-    button.disabled = false;
-  }
-}
-
-async function runAiEvaluation() {
-  const button = $("#run-ai-eval");
-  button.disabled = true;
-  try {
-    const evaluation = await api("/evaluations/run", {
-      method: "POST",
-      body: JSON.stringify({ mode: "offline" }),
-    });
-    toast(
-      `Evaluation ${evaluation.eval_run_id}: ${formatNumber(evaluation.pass_rate * 100, 1)}%`,
-    );
-    await loadOperations();
-  } catch (error) {
-    toast(error.message);
-  } finally {
-    button.disabled = false;
-  }
-}
-
-async function runRetrievalEvaluation() {
-  const button = $("#run-retrieval-eval");
-  button.disabled = true;
-  try {
-    const evaluation = await api("/evaluations/retrieval/run", {
-      method: "POST",
-    });
-    toast(
-      `Retrieval ${evaluation.eval_run_id}: MRR ${formatNumber(evaluation.mean_reciprocal_rank, 4)}`,
-    );
-    await loadOperations();
-  } catch (error) {
-    toast(error.message);
-  } finally {
-    button.disabled = false;
-  }
-}
-
-async function previewRetention() {
-  const button = $("#preview-retention");
-  button.disabled = true;
-  try {
-    const preview = await api("/operations/retention/preview", {
-      method: "POST",
-      body: JSON.stringify({ policy_names: null }),
-    });
-    const candidates = Object.values(preview.candidate_counts).reduce(
-      (total, counts) => (
-        total
-        + Object.values(counts).reduce(
-          (subtotal, value) => subtotal + Number(value || 0),
-          0,
-        )
-      ),
-      0,
-    );
-    toast(`Retention preview found ${candidates} expired records`);
-    await loadOperations();
-  } catch (error) {
-    toast(error.message);
-  } finally {
-    button.disabled = false;
-  }
-}
-
-async function evaluateAlerts() {
-  const button = $("#evaluate-alerts");
-  button.disabled = true;
-  try {
-    const evaluation = await api("/operations/alerts/evaluate", {
-      method: "POST",
-    });
-    toast(
-      `Alerts evaluated: ${evaluation.active_count} active, ${evaluation.acknowledged_count} acknowledged`,
-    );
-    state.operations = null;
-    await loadOverview();
-  } catch (error) {
-    toast(error.message);
-  } finally {
-    button.disabled = false;
-  }
-}
-
-async function acknowledgeAlert(alertId) {
-  const reason = window.prompt("Acknowledgement reason");
-  if (!reason || reason.trim().length < 3) return;
-  try {
-    await api(
-      `/operations/alerts/${encodeURIComponent(alertId)}/acknowledge`,
-      {
-        method: "POST",
-        body: JSON.stringify({ reason: reason.trim() }),
-      },
-    );
-    toast(`Alert ${alertId} acknowledged`);
-    state.operations = null;
-    await loadOverview();
-  } catch (error) {
-    toast(error.message);
-  }
-}
-
-async function generateStoragePlan() {
-  const button = $("#generate-storage-plan");
-  button.disabled = true;
-  try {
-    const plan = await api("/operations/storage-plan", {
-      method: "POST",
-    });
-    toast(
-      `Storage plan: ${plan.placement_counts.postgresql} PostgreSQL tables, ${plan.foreign_key_count} verified relationships`,
-    );
-  } catch (error) {
-    toast(error.message);
-  } finally {
-    button.disabled = false;
-  }
-}
-
-async function exportAnalyticalHistory() {
-  const button = $("#export-analytical");
-  button.disabled = true;
-  try {
-    const result = await api(
-      "/operations/storage-export-analytical",
-      { method: "POST" },
-    );
-    toast(
-      `Export ${result.export_id}: ${formatNumber(result.verified_row_count, 0)} rows verified`,
-    );
-  } catch (error) {
-    toast(error.message);
-  } finally {
-    button.disabled = false;
-  }
-}
 
 function cssVar(name) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -3619,9 +3062,7 @@ function wireEvents() {
       $("#chat-form").requestSubmit();
     });
   });
-  $("#readiness-form").addEventListener("submit", submitReadiness);
   $("#market-news-form").addEventListener("submit", submitMarketNews);
-  $("#create-research-brief").addEventListener("click", createResearchBrief);
   $("#toggle-live-dashboard").addEventListener(
     "click",
     () => setAutoRefresh(!state.autoRefresh),
@@ -3659,29 +3100,12 @@ function wireEvents() {
   $("#compare-runs").addEventListener("click", compareSelectedRuns);
   $("#experiment-form").addEventListener("submit", submitExperiment);
   $("#portfolio-create-form").addEventListener("submit", submitPortfolio);
-  $("#create-backup").addEventListener("click", createBackup);
-  $("#run-ai-eval").addEventListener("click", runAiEvaluation);
-  $("#run-retrieval-eval").addEventListener(
-    "click",
-    runRetrievalEvaluation,
-  );
-  $("#preview-retention").addEventListener(
-    "click",
-    previewRetention,
-  );
-  $("#evaluate-alerts").addEventListener("click", evaluateAlerts);
-  $("#generate-storage-plan").addEventListener(
-    "click",
-    generateStoragePlan,
-  );
-  $("#export-analytical").addEventListener(
-    "click",
-    exportAnalyticalHistory,
-  );
-  document.querySelectorAll(".snapshot-button").forEach((button) => {
-    button.addEventListener("click", () => (
-      captureOpenAlgoSnapshot(button.dataset.snapshotType)
-    ));
+  document.querySelectorAll(".account-tab").forEach((button) => {
+    button.addEventListener("click", () => {
+      document.querySelectorAll(".account-tab").forEach((b) => b.classList.remove("active"));
+      button.classList.add("active");
+      loadAccountView(button.dataset.account).catch(() => {});
+    });
   });
   document.querySelectorAll(".emergency-button").forEach((button) => {
     button.addEventListener("click", async () => {
@@ -3703,7 +3127,7 @@ function wireEvents() {
           { method: "POST" },
         );
         toast(`${label} requested (${result.record_id})`);
-        await loadOpenAlgoHistory();
+        await loadAccount();
       } catch (error) {
         toast(error.message);
       } finally {
@@ -3775,7 +3199,6 @@ function wireEvents() {
   });
   const refreshActions = {
     "refresh-overview": loadOverview,
-    "refresh-operator": loadOperatorConsole,
     "refresh-runs": async () => {
       const [runs, customSpecs] = await Promise.all([api("/runs?limit=50"), api("/custom-strategy-specs")]);
       state.runs = runs.runs || [];
@@ -3809,8 +3232,7 @@ function wireEvents() {
       renderDatasets();
       renderBacktestControls();
     },
-    "refresh-openalgo": loadOpenAlgoHistory,
-    "refresh-operations": async () => { state.operations = null; await loadOperations(); },
+    "refresh-openalgo": loadAccount,
     "refresh-settings": loadSettings,
   };
   Object.entries(refreshActions).forEach(([id, action]) => {
