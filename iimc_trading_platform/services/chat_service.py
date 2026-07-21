@@ -18,6 +18,31 @@ from .conversation_service import ConversationService
 from .tool_execution_service import ToolExecutionError, ToolExecutionService
 
 
+def _friendly_error_message(cause: BaseException | None) -> str:
+    """Translate an internal exception into plain, client-facing text."""
+    name = type(cause).__name__ if cause is not None else ""
+    detail = str(cause).strip() if cause is not None else ""
+    if name == "OpenAlgoAuthenticationError":
+        return (
+            "Your broker session has expired. Please log in to OpenAlgo again "
+            "(the daily TOTP re-login) and try once more."
+        )
+    if name == "OpenAlgoUnavailableError":
+        return (
+            "I couldn't reach your broker just now. Please try again in a "
+            "moment."
+        )
+    if name == "OpenAlgoResponseError":
+        return (
+            "Your broker couldn't complete that request. Please check the "
+            "details and try again."
+        )
+    if name == "ValueError" and detail:
+        # ValueErrors we raise carry client-safe wording.
+        return detail
+    return "Sorry, something went wrong with that request. Please try again."
+
+
 @dataclass(frozen=True)
 class ToolEvidence:
     tool_call_id: str
@@ -212,11 +237,7 @@ class ChatService:
                 tool_call_id=tool_call_id,
             )
         except ToolExecutionError as exc:
-            answer = (
-                f"The requested operation failed safely: "
-                f"{type(exc.cause).__name__}. "
-                "The failed tool lifecycle was recorded for inspection."
-            )
+            answer = _friendly_error_message(exc.cause)
             self._store_assistant(
                 active_session_id,
                 answer,

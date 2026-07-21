@@ -121,7 +121,11 @@ class InstrumentDiscoveryService:
                     "ok": False,
                     "status": "no_matches",
                     "safe_failure": True,
-                    "message": "OpenAlgo found no matching instrument.",
+                    "message": (
+                        f"I couldn't find a stock called \"{query}\" on "
+                        f"{exchange.upper()}. Please check the name or the "
+                        f"exchange and try again."
+                    ),
                     "matches": [],
                     "no_synthetic_fallback": True,
                 }
@@ -322,6 +326,9 @@ def _best_instrument_match(
     if not matches:
         return None
     normalized_query = _normalized_identifier(query)
+    if not normalized_query:
+        return None
+    # 1. Exact match on symbol/brsymbol/name.
     for match in matches:
         values = (
             match.get("symbol"),
@@ -334,11 +341,31 @@ def _best_instrument_match(
             if value
         ):
             return match
+    # 2. Prefix relationship either direction on symbol or name, so
+    #    "colgate" -> COLPAL ("COLGATE-PALMOLIVE..."), "infosys" -> INFY, etc.
     for match in matches:
-        name = _normalized_identifier(str(match.get("name") or ""))
-        if name.startswith(normalized_query):
-            return match
-    return matches[0]
+        for value in (match.get("symbol"), match.get("brsymbol"), match.get("name")):
+            token = _normalized_identifier(str(value or ""))
+            if not token:
+                continue
+            if token.startswith(normalized_query) or normalized_query.startswith(token):
+                return match
+    # 3. Strong fuzzy match only. Never return an arbitrary/unrelated
+    #    instrument — a wrong-company quote is worse than an honest miss.
+    best_score = 0.0
+    best_match: dict[str, Any] | None = None
+    for match in matches:
+        for value in (match.get("symbol"), match.get("brsymbol"), match.get("name")):
+            for term in _contract_search_terms(str(value or "")):
+                if not term:
+                    continue
+                score = SequenceMatcher(None, normalized_query, term).ratio()
+                if score > best_score:
+                    best_score = score
+                    best_match = match
+    if best_score >= 0.8:
+        return best_match
+    return None
 
 
 def _normalized_identifier(value: str) -> str:
