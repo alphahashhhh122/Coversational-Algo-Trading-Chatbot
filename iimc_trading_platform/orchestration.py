@@ -2259,9 +2259,11 @@ _EDUCATION_MAP: dict[str, str] = {
 
 def _education_lookup(concept: str) -> str | None:
     concept_lower = concept.lower().strip()
-    for key, explanation in _EDUCATION_MAP.items():
-        if key in concept_lower:
-            return explanation
+    # Whole-word match, longest key first, so "rsi" never matches inside
+    # "dive(rsi)fication" and "moving average" beats "average".
+    for key in sorted(_EDUCATION_MAP, key=len, reverse=True):
+        if re.search(rf"\b{re.escape(key)}\b", concept_lower):
+            return _EDUCATION_MAP[key]
     return None
 
 

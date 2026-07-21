@@ -1252,6 +1252,15 @@ class OrchestrationContractsTest(unittest.TestCase):
         self.assertIn("delta hedging", decision.direct_response.lower())
         self.assertFalse(decision.authoritative)
 
+    def test_education_lookup_matches_whole_words_only(self) -> None:
+        from iimc_trading_platform.orchestration import _education_lookup
+
+        # "rsi" must not match inside "dive(rsi)fication".
+        self.assertIsNone(_education_lookup("diversification"))
+        self.assertIn("RSI", _education_lookup("rsi"))
+        self.assertIn("RSI", _education_lookup("what is rsi"))
+        self.assertIn("Stop loss", _education_lookup("stop loss"))
+
     def test_offline_router_handles_fundamental_pe_ratio(self) -> None:
         registry = build_default_tool_registry(Path("unused.duckdb"))
         decision = OfflineOrchestrator().select_tool(

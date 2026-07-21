@@ -62,6 +62,17 @@ class NlStrategyCompilerTest(unittest.TestCase):
         self.assertEqual(validation["missing_capabilities"], [])
         self.assertTrue(validation["can_execute_without_new_code"])
 
+    def test_descriptor_adjectives_are_not_treated_as_the_instrument(self) -> None:
+        # "beginner-friendly" must not become the symbol; with no real
+        # instrument the compiler leaves a MARKET placeholder + warning.
+        compiled = compile_strategy_text(
+            "give me a beginner-friendly trading strategy"
+        )
+        self.assertEqual(compiled["spec"]["symbol"], "MARKET")
+        self.assertTrue(
+            any("instrument symbol" in w.lower() for w in compiled["warnings"])
+        )
+
     def test_user_specified_periods_are_honored(self) -> None:
         compiled = compile_strategy_text(
             "Create a TCS 15 minute strategy that buys when the 13 EMA "

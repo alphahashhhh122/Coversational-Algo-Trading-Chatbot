@@ -34,6 +34,12 @@ _SYMBOL_STOPWORDS = {
     "SMA", "STOP", "STRATEGY", "TAKE", "THAT", "THE", "TRADE", "TRADES",
     "TRADING", "TRAILING", "UPPER", "USING", "VOLUME", "VWAP", "WANT",
     "WEEKLY", "WHEN", "WHENEVER", "WITH", "WRITE",
+    # Descriptors that must never be mistaken for an instrument.
+    "BEGINNER", "FRIENDLY", "GOOD", "BASIC", "EASY", "PROFITABLE", "BEST",
+    "SAFE", "CONSERVATIVE", "AGGRESSIVE", "SCALPING", "SWING", "TREND",
+    "TRENDING", "SUGGEST", "RECOMMEND", "MY", "SAMPLE", "EXAMPLE", "DEMO",
+    "TEST", "IDEA", "POPULAR", "WINNING", "RELIABLE", "SOLID", "SIMPLE",
+    "ROBUST",
 }
 
 _EXTERNAL_FEATURES = (
@@ -801,8 +807,16 @@ def _extract_symbol(text: str) -> str | None:
     if strategy_subject:
         for token in strategy_subject.group(1).split():
             candidate = _clean_symbol(token)
-            if candidate and candidate not in _SYMBOL_STOPWORDS and not candidate.isdigit():
-                return candidate
+            if not candidate or candidate.isdigit():
+                continue
+            # Reject descriptors, including hyphenated ones like
+            # "BEGINNER-FRIENDLY" whose parts are all stopwords.
+            parts = [part for part in candidate.split("-") if part]
+            if candidate in _SYMBOL_STOPWORDS:
+                continue
+            if parts and all(part in _SYMBOL_STOPWORDS for part in parts):
+                continue
+            return candidate
     for pattern in (
         r"\b(?:symbol|ticker|underlying|instrument)\s*[:=]?\s*"
         r"([A-Za-z][A-Za-z0-9&.-]{1,30})\b",
