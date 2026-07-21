@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>IIMC Trading Research Workspace</title>
-  <link rel="stylesheet" href="/static/styles.css?v=20260721a">
+  <link rel="stylesheet" href="/static/styles.css?v=20260721b">
 </head>
 <body>
   <div class="app-shell">
@@ -71,6 +71,17 @@
 
       <!-- ============================ CHAT ============================ -->
       <section class="view active" id="view-workspace">
+        <section class="live-trades" id="live-trades" hidden>
+          <div class="live-trades-head">
+            <h2>Your open trades</h2>
+            <div class="section-actions">
+              <button class="secondary-button" id="live-trades-refresh" title="Refresh">Refresh</button>
+              <button class="secondary-button danger emergency-button" data-emergency-action="cancel_all_orders">Cancel all orders</button>
+              <button class="secondary-button danger emergency-button" data-emergency-action="square_off_positions">Square off all</button>
+            </div>
+          </div>
+          <div class="live-trades-body" id="live-trades-body"></div>
+        </section>
         <div class="workspace-grid">
           <section class="chat-panel">
             <div class="panel-heading">
@@ -404,9 +415,14 @@
           </form>
           <div class="fundamentals-status" id="fundamentals-status"></div>
         </section>
-        <div class="dataset-list" id="dataset-list"></div>
         <details class="workspace-tools">
-          <summary>Manual imports: OHLCV JSON, point-in-time features, options feature derivation, document search</summary>
+          <summary>Stored market data (managed automatically)</summary>
+          <div class="workspace-tools-content">
+            <div class="dataset-list" id="dataset-list"></div>
+          </div>
+        </details>
+        <details class="workspace-tools">
+          <summary>Advanced: developer data tools</summary>
           <div class="workspace-tools-content">
             <section class="rag-panel">
               <div class="section-heading">
@@ -691,6 +707,6 @@
     </form>
   </div>
   <div class="toast" id="toast" role="status"></div>
-  <script src="/static/app.js?v=20260721a" defer></script>
+  <script src="/static/app.js?v=20260721b" defer></script>
 </body>
 </html>

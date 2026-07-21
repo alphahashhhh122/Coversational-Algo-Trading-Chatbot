@@ -929,6 +929,14 @@ tbody tr:hover { background: var(--row-hover); }
 }
 .openalgo-status-card strong { font-size: 12px; text-transform: uppercase; }
 .openalgo-status-card span { margin-top: 5px; color: var(--muted); font-size: 12px; }
+.live-trades { margin-bottom: 16px; padding: 14px 16px; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 6px; background: var(--surface); }
+.live-trades[hidden] { display: none; }
+.live-trades-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.live-trades-head h2 { margin: 0; font-size: 15px; }
+.live-trades-body h3 { margin: 12px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.live-trades-body h3:first-child { margin-top: 0; }
+.pnl-up { color: #1e874b; }
+.pnl-down { color: #c0392b; }
 .account-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
 .account-tab.active { color: #fff; background: var(--accent); border-color: var(--accent); }
 .account-view { min-height: 60px; margin-bottom: 20px; }

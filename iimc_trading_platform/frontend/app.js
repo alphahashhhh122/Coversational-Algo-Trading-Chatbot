@@ -419,6 +419,7 @@ async function loadOverview() {
   // Heavy secondary panels load in the background so the workspace is
   // interactive immediately.
   loadAccount().catch(() => {});
+  loadLiveTrades().catch(() => {});
   loadSettings();
 }
 
@@ -749,6 +750,61 @@ async function loadAccountView(type) {
   } catch (error) {
     box.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
   }
+}
+
+// Top-of-landing-page live view: open positions and working orders, so the
+// client can see and act on live trades without leaving the chat.
+async function loadLiveTrades() {
+  const panel = $("#live-trades");
+  const body = $("#live-trades-body");
+  if (!panel || !body) return;
+  let positions = [];
+  let orders = [];
+  try {
+    const [pos, ord] = await Promise.all([
+      api("/openalgo/positionbook").catch(() => ({ data: [] })),
+      api("/openalgo/orderbook").catch(() => ({ data: [] })),
+    ]);
+    positions = (Array.isArray(pos.data) ? pos.data : []).filter((r) => {
+      const qty = _numField(_pickField(r, "quantity", "netqty", "qty"));
+      return qty != null && qty !== 0;
+    });
+    const openStates = ["open", "pending", "trigger pending", "modified"];
+    orders = (Array.isArray(ord.data) ? ord.data : []).filter((r) => {
+      const status = String(_pickField(r, "order_status", "status", "orderstatus") || "").toLowerCase();
+      return openStates.includes(status);
+    });
+  } catch (error) {
+    panel.hidden = true;
+    return;
+  }
+  if (!positions.length && !orders.length) {
+    panel.hidden = true;
+    return;
+  }
+  panel.hidden = false;
+  const money = (v) => v == null ? "-" : "₹" + Number(v).toLocaleString("en-IN", { maximumFractionDigits: 2 });
+  const cell = (v) => `<td>${escapeHtml(v == null ? "-" : String(v))}</td>`;
+  let html = "";
+  if (positions.length) {
+    let total = 0;
+    const rows = positions.map((r) => {
+      const qty = _numField(_pickField(r, "quantity", "netqty", "qty"));
+      const avg = _numField(_pickField(r, "average_price", "averageprice", "avgprice", "buyavgprice"));
+      const ltp = _numField(_pickField(r, "ltp", "lastprice", "last_price"));
+      let pnl = _numField(_pickField(r, "pnl", "unrealized_pnl", "m2m", "profitandloss"));
+      if (pnl == null && qty != null && avg != null && ltp != null) pnl = (ltp - avg) * qty;
+      if (pnl != null) total += pnl;
+      const cls = pnl == null ? "" : (pnl >= 0 ? "pnl-up" : "pnl-down");
+      return `<tr>${cell(_pickField(r, "symbol", "tradingsymbol", "tsym"))}<td>${qty ?? "-"}</td><td>${money(avg)}</td><td>${money(ltp)}</td><td class="${cls}">${money(pnl)}</td></tr>`;
+    }).join("");
+    html += `<h3>Open positions</h3><div class="table-wrap"><table><thead><tr><th>Symbol</th><th>Qty</th><th>Avg</th><th>LTP</th><th>P&amp;L</th></tr></thead><tbody>${rows}</tbody></table></div><p class="account-total">Total P&amp;L: <strong class="${total >= 0 ? "pnl-up" : "pnl-down"}">${money(total)}</strong></p>`;
+  }
+  if (orders.length) {
+    const rows = orders.map((r) => `<tr>${cell(_pickField(r, "symbol", "tradingsymbol"))}${cell(_pickField(r, "action", "transaction_type", "side"))}<td>${_pickField(r, "quantity", "qty") ?? "-"}</td><td>${money(_numField(_pickField(r, "price", "average_price", "averageprice")))}</td>${cell(_pickField(r, "order_status", "status", "orderstatus"))}</tr>`).join("");
+    html += `<h3>Working orders</h3><div class="table-wrap"><table><thead><tr><th>Symbol</th><th>Side</th><th>Qty</th><th>Price</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+  body.innerHTML = html;
 }
 
 function renderOpenAlgoMonitor(monitor) {
@@ -1775,6 +1831,13 @@ async function submitChat(event) {
         toast(`Account view refresh paused: ${error.message}`);
       }
     }
+    const tradeIntents = [
+      "prepare_direct_order", "approve_pending_order", "square_off_all",
+      "cancel_all_orders", "submit_sandbox_order_intent", "get_openalgo_snapshot",
+    ];
+    if (tradeIntents.includes(payload.intent)) {
+      loadLiveTrades().catch(() => {});
+    }
   } catch (error) {
     typing.remove();
     appendMessage("assistant", error.message, "error");
@@ -2647,19 +2710,12 @@ function renderDatasets() {
     <article class="dataset-item" data-dataset-id="${escapeHtml(dataset.dataset_id)}">
       <div class="item-header">
         <div>
-          <strong>${escapeHtml(dataset.dataset_id)}</strong>
-          <p>${escapeHtml(dataset.symbol)} · ${escapeHtml(dataset.exchange)} · ${escapeHtml(dataset.interval)}</p>
+          <strong>${escapeHtml(dataset.symbol)} · ${escapeHtml(dataset.exchange)} · ${escapeHtml(dataset.interval)}</strong>
+          <p>${formatNumber(dataset.row_count, 0)} candles · ${escapeHtml((dataset.start_ts || "").slice(0, 10))} to ${escapeHtml((dataset.end_ts || "").slice(0, 10))}</p>
         </div>
         <div class="section-actions">
           ${chartable ? '<button class="secondary-button chart-button">View chart</button>' : ""}
-          <button class="secondary-button freshness-button">Assess current freshness</button>
         </div>
-      </div>
-      <div class="dataset-meta">
-        <div><span>Rows</span><strong>${formatNumber(dataset.row_count, 0)}</strong></div>
-        <div><span>Quality</span><strong>${escapeHtml(dataset.quality.status)}</strong></div>
-        <div><span>Coverage start</span><strong>${escapeHtml(dataset.start_ts)}</strong></div>
-        <div><span>Coverage end</span><strong>${escapeHtml(dataset.end_ts)}</strong></div>
       </div>
       <div class="chart-slot hidden">
         <canvas class="candle-canvas" width="960" height="380"></canvas>
@@ -2669,9 +2725,6 @@ function renderDatasets() {
     </article>
   `;
   }).join("");
-  container.querySelectorAll(".freshness-button").forEach((button) => {
-    button.addEventListener("click", () => assessFreshness(button.closest("[data-dataset-id]")));
-  });
   container.querySelectorAll(".chart-button").forEach((button) => {
     button.addEventListener("click", () => toggleDatasetChart(button.closest("[data-dataset-id]"), button));
   });
@@ -2697,22 +2750,6 @@ async function toggleDatasetChart(article, button) {
     toast(error.message);
   } finally {
     button.disabled = false;
-  }
-}
-
-async function assessFreshness(article) {
-  const datasetId = article.dataset.datasetId;
-  const button = article.querySelector(".freshness-button");
-  if (button) button.disabled = true;
-  try {
-    const result = await api(`/datasets/${encodeURIComponent(datasetId)}/freshness?purpose=current_market`);
-    const slot = article.querySelector(".freshness-slot");
-    slot.className = `freshness-result ${result.status}`;
-    slot.textContent = `${result.status.toUpperCase()}: ${result.reason}`;
-  } catch (error) {
-    toast(error.message);
-  } finally {
-    if (button) button.disabled = false;
   }
 }
 
@@ -3097,12 +3134,16 @@ function wireEvents() {
         );
         toast(`${label} requested (${result.record_id})`);
         await loadAccount();
+        loadLiveTrades().catch(() => {});
       } catch (error) {
         toast(error.message);
       } finally {
         button.disabled = false;
       }
     });
+  });
+  $("#live-trades-refresh")?.addEventListener("click", () => {
+    loadLiveTrades().catch(() => {});
   });
   $("#chat-input").addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !event.shiftKey) {
