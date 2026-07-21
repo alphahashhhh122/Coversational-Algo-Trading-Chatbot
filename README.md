@@ -1,287 +1,118 @@
-# IIMC Conversational Algo-Trading Platform
+# Conversational Algo-Trading Platform
 
-An AI-assisted algorithmic trading research platform that lets users interact
-with market data, strategy backtests, broker readiness, and paper-trading
-workflows through a conversational interface.
+A local-first research platform for algorithmic trading that you drive through
+plain-language chat. Ask for a quote, pull news, analyse a company, screen the
+NIFTY 50, backtest a strategy you describe in English, or place and track an
+order — all from one conversation, backed by real market data through
+[OpenAlgo](https://openalgo.in).
 
-The system combines **Groq LLM orchestration**, **retrieval-augmented generation
-(RAG)**, **FastAPI**, **DuckDB**, and **OpenAlgo broker APIs** to route
-natural-language requests into governed backend tools. It is built as a
-local-first research and execution-control workspace. Live trading is disabled
-by default, but can be explicitly enabled for approval-gated live order intents.
+Built with **FastAPI**, **DuckDB** (single-file storage), a **Groq**-routed LLM
+orchestrator with a deterministic fallback, and a dependency-free vanilla-JS
+dashboard. Live trading is off by default and every order requires your explicit
+approval.
 
-## Submission Guide
+## What you can do (all from chat)
 
-This repository is self-contained for local academic review. No provider
-credential is needed to inspect the architecture, run the full automated suite,
-use the dashboard, import governed data, create/validate custom strategies, or
-run deterministic research backtests. Conversational model, broker, and news
-provider calls remain optional external integrations.
-
-- [Architecture](docs/ARCHITECTURE.md) explains the system boundaries and data flow.
-- [Operator Runbook](docs/OPERATOR_RUNBOOK.md) gives the local review workflow.
-- [Data Domains](docs/DATA_DOMAINS.md) describes governed data coverage.
-- [Security and Secrets](docs/SECURITY_AND_SECRETS.md) documents credential handling.
-- [Production Readiness](docs/PRODUCTION_READINESS.md) distinguishes the local
-  deliverable from deployment-scale work.
-
-## Core Capabilities
-
-- Conversational chatbot for market research, instrument discovery, backtesting,
-  broker-state queries, and performance summaries.
-- LLM tool orchestration with typed contracts, role gates, capability metadata,
-  response grounding, and audit evidence for every tool-backed answer.
-- Compound read-only chat questions can execute up to four independent governed
-  tools, each with its own lifecycle and audit evidence. State-changing actions
-  remain explicit, single-action workflows.
-- RAG over project, architecture, policy, and trading workflow documents.
-- Strategy backtesting with stored signals, risk decisions, order events, fills,
-  and performance summaries.
-- Custom strategy draft specs for no-code strategy ideas, with validation of
-  EMA, SMA, RSI, ROC, ATR, VWAP, Bollinger, and MACD rules; unsupported
-  primitives are reported for review rather than executed as arbitrary code.
-- Trusted local strategy plugins with declared asset-class support and dynamic
-  parameter schemas. Drop a plugin module into `strategy_plugins/` to make it
-  available to the backtest API and Research view after restart.
-  Rule definitions are editable JSON, validation-first, and support long or
-  short deterministic research positions. They can also consume named
-  point-in-time feature series, including IV/OI, earnings, fundamentals, and
-  news/sentiment values, without generated code.
-- Local governed OHLCV import for equity, index, futures, options, commodity,
-  and crypto datasets, with candle validation, provenance hash, quality
-  evidence, catalog visibility, and deterministic backtesting. Rich options
-  chains retain their specialized ingestion path.
-- OpenAlgo integration for quote, history, analyzer-mode status, funds,
-  orderbook, tradebook, and positionbook checks.
-- Broker-backed instrument discovery for NSE equities, NFO derivatives, and MCX
-  commodities.
-- Provider-backed market/news ingestion with raw response archival,
-  normalization, deduplication, and DuckDB persistence.
-- Web dashboard for chat, strategy runs, data catalog, OpenAlgo monitor,
-  sandbox intents, reports, evaluations, and operational status.
-- Markdown-rendered chat with persistent session history, typing indicator,
-  copy-to-clipboard, Markdown conversation export, and keyboard shortcuts
-  (`Ctrl+K` or `/` to focus chat, `1`-`7` to switch views).
-- Light and dark themes with a sidebar toggle; follows the system preference
-  by default and persists the choice locally.
-- Interactive candlestick + volume charts for governed datasets, rendered
-  locally with no external chart libraries: hover crosshair, OHLCV tooltip,
-  and theme-aware colors, backed by `GET /datasets/{id}/ohlcv`.
-- MCP (Model Context Protocol) integration: `GET /mcp/tools` and
-  `POST /mcp/call` expose the governed tool registry over HTTP, and
-  `python -m iimc_trading_platform.mcp_server` runs a stdio MCP server that
-  connects the platform to MCP clients such as Claude Desktop and Claude
-  Code. Only viewer/researcher tools are exposed; approvals and execution
-  stay behind the dashboard's human-approval workflow.
-
-## Feature Status (honest matrix)
-
-| Category | Features |
-|---|---|
-| **Implemented and tested** (249 automated tests) | Conversational routing incl. education/screeners/personas/off-topic refusal; NL strategy compiler with versioned specs; deterministic backtests (equity/futures/options/commodity/crypto datasets, costs, no lookahead); walk-forward robustness; risk engine with persisted decisions; paper approval state machine with idempotency; live-trading rejection gates; document upload + retrieval analysis; candlestick charts; dashboards; MCP (HTTP + stdio); jobs/tasks/alerts/backups/audit |
-| **Implemented, credentials required** | Live quotes/news/broker snapshots/history import/analyzer paper orders (need `OPENALGO_API_KEY`, `MARKET_NEWS_API_KEY`); Groq-routed chat (needs `GROQ_API_KEY`; deterministic router otherwise) |
-| **Implemented, not verified against a live broker** | Live order submission path (all gates tested with fixtures; no real-broker run in CI) |
-| **Implemented and tested (research additions)** | Statement-level fundamental analysis: import annual/quarterly statements, deterministic ratio engine (growth, margins, ROE/ROA, leverage, liquidity, FCF, EPS, P/E) with recorded formulas; versioned fundamental screens (quality/growth/low_leverage + user-defined); broker emergency controls (cancel-all, square-off) and holdings snapshots |
-| **Partially implemented** | Per-order modification passthrough (intent cancel exists); statement data is user-imported rather than provider-fetched |
-| **Planned (documented, not built)** | WebSocket streaming quotes + live-to-historical aggregation (15s polling covers localhost use); external statements provider adapter; PostgreSQL/Redis scale-out (see docs/TARGET_ARCHITECTURE.md) |
-
-Full audit: [docs/CURRENT_STATE.md](docs/CURRENT_STATE.md), [docs/GAP_ANALYSIS.md](docs/GAP_ANALYSIS.md), [docs/IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md).
+- **Market data** — live quotes and news; the symbol resolver refuses rather
+  than guessing, so you never get the wrong company's price.
+- **Research** — fundamental analysis from imported statements, and document
+  search over reports/transcripts you upload.
+- **Screening** — scan the NIFTY 50 for a technical condition
+  (`"find NIFTY 50 stocks where RSI is below 30"`) using live candles.
+- **Backtesting** — describe a strategy in English, review the compiled rules,
+  and run it. History is fetched automatically; no manual data import.
+- **Trading** — `"buy 10 RELIANCE at market"` prepares an order and shows an
+  inline **Approve / Cancel** card in chat. Paper mode by default; live only
+  when explicitly enabled. `"square off everything"` / `"cancel all orders"`
+  work too.
+- **Account** — funds, positions, orders, trades, and P&L, synced from the
+  broker and shown on the landing page and the Account tab.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    User["User / Chatbot Dashboard"] --> API["FastAPI API Layer"]
-    API --> Orchestrator["Groq LLM Orchestrator"]
-    Orchestrator --> Tools["Governed Tool Registry"]
-    Tools --> RAG["RAG / Knowledge Search"]
-    Tools --> Backtest["Backtest + Strategy Engine"]
-    Tools --> Risk["Risk + Approval Layer"]
+    User["Chat + Dashboard"] --> API["FastAPI"]
+    API --> Orch["LLM Orchestrator\n(Groq + deterministic fallback)"]
+    Orch --> Tools["Tool Registry"]
+    Tools --> Backtest["Backtest / Strategy Engine"]
+    Tools --> Risk["Risk + Approval"]
     Tools --> Broker["OpenAlgo Adapter"]
-    Tools --> News["Market News Provider"]
-    Tools --> Store["DuckDB Evidence Store"]
-    Store --> Dashboard["Operator Dashboard"]
+    Tools --> RAG["Document Search"]
+    Tools --> News["Market News"]
+    Tools --> Store["DuckDB"]
 ```
 
-The backend separates orchestration, services, repositories, and infrastructure:
+Key modules under `iimc_trading_platform/`:
 
-- `iimc_trading_platform/api.py` exposes REST and dashboard routes.
-- `iimc_trading_platform/orchestration.py` handles LLM tool selection and
-  grounded response composition.
-- `iimc_trading_platform/tools/registry.py` defines governed tool contracts.
-- `iimc_trading_platform/services/` contains domain services for research,
-  backtesting, risk, news, retrieval, OpenAlgo readiness, portfolio state,
-  alerts, and evidence.
-- `iimc_trading_platform/infrastructure/` contains DuckDB and OpenAlgo
-  integration code.
-- `iimc_trading_platform/frontend/` contains the browser dashboard.
+| Path | Responsibility |
+|---|---|
+| `api.py` | REST + dashboard routes |
+| `orchestration.py` | LLM tool selection and grounded responses |
+| `tools/registry.py` | Typed tool contracts (schema, roles, side effects) |
+| `services/` | Backtesting, risk, screener, news, retrieval, instrument names |
+| `infrastructure/` | DuckDB and OpenAlgo integration |
+| `frontend/` | Browser dashboard (no framework, no CDN) |
 
-## Safety Model
+## Safety model
 
-The project is designed for controlled research and paper-trading workflows:
+- Live trading is disabled unless explicitly enabled in configuration.
+- Every order — paper or live — requires explicit human approval in chat before
+  it reaches the broker.
+- The assistant never fabricates prices, news, P&L, or backtest results; missing
+  providers fail with a plain message.
+- Secrets load from a local, git-ignored `.env` — never from committed source.
 
-- Tools declare input schemas, side effects, retry policy, required roles, and
-  capability metadata such as supported actions, asset classes, execution modes,
-  provider dependencies, and approval requirements.
-- Natural-language custom strategies are stored as governed draft specs and
-  must map to supported primitives or reviewed strategy plugins before
-  backtesting/execution.
-- Live trading is disabled unless explicitly enabled through configuration.
-- Live order intents require a live-mode risk decision and mandatory human
-  approval before OpenAlgo submission.
-- Paper orders route through OpenAlgo analyzer mode and approval gates.
-- Tool calls, approval decisions, broker snapshots, signals, risk decisions, and
-  execution events are persisted for traceability.
-- Missing providers fail safely; the platform does not fabricate market data,
-  news, broker state, P&L, or backtest results.
-- Secrets are loaded from local environment variables or ignored `.env` files,
-  never from committed source.
+## Quick start
 
-## Quick Start
-
-```powershell
+```bash
 python -m pip install -e .
 python -m iimc_trading_platform.cli init-db
-python -m iimc_trading_platform.cli verify-foundation
-python -m uvicorn iimc_trading_platform.asgi:app --reload --host 127.0.0.1 --port 8001
+python -m uvicorn iimc_trading_platform.asgi:app --reload --host 127.0.0.1 --port 8000
+# open http://127.0.0.1:8000/
 ```
 
-Open the dashboard:
-
-```text
-http://127.0.0.1:8001/
-```
-
-## Local OHLCV Import
-
-Use **Data Catalog > Local OHLCV Import** or `POST /datasets/ohlcv` to add
-user-supplied candles for local research. The request requires a `dataset_id`,
-asset class (`equity`, `index`, `futures`, `options`, `commodity`, or `crypto`), symbol,
-exchange, interval, and at least two candles with `timestamp`, `open`, `high`,
-`low`, `close`, and optional non-negative `volume`.
-
-Every candle is checked for finite positive prices, valid OHLC bounds, and
-unique timestamps. Invalid imports are rejected as a whole; the platform does
-not repair or invent missing candles. Successful imports are stored in
-`market_ohlcv`, cataloged with a SHA-256 source hash, and can immediately be
-used by standard and governed custom-strategy backtests.
-Plain options OHLCV is supported here. IV, OI, expiry, strike, and
-option-surface research use the specialized options ingestion workflow; those
-fields are intentionally not inferred from plain candles.
-
-## Point-in-Time Feature Import
-
-Use **Data Catalog > Point-in-Time Feature Import** or `POST /datasets/features`
-to store any numeric feature series for a symbol and exchange. Each observation
-requires `feature_name`, `observed_at`, `available_at`, and `value`; optional
-metadata records source, revision, contract, or provider details. The platform
-only aligns a feature after `available_at`, never from future observations.
-
-Custom rule JSON declares each feature under `feature_inputs` with its dataset,
-stored feature name, `alignment: "asof"`, and a positive `max_age_hours`. This
-supports governed IV/OI, fundamentals, earnings, sentiment, and other numeric
-alternative data while preserving source hashes and feature lineage in every
-backtest manifest.
+No credentials are needed to explore the dashboard, import data, build and
+backtest strategies, or run the test suite. Live quotes/news/broker actions and
+Groq-routed chat activate when you supply the matching keys.
 
 ## Configuration
 
-Copy `.env.example` to `.env` and fill only the providers you want to validate
-locally.
-
-Key settings:
+Copy `.env.example` to `.env` and fill only the providers you want:
 
 ```env
-IIMC_LLM_PROVIDER=groq
-GROQ_API_KEY=
-GROQ_FALLBACK_MODEL=llama-3.1-8b-instant
-IIMC_REQUIRE_REAL_LLM=true
-IIMC_STRATEGY_PLUGIN_DIR=strategy_plugins
-
+GROQ_API_KEY=              # LLM chat; deterministic router runs without it
+OPENALGO_API_KEY=          # live quotes, history, paper/live orders
 OPENALGO_BASE_URL=http://127.0.0.1:5000
-OPENALGO_API_KEY=
-
-MARKET_NEWS_PROVIDER=eventregistry
-MARKET_NEWS_API_URL=https://eventregistry.org/api/v1/article/getArticles
-MARKET_NEWS_API_KEY=
+MARKET_NEWS_API_KEY=       # live headlines
 
 IIMC_ALLOW_LIVE_TRADING=false
 IIMC_REQUIRE_PAPER_APPROVAL=true
 ```
 
-## Useful Commands
+## Testing
 
-### Add a local strategy plugin
+```bash
+python -m pytest tests/ -q
+```
 
-Use [strategy_plugins/README.md](strategy_plugins/README.md) and the adjacent
-`range_breakout.py.example` as the contract. Plugins are local trusted Python
-modules: after adding a `.py` module, restart the platform and select its
-declared strategy in Research. For conversational runs, use the explicit form:
+The suite has 300+ tests across routing, the strategy compiler, deterministic
+backtests, the risk/approval state machine, the screener, and API contracts.
+Run it as a single process — the tests share a local DuckDB file and will
+collide if two runs overlap.
+
+## Project structure
 
 ```text
-Backtest strategy range_breakout on dataset my_futures_5m with parameters {"lookback": 20}
+iimc_trading_platform/   Backend, services, tools, frontend, adapters
+tests/                   Automated tests
+docs/                    Architecture and design notes
 ```
 
-Plain option-premium OHLCV behaves like any other dataset. For a chain ingested
-through the specialized options workflow, select an expiry, strike, and call or
-put contract before running the backtest.
+## Scope and limitations
 
-Run health and schema checks:
-
-```powershell
-python -m iimc_trading_platform.cli doctor
-python -m iimc_trading_platform.cli verify-foundation
-```
-
-Check OpenAlgo readiness:
-
-```powershell
-python -m iimc_trading_platform.cli openalgo-monitor
-python -m iimc_trading_platform.cli openalgo-readiness `
-  --symbol RELIANCE --exchange NSE --asset-class equity `
-  --interval 5m --start-date 2026-06-24 --end-date 2026-06-26
-```
-
-Run the full automated suite:
-
-```powershell
-python -m unittest discover -s tests -v
-```
-
-Attach the platform to an MCP client (for example Claude Desktop or Claude
-Code) by registering the stdio server:
-
-```json
-{
-  "mcpServers": {
-    "iimc-trading": {
-      "command": "python",
-      "args": ["-m", "iimc_trading_platform.mcp_server"]
-    }
-  }
-}
-```
-
-Run a focused platform/API test subset:
-
-```powershell
-python -m pytest tests/test_api_chat.py tests/test_platform_api_routes.py tests/test_readiness_and_news.py -q
-```
-
-## Repository Structure
-
-```text
-iimc_trading_platform/     Core backend, services, tools, frontend, adapters
-tests/                     Unit and integration-style tests
-docs/                      Architecture, operations, security, and runbooks
-scripts/                   Local verification and support scripts
-deploy/                    Docker/Kubernetes deployment references
-.github/workflows/         CI workflow
-```
-
-## Scope and Limitations
-
-This is an AI-orchestrated trading research and controlled execution platform.
-It does not claim guaranteed profitability, autonomous live trading, or verified
-support for every broker instrument. Real provider behavior depends on configured
-credentials, broker availability, market hours, and the instrument coverage
-exposed by OpenAlgo.
+A research and controlled-execution platform — not a guarantee of profit or a
+fully autonomous trader. Real broker behaviour depends on your OpenAlgo
+credentials, market hours, and instrument coverage. The company-name lookup
+reads a local OpenAlgo master contract and falls back to the ticker when it is
+absent.
