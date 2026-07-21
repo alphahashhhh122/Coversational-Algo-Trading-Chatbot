@@ -710,6 +710,14 @@ const _numField = (value) => {
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
 };
+// Ticker as the primary label with the readable company name beneath it.
+const _symbolCell = (row) => {
+  const ticker = _pickField(row, "symbol", "tradingsymbol", "tsym") || "-";
+  const name = row.company_name;
+  return `<td><strong>${escapeHtml(String(ticker))}</strong>${
+    name ? `<br><small class="row-subname">${escapeHtml(String(name))}</small>` : ""
+  }</td>`;
+};
 
 function renderAccountData(type, data) {
   if (type === "funds") {
@@ -737,15 +745,15 @@ function renderAccountData(type, data) {
       let pnl = _numField(_pickField(r, "pnl", "unrealized_pnl", "m2m", "profitandloss"));
       if (pnl == null && qty != null && avg != null && ltp != null) pnl = (ltp - avg) * qty;
       if (pnl != null) total += pnl;
-      return `<tr>${cell(_pickField(r, "symbol", "tradingsymbol", "tsym"))}<td>${qty ?? "-"}</td><td>${money(avg)}</td><td>${money(ltp)}</td><td>${money(pnl)}</td></tr>`;
+      return `<tr>${_symbolCell(r)}<td>${qty ?? "-"}</td><td>${money(avg)}</td><td>${money(ltp)}</td><td>${money(pnl)}</td></tr>`;
     }).join("");
     return `<div class="table-wrap"><table><thead><tr><th>Symbol</th><th>Qty</th><th>Avg</th><th>LTP</th><th>P&amp;L</th></tr></thead><tbody>${body}</tbody></table></div><p class="account-total">Total P&amp;L: <strong>${money(total)}</strong></p>`;
   }
   if (type === "orderbook") {
-    const body = rows.map((r) => `<tr>${cell(_pickField(r, "symbol", "tradingsymbol"))}${cell(_pickField(r, "action", "transaction_type", "side"))}<td>${_pickField(r, "quantity", "qty") ?? "-"}</td><td>${money(_numField(_pickField(r, "price", "average_price", "averageprice")))}</td>${cell(_pickField(r, "order_status", "status", "orderstatus"))}</tr>`).join("");
+    const body = rows.map((r) => `<tr>${_symbolCell(r)}${cell(_pickField(r, "action", "transaction_type", "side"))}<td>${_pickField(r, "quantity", "qty") ?? "-"}</td><td>${money(_numField(_pickField(r, "price", "average_price", "averageprice")))}</td>${cell(_pickField(r, "order_status", "status", "orderstatus"))}</tr>`).join("");
     return `<div class="table-wrap"><table><thead><tr><th>Symbol</th><th>Side</th><th>Qty</th><th>Price</th><th>Status</th></tr></thead><tbody>${body}</tbody></table></div>`;
   }
-  const body = rows.map((r) => `<tr>${cell(_pickField(r, "symbol", "tradingsymbol"))}${cell(_pickField(r, "action", "transaction_type", "side"))}<td>${_pickField(r, "quantity", "qty", "fillsize") ?? "-"}</td><td>${money(_numField(_pickField(r, "average_price", "averageprice", "price", "fillprice")))}</td></tr>`).join("");
+  const body = rows.map((r) => `<tr>${_symbolCell(r)}${cell(_pickField(r, "action", "transaction_type", "side"))}<td>${_pickField(r, "quantity", "qty", "fillsize") ?? "-"}</td><td>${money(_numField(_pickField(r, "average_price", "averageprice", "price", "fillprice")))}</td></tr>`).join("");
   return `<div class="table-wrap"><table><thead><tr><th>Symbol</th><th>Side</th><th>Qty</th><th>Price</th></tr></thead><tbody>${body}</tbody></table></div>`;
 }
 
@@ -805,12 +813,12 @@ async function loadLiveTrades() {
       if (pnl == null && qty != null && avg != null && ltp != null) pnl = (ltp - avg) * qty;
       if (pnl != null) total += pnl;
       const cls = pnl == null ? "" : (pnl >= 0 ? "pnl-up" : "pnl-down");
-      return `<tr>${cell(_pickField(r, "symbol", "tradingsymbol", "tsym"))}<td>${qty ?? "-"}</td><td>${money(avg)}</td><td>${money(ltp)}</td><td class="${cls}">${money(pnl)}</td></tr>`;
+      return `<tr>${_symbolCell(r)}<td>${qty ?? "-"}</td><td>${money(avg)}</td><td>${money(ltp)}</td><td class="${cls}">${money(pnl)}</td></tr>`;
     }).join("");
     html += `<h3>Open positions</h3><div class="table-wrap"><table><thead><tr><th>Symbol</th><th>Qty</th><th>Avg</th><th>LTP</th><th>P&amp;L</th></tr></thead><tbody>${rows}</tbody></table></div><p class="account-total">Total P&amp;L: <strong class="${total >= 0 ? "pnl-up" : "pnl-down"}">${money(total)}</strong></p>`;
   }
   if (orders.length) {
-    const rows = orders.map((r) => `<tr>${cell(_pickField(r, "symbol", "tradingsymbol"))}${cell(_pickField(r, "action", "transaction_type", "side"))}<td>${_pickField(r, "quantity", "qty") ?? "-"}</td><td>${money(_numField(_pickField(r, "price", "average_price", "averageprice")))}</td>${cell(_pickField(r, "order_status", "status", "orderstatus"))}</tr>`).join("");
+    const rows = orders.map((r) => `<tr>${_symbolCell(r)}${cell(_pickField(r, "action", "transaction_type", "side"))}<td>${_pickField(r, "quantity", "qty") ?? "-"}</td><td>${money(_numField(_pickField(r, "price", "average_price", "averageprice")))}</td>${cell(_pickField(r, "order_status", "status", "orderstatus"))}</tr>`).join("");
     html += `<h3>Working orders</h3><div class="table-wrap"><table><thead><tr><th>Symbol</th><th>Side</th><th>Qty</th><th>Price</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   }
   body.innerHTML = html;

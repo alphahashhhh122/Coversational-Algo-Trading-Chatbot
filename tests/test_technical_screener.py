@@ -10,6 +10,7 @@ from iimc_trading_platform.orchestration import (
     _parse_technical_screen,
     grounded_tool_response,
 )
+from iimc_trading_platform.services.instrument_names import _pretty
 from iimc_trading_platform.services.screener_service import (
     NIFTY_50,
     ScreenerService,
@@ -101,6 +102,21 @@ class ScreenScanTest(unittest.TestCase):
         answer = grounded_tool_response("run_technical_screen", result)
         self.assertIn("NIFTY 50", answer)
         self.assertIn("RELIANCE", answer)
+
+    def test_matches_carry_company_name_key(self) -> None:
+        svc = ScreenerService(self.db, _MockClient())
+        result = svc.scan(condition="rsi_below", threshold=30.0, universe="nifty50")
+        for match in result["matches"]:
+            # Value may be None where the master contract is absent, but the
+            # key is always present so callers can rely on it.
+            self.assertIn("company_name", match)
+
+
+class CompanyNameFormatTest(unittest.TestCase):
+    def test_pretty_strips_suffixes_and_titlecases(self) -> None:
+        self.assertEqual(_pretty("RELIANCE INDUSTRIES LTD"), "Reliance Industries")
+        self.assertEqual(_pretty("TATA STEEL LIMITED"), "Tata Steel")
+        self.assertEqual(_pretty("AXIS BANK LIMITED"), "Axis Bank")
 
 
 if __name__ == "__main__":

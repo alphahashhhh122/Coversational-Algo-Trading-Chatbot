@@ -14,6 +14,7 @@ from typing import Any
 from ..db import connect
 from ..infrastructure.openalgo import OpenAlgoClient
 from ..strategies.rule_spec import _ema, _rsi
+from .instrument_names import company_name
 
 _CONDITIONS = {
     "rsi_below",
@@ -198,6 +199,7 @@ class ScreenerService:
             entry = {
                 "symbol": item["symbol"],
                 "exchange": item["exchange"],
+                "company_name": company_name(item["symbol"], item["exchange"]),
                 "last_close": closes[-1],
                 **evaluated["values"],
             }

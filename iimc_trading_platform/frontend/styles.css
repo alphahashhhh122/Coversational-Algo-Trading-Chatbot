@@ -951,6 +951,7 @@ tbody tr:hover { background: var(--row-hover); }
 .live-trades-body h3:first-child { margin-top: 0; }
 .pnl-up { color: #1e874b; }
 .pnl-down { color: #c0392b; }
+.row-subname { display: block; margin-top: 2px; color: var(--muted); font-size: 11px; font-weight: 400; }
 .account-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
 .account-tab.active { color: #fff; background: var(--accent); border-color: var(--accent); }
 .account-view { min-height: 60px; margin-bottom: 20px; }

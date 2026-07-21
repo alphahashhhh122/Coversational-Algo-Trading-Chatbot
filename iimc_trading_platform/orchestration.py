@@ -8,6 +8,7 @@ from datetime import date, timedelta
 from difflib import get_close_matches
 from typing import Any, Protocol
 
+from .services.instrument_names import company_name as _company_name
 from .tools.registry import ToolRegistry
 
 
@@ -2874,6 +2875,15 @@ def _num(value: Any) -> float | None:
         return None
 
 
+def _name_suffix(symbol: Any, row: dict[str, Any]) -> str:
+    """' (Reliance Industries)' for a ticker, or '' when unknown."""
+    name = row.get("company_name") or _company_name(
+        str(symbol) if symbol else None,
+        row.get("exchange") or "NSE",
+    )
+    return f" ({name})" if name else ""
+
+
 def _render_account_snapshot(result: dict[str, Any]) -> str:
     snapshot_type = result.get("snapshot_type", "account")
     data = result.get("data")
@@ -2913,7 +2923,7 @@ def _render_account_snapshot(result: dict[str, Any]) -> str:
                 pnl = (ltp - avg) * qty
             if pnl is not None:
                 total_pnl += pnl
-            parts = [f"**{sym}**"]
+            parts = [f"**{sym}**{_name_suffix(sym, row)}"]
             if qty is not None:
                 parts.append(f"qty {qty:g}")
             if avg is not None:
@@ -2941,7 +2951,7 @@ def _render_account_snapshot(result: dict[str, Any]) -> str:
             qty = _num(_pick(row, "quantity", "qty"))
             price = _num(_pick(row, "price", "average_price", "averageprice"))
             status = _pick(row, "order_status", "status", "orderstatus")
-            parts = [f"**{sym}**", str(side or "")]
+            parts = [f"**{sym}**{_name_suffix(sym, row)}", str(side or "")]
             if qty is not None:
                 parts.append(f"qty {qty:g}")
             if price is not None:
@@ -2962,7 +2972,7 @@ def _render_account_snapshot(result: dict[str, Any]) -> str:
             side = _pick(row, "action", "transaction_type", "side")
             qty = _num(_pick(row, "quantity", "qty", "fillsize"))
             price = _num(_pick(row, "average_price", "averageprice", "price", "fillprice"))
-            parts = [f"**{sym}**", str(side or "")]
+            parts = [f"**{sym}**{_name_suffix(sym, row)}", str(side or "")]
             if qty is not None:
                 parts.append(f"qty {qty:g}")
             if price is not None:
@@ -3117,7 +3127,9 @@ def _grounded_fallback_response(
         )
         scanned = result.get("universe_size", result.get("watchlist_size", 0))
         match_lines = [
-            f"- **{item['symbol']}**: close ₹{item.get('last_close')}"
+            f"- **{item['symbol']}**"
+            + (f" ({item['company_name']})" if item.get("company_name") else "")
+            + f": close ₹{item.get('last_close')}"
             + (f" · RSI {item['rsi']}" if "rsi" in item else "")
             + (f" · EMA {item['ema']}" if "ema" in item else "")
             + (f" · volume {item['volume']}" if "volume" in item else "")

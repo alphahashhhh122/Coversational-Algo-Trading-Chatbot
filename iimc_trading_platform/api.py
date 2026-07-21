@@ -64,6 +64,7 @@ from .middleware import (
     RequestContextMiddleware,
 )
 from .orchestration import build_orchestrator
+from .services.instrument_names import company_name as _company_name
 from .services import (
     AuditService,
     AuthService,
@@ -125,6 +126,25 @@ from .tools.registry import (
     ToolRegistry,
     build_default_tool_registry,
 )
+
+
+_NAME_SYMBOL_KEYS = ("symbol", "tradingsymbol", "tsym")
+
+
+def _annotate_company_names(data: Any, openalgo_root: Path) -> None:
+    """Add a readable ``company_name`` to each broker row, in place."""
+    if not isinstance(data, list):
+        return
+    for row in data:
+        if not isinstance(row, dict) or row.get("company_name"):
+            continue
+        symbol = next(
+            (row[key] for key in _NAME_SYMBOL_KEYS if row.get(key)), None
+        )
+        exchange = row.get("exchange") or "NSE"
+        name = _company_name(symbol, exchange, openalgo_root=openalgo_root)
+        if name:
+            row["company_name"] = name
 
 
 def create_app(config: AppConfig | None = None) -> FastAPI:
@@ -1674,7 +1694,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 status_code=422,
                 detail=exc.errors(include_url=False),
             ) from exc
-        return execute_tool("get_openalgo_snapshot", payload)
+        result = execute_tool("get_openalgo_snapshot", payload)
+        _annotate_company_names(
+            result.get("data"), active_config.openalgo_root
+        )
+        return result
 
     @app.post("/sandbox/intents")
     def prepare_sandbox_intent(
