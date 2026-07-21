@@ -1241,13 +1241,16 @@ class OrchestrationContractsTest(unittest.TestCase):
         self.assertIsNone(decision.tool_name)
         self.assertIn("MACD", decision.direct_response)
 
-    def test_offline_router_unknown_concept_searches_documents(self) -> None:
+    def test_offline_router_unknown_concept_answers_directly(self) -> None:
         registry = build_default_tool_registry(Path("unused.duckdb"))
         decision = OfflineOrchestrator().select_tool(
             "What is delta hedging?", [], registry,
         )
-        self.assertEqual(decision.tool_name, "search_knowledge")
-        self.assertIn("delta hedging", decision.arguments["query"].lower())
+        # A general finance concept is answered directly (non-authoritative,
+        # so an LLM can elaborate), not routed to stored-document search.
+        self.assertIsNone(decision.tool_name)
+        self.assertIn("delta hedging", decision.direct_response.lower())
+        self.assertFalse(decision.authoritative)
 
     def test_offline_router_handles_fundamental_pe_ratio(self) -> None:
         registry = build_default_tool_registry(Path("unused.duckdb"))

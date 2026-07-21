@@ -318,16 +318,21 @@ class GroqToolOrchestrator:
                     {
                         "role": "system",
                         "content": (
-                            "You are a concise assistant for a governed local "
-                            "trading platform. Answer conceptual and workflow "
-                            "questions clearly. Do not invent current prices, "
-                            "news, broker state, P&L, risk decisions, or trading "
-                            "outcomes. Explain that live orders require explicit "
-                            "human approval. You only assist with trading, "
-                            "markets, investing, and this platform; for "
-                            "unrelated requests (weather, entertainment, "
-                            "homework, general knowledge), politely decline and "
-                            "say you are a trading assistant."
+                            "You are a knowledgeable assistant for a trading "
+                            "and investing platform. Answer questions about "
+                            "trading, markets, investing, finance, economics, "
+                            "companies, financial history, and how to use this "
+                            "platform — including educational, conceptual, "
+                            "historical, and 'who/which/compare' questions "
+                            "(e.g. famous investors, what value investing is, "
+                            "what caused the 2008 crisis). Answer them directly "
+                            "and helpfully. Do not invent current prices, news, "
+                            "broker state, P&L, risk decisions, or trading "
+                            "outcomes, and note that live orders require "
+                            "explicit human approval. Only decline requests "
+                            "clearly unrelated to finance and markets (weather, "
+                            "sports, cooking, entertainment, personal or coding "
+                            "help), in one short sentence."
                         ),
                     },
                     *_chat_messages(message, history),
@@ -496,6 +501,38 @@ class OfflineOrchestrator:
                 arguments={},
                 direct_response=_open_ended_advice_response(),
                 authoritative=True,
+            )
+        # Conceptual comparisons ("difference between a mutual fund and an
+        # ETF", "value vs growth investing") are educational, not a broker
+        # lookup. Answer directly when no real ticker is present, so the router
+        # never mistakes them for account/quote calls. Runs before any tool
+        # routing so "fund"/"index" don't trigger an account snapshot. Finance
+        # acronyms (ETF, IPO, …) are not treated as tickers.
+        _upper_tokens = re.findall(r"\b[A-Z]{2,}\b", message)
+        _real_tickers = [
+            token for token in _upper_tokens if token not in _FINANCE_ACRONYMS
+        ]
+        if (
+            re.search(
+                r"\b(?:difference between|compare|versus)\b|\bvs\.?\b", text
+            )
+            and not _real_tickers
+            and not re.search(r"\bmy\s+", text)
+            and any(
+                word in text
+                for word in (
+                    "fund", "etf", "stock", "share", "bond", "option",
+                    "future", "index", "strateg", "invest", "market",
+                    "ratio", "dividend", "growth", "value", "cap", "asset",
+                )
+            )
+        ):
+            return OrchestrationDecision(
+                tool_name=None,
+                arguments={},
+                direct_response=_educational_response(
+                    message.strip().rstrip("?")
+                ),
             )
         if (
             "approve_pending_order" in tool_names
@@ -1547,11 +1584,11 @@ class OfflineOrchestrator:
                         direct_response=known,
                         authoritative=True,
                     )
-                if "search_knowledge" in tool_names:
-                    return OrchestrationDecision(
-                        "search_knowledge",
-                        {"query": concept, "limit": 5},
-                    )
+                # A general finance concept: prefer a direct answer. The
+                # response is non-authoritative, so when an LLM is configured
+                # it answers from its own knowledge; offline it falls back to
+                # the deterministic educational reply. (Stored-document search
+                # is reserved for explicit "search my documents" requests.)
                 return OrchestrationDecision(
                     tool_name=None,
                     arguments={},
@@ -1773,11 +1810,16 @@ _ROUTER_SYSTEM_PROMPT = (
     "- Approval/risk → list_pending_approvals or get_risk_decisions\n"
     "- Portfolio → get_portfolio_snapshot\n"
     "- OpenAlgo status → get_openalgo_monitor\n\n"
-    "You only assist with trading, markets, investing, and this platform. "
-    "If the request is unrelated (weather, entertainment, homework, "
-    "recipes, general knowledge, personal coding help), do not select any "
-    "tool; reply politely that you are a trading assistant and give two "
-    "supported examples instead."
+    "You help with trading, markets, investing, finance, economics, "
+    "companies, and financial history — including educational, conceptual, "
+    "historical, and 'who/which/compare' questions (for example famous "
+    "investors, what value investing is, or what caused the 2008 crisis). "
+    "When no tool fits such a question, do NOT select a tool and do NOT "
+    "refuse — just answer it directly and helpfully. Do not call account, "
+    "quote, or broker tools for purely conceptual or comparison questions "
+    "('what is X', 'difference between X and Y'). Only decline requests that "
+    "are clearly unrelated to finance and markets (weather, sports, cooking, "
+    "entertainment, personal or coding help), in one short sentence."
 )
 
 
@@ -2237,6 +2279,15 @@ def _educational_response(concept: str) -> str:
     )
 
 
+_FINANCE_ACRONYMS = {
+    "ETF", "ETFS", "IPO", "SIP", "STP", "SWP", "NAV", "GDP", "PE", "EPS",
+    "ROE", "ROA", "ROI", "RSI", "EMA", "SMA", "MACD", "ATR", "VWAP", "IV",
+    "OI", "REIT", "REITS", "CAGR", "XIRR", "TER", "ELSS", "ULIP", "AMC",
+    "NFO", "FD", "RD", "PPF", "NPS", "EBITDA", "PAT", "PBT", "DCF", "PB",
+    "US", "UK", "AND", "OR", "VS", "ETC", "FAQ", "CEO", "CFO", "IT",
+}
+
+
 _DOMAIN_TERMS = (
     "trade", "trading", "trader", "stock", "share", "equity", "market",
     "invest", "portfolio", "strategy", "strateg", "backtest", "quote",
@@ -2249,7 +2300,9 @@ _DOMAIN_TERMS = (
     "persona", "risk", "approval", "paper", "sandbox", "analyzer",
     "signal", "indicator", "chart", "screener", "news", "sharpe",
     "drawdown", "pnl", "p&l", "profit", "loss", "finance", "financial",
-    "filing", "annual report", "balance sheet",
+    "filing", "annual report", "balance sheet", "economy", "economic",
+    "econom", "recession", "inflation", "interest rate", "gdp", "valuation",
+    "fundamental", "buffett", "compound", "wealth", "capital",
 )
 
 _OFF_TOPIC_CATEGORIES: tuple[tuple[str, tuple[str, ...]], ...] = (
