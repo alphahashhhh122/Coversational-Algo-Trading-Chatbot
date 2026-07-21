@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>IIMC Trading Research Workspace</title>
-  <link rel="stylesheet" href="/static/styles.css?v=20260721d">
+  <link rel="stylesheet" href="/static/styles.css?v=20260721e">
 </head>
 <body>
   <div class="app-shell">
@@ -29,12 +29,8 @@
         <button class="nav-item" data-view="data">
           <span aria-hidden="true">◫</span> Data
         </button>
-        <button class="nav-item" data-view="approvals">
-          <span aria-hidden="true">✓</span> Execution
-          <span class="nav-count" id="approval-count">0</span>
-        </button>
         <button class="nav-item" data-view="monitor">
-          <span aria-hidden="true">◉</span> Monitor
+          <span aria-hidden="true">◉</span> Account
         </button>
         <button class="nav-item" data-view="settings">
           <span aria-hidden="true">⚙</span> Settings
@@ -71,6 +67,7 @@
 
       <!-- ============================ CHAT ============================ -->
       <section class="view active" id="view-workspace">
+        <div class="mode-banner" id="execution-mode-banner">Checking mode...</div>
         <section class="live-trades" id="live-trades" hidden>
           <div class="live-trades-head">
             <h2>Your open trades</h2>
@@ -131,9 +128,9 @@
               <li><strong>Create a strategy</strong> — describe it in plain English in the chat (e.g. <em>"Create a Reliance 5 minute strategy that buys when EMA 9 crosses above EMA 21 with a 2% stop loss"</em>), then open <strong>Strategies</strong> to review and save it.</li>
               <li><strong>Backtest</strong> — just ask, e.g. <em>"backtest an EMA crossover on HDFCBANK"</em>. History is fetched automatically — no manual import needed. You'll see trades, P&amp;L, drawdown, and the equity curve.</li>
               <li><strong>Trade</strong> — tell the chat the order, e.g. <em>"buy 10 RELIANCE at market"</em> or <em>"sell 5 TCS"</em>. The assistant prepares it and asks you to confirm — reply <strong>approve</strong> and it goes to your broker. You can also <em>"square off everything"</em> or <em>"cancel all orders"</em>.</li>
-              <li><strong>See results</strong> — the <strong>Monitor</strong> tab shows your funds, positions, orders, and trades synced from the broker.</li>
+              <li><strong>See results</strong> — the <strong>Account</strong> tab shows your funds, positions, orders, and trades synced from the broker.</li>
             </ol>
-            <p class="guide-note">Paper mode is the default and uses simulated money. Live trading only activates behind risk checks and your explicit approval — the red LIVE banner in Execution tells you which mode you're in.</p>
+            <p class="guide-note">Paper mode is the default and uses simulated money. Live trading only activates behind risk checks and your explicit approval — the banner at the top of this page tells you which mode you're in.</p>
           </details>
           </aside>
         </div>
@@ -506,84 +503,11 @@
         </details>
       </section>
 
-      <!-- ============================ EXECUTION ============================ -->
-      <section class="view" id="view-approvals">
-        <div class="section-heading">
-          <div>
-            <h2>Execution</h2>
-            <p>Approve pending orders, then submit to your broker.</p>
-          </div>
-          <button class="secondary-button" id="refresh-approvals">Refresh</button>
-        </div>
-        <div class="mode-banner" id="execution-mode-banner">Checking execution mode...</div>
-        <section class="approvals-panel">
-          <div class="panel-heading compact-heading">
-            <div><h2>Pending approvals</h2><p>Orders waiting for your go-ahead.</p></div>
-          </div>
-          <div class="approval-list" id="approval-list"></div>
-          <div class="table-wrap paper-intents-table">
-            <table>
-              <thead><tr><th>Order</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Status</th><th>Broker order</th><th>Action</th></tr></thead>
-              <tbody id="paper-intents-table"></tbody>
-            </table>
-          </div>
-        </section>
-        <details class="workspace-tools">
-          <summary>Advanced: build an order from a backtest</summary>
-          <div class="workspace-tools-content">
-          <form class="paper-intent-form" id="paper-intent-form">
-            <label><span>Run</span><select id="paper-run" required></select></label>
-            <label><span>Risk decision</span><select id="paper-decision" required></select></label>
-            <label><span>Exchange</span><select id="paper-exchange"><option>NSE</option><option>NFO</option><option>BSE</option><option>MCX</option></select></label>
-            <label><span>Product</span><select id="paper-product"><option>MIS</option><option>CNC</option><option>NRML</option></select></label>
-            <label><span>Order type</span><select id="paper-order-type"><option>LIMIT</option><option>MARKET</option><option>SL</option><option>SL-M</option></select></label>
-            <label><span>Limit price</span><input id="paper-limit-price" type="number" min="0" step="0.05"></label>
-            <button type="button" class="secondary-button" id="paper-use-ltp">Use current LTP</button>
-            <label><span>Trigger price</span><input id="paper-trigger-price" type="number" min="0" step="0.05"></label>
-            <button type="submit" class="primary-button" id="prepare-paper-intent">Prepare intent</button>
-          </form>
-          <div class="paper-helper" id="paper-helper">Run a semi-auto backtest, then select an approved risk decision. Limit orders need a price.</div>
-          </div>
-        </details>
-        <details class="workspace-tools">
-          <summary>Portfolio risk accounts</summary>
-          <div class="workspace-tools-content">
-            <div class="section-heading">
-              <div>
-                <h2>Portfolio Risk</h2>
-                <p>Cash, positions, exposure reservations, and trading controls.</p>
-              </div>
-              <button class="secondary-button" id="refresh-portfolios">Refresh</button>
-            </div>
-            <form class="portfolio-create-form" id="portfolio-create-form">
-              <label>
-                <span>Name</span>
-                <input id="portfolio-name" maxlength="120" required>
-              </label>
-              <label>
-                <span>Starting cash</span>
-                <input id="portfolio-cash" type="number" min="1" step="1000" value="1000000" required>
-              </label>
-              <button type="submit" class="primary-button">Create portfolio</button>
-            </form>
-            <div class="table-wrap portfolio-table">
-              <table>
-                <thead>
-                  <tr><th>Portfolio</th><th>Name</th><th>Cash</th><th>Status</th><th>Updated</th></tr>
-                </thead>
-                <tbody id="portfolios-table"></tbody>
-              </table>
-            </div>
-            <div class="run-detail hidden" id="portfolio-detail"></div>
-          </div>
-        </details>
-      </section>
-
-      <!-- ============================ MONITOR ============================ -->
+      <!-- ============================ ACCOUNT ============================ -->
       <section class="view" id="view-monitor">
         <div class="section-heading">
           <div>
-            <h2>Monitor</h2>
+            <h2>Account</h2>
             <p>Your live broker account: funds, positions, orders, trades.</p>
           </div>
           <div class="section-actions">
@@ -689,11 +613,6 @@
                   <small>Saved backtests</small>
                 </div>
                 <div class="metric">
-                  <span>Pending approvals</span>
-                  <strong id="metric-approvals">—</strong>
-                  <small>Human decision required</small>
-                </div>
-                <div class="metric">
                   <span>Documents</span>
                   <strong id="metric-documents">—</strong>
                   <small>Saved documents</small>
@@ -719,6 +638,6 @@
     </form>
   </div>
   <div class="toast" id="toast" role="status"></div>
-  <script src="/static/app.js?v=20260721d" defer></script>
+  <script src="/static/app.js?v=20260721e" defer></script>
 </body>
 </html>

@@ -6,9 +6,6 @@ const state = {
   runs: [],
   strategies: [],
   experiments: [],
-  portfolios: [],
-  approvals: [],
-  sandboxIntents: [],
   operations: null,
   jobs: [],
   tasks: [],
@@ -26,7 +23,7 @@ const state = {
   platformSummary: null,
   dashboardWidgets: JSON.parse(
     localStorage.getItem("iimc_dashboard_widgets")
-    || '["research","assets","backtests","openalgo","risk","execution"]',
+    || '["research","assets","backtests","openalgo","news"]',
   ),
   autoRefresh: localStorage.getItem("iimc_auto_refresh") === "true",
   autoRefreshTimer: null,
@@ -221,8 +218,7 @@ function setView(view) {
     runs: ["Backtests", "Test strategies on historical data."],
     strategies: ["Strategies", "Create and save strategies in plain English."],
     data: ["Data", "Market data, documents, and financials."],
-    approvals: ["Execution", "Approve pending orders, then submit."],
-    monitor: ["Monitor", "Your live broker account."],
+    monitor: ["Account", "Your live broker account: funds, positions, orders, trades."],
     settings: ["Settings", "Configuration and overview."],
   };
   document.querySelectorAll(".view").forEach((node) => node.classList.remove("active"));
@@ -306,10 +302,6 @@ function renderPrincipal() {
     "hidden",
     !state.principal.authenticated,
   );
-  $("#portfolio-create-form").classList.toggle(
-    "hidden",
-    !hasRole("researcher"),
-  );
   $("#experiment-form").classList.toggle(
     "hidden",
     !hasRole("researcher"),
@@ -365,18 +357,13 @@ async function logout() {
 }
 
 async function loadOverview() {
-  const canApprove = hasRole("approver");
-  const [datasets, runs, strategies, customSpecs, experiments, portfolios, approvals, intents, documents, operations, platform, marketNews, personas, preferences] = await Promise.all([
+  const [datasets, runs, strategies, customSpecs, experiments, documents, platform, marketNews, personas, preferences] = await Promise.all([
     api("/datasets"),
     api("/runs?limit=50"),
     api("/strategies"),
     api("/custom-strategy-specs"),
     api("/experiments/robustness?limit=50"),
-    api("/portfolios"),
-    canApprove ? api("/approvals/pending") : Promise.resolve({ approvals: [] }),
-    api("/sandbox/intents?limit=50"),
     api("/knowledge/documents"),
-    api("/operations/summary"),
     api("/platform/summary"),
     api("/market-news/latest?limit=5"),
     api("/personas"),
@@ -389,10 +376,6 @@ async function loadOverview() {
   state.strategies = strategies.strategies || [];
   state.customStrategySpecs = customSpecs.custom_strategy_specs || [];
   state.experiments = experiments.experiments || [];
-  state.portfolios = portfolios.portfolios || [];
-  state.approvals = approvals.approvals || [];
-  state.sandboxIntents = intents.intents || [];
-  state.operations = operations;
   state.platformSummary = platform;
   state.marketNews = marketNews;
   state.personas = personas.personas || [];
@@ -400,20 +383,15 @@ async function loadOverview() {
   $("#metric-rows").textContent = formatNumber(rowCount, 0);
   $("#metric-quality").textContent = state.datasets[0]?.quality?.status || "No dataset loaded";
   $("#metric-runs").textContent = formatNumber(state.runs.length, 0);
-  $("#metric-approvals").textContent = formatNumber(state.approvals.length, 0);
   $("#metric-documents").textContent = formatNumber(documents.documents?.length || 0, 0);
   state.knowledgeDocuments = documents.documents || [];
   renderKnowledgeDocuments();
-  $("#approval-count").textContent = state.approvals.length;
   renderCommandCenter(documents.documents?.length || 0);
   renderPersonas();
   renderMarketNewsPanel();
   renderRuns();
-  renderApprovals();
-  renderPaperTrading();
   renderDatasets();
   renderExperiments();
-  renderPortfolios();
   // Heavy secondary panels load in the background so the workspace is
   // interactive immediately.
   loadAccount().catch(() => {});
@@ -594,9 +572,7 @@ function renderWidgetPicker() {
     ["research", "Research"],
     ["backtests", "Backtests"],
     ["assets", "Assets"],
-    ["openalgo", "OpenAlgo"],
-    ["risk", "Risk"],
-    ["execution", "Execution"],
+    ["openalgo", "Broker"],
     ["news", "News"],
     ["personas", "Personas"],
   ];
@@ -626,17 +602,12 @@ function renderDashboardWidgets(latestRun) {
   const assetsSupported = Object.keys(assetCoverage).length;
   const assetsWithData = Object.values(assetCoverage)
     .filter((item) => item.local_data_available).length;
-  const executionPaths = platform.execution_paths || {};
-  const gatedPaths = Object.values(executionPaths)
-    .filter((item) => item.requires_human_approval).length;
   const widgetData = {
     research: ["Research data", formatNumber(state.datasets.reduce((sum, item) => sum + Number(item.row_count || 0), 0), 0), "Rows in your local data"],
     assets: ["Asset coverage", `${formatNumber(assetsWithData, 0)} / ${formatNumber(assetsSupported, 0)}`, "Architectural support with local data availability tracked"],
     backtests: ["Backtests", formatNumber(state.runs.length, 0), latestRun ? `Latest ${latestRun.strategy || latestRun.strategy_id}` : "No completed run selected"],
-    openalgo: ["OpenAlgo", state.openalgoMonitor?.status || "checking", state.openalgoMonitor?.message || "Provider status is loaded from backend"],
-    risk: ["Approvals", formatNumber(state.approvals.length, 0), "Human-gated external actions"],
-    execution: ["Execution gates", formatNumber(gatedPaths, 0), "Only configured live trading requires explicit approval"],
-    news: ["Market news", state.platformSummary?.market_news?.configured ? "configured" : "not configured", "No provider means no fake headlines"],
+    openalgo: ["Broker", state.openalgoMonitor?.status || "checking", state.openalgoMonitor?.message || "Broker connection status"],
+    news: ["Market news", state.platformSummary?.market_news?.configured ? "configured" : "not configured", "Live headlines when a provider is set"],
     personas: ["Personas", formatNumber(state.personas.length, 0), "Strategy and risk profiles available to the assistant"],
   };
   $("#dashboard-widgets").innerHTML = state.dashboardWidgets.map((id) => {
@@ -857,190 +828,6 @@ function renderOpenAlgoMonitor(monitor) {
       </article>
     `;
   }).join("");
-}
-
-function renderPortfolios() {
-  const table = $("#portfolios-table");
-  table.innerHTML = state.portfolios.length
-    ? state.portfolios.map((portfolio) => `
-      <tr data-portfolio-id="${escapeHtml(portfolio.portfolio_id)}">
-        <td>${escapeHtml(portfolio.portfolio_id)}</td>
-        <td>${escapeHtml(portfolio.name)}</td>
-        <td>${formatNumber(portfolio.cash_balance)}</td>
-        <td><span class="status-pill">${escapeHtml(portfolio.status)}</span></td>
-        <td>${escapeHtml(portfolio.updated_at)}</td>
-      </tr>
-    `).join("")
-    : `<tr><td colspan="5">No portfolios are stored.</td></tr>`;
-  table.querySelectorAll("tr[data-portfolio-id]").forEach((row) => {
-    row.addEventListener("click", () => loadPortfolio(row.dataset.portfolioId));
-  });
-}
-
-async function submitPortfolio(event) {
-  event.preventDefault();
-  try {
-    const portfolio = await api("/portfolios", {
-      method: "POST",
-      body: JSON.stringify({
-        name: $("#portfolio-name").value,
-        starting_cash: Number($("#portfolio-cash").value),
-        base_currency: "INR",
-      }),
-    });
-    toast(`Portfolio ${portfolio.portfolio_id} created`);
-    await loadOverview();
-    await loadPortfolio(portfolio.portfolio_id);
-  } catch (error) {
-    toast(error.message);
-  }
-}
-
-async function loadPortfolio(portfolioId) {
-  try {
-    const portfolio = await api(`/portfolios/${encodeURIComponent(portfolioId)}`);
-    const detail = $("#portfolio-detail");
-    detail.classList.remove("hidden");
-    detail.innerHTML = `
-      <div class="section-heading">
-        <div><h2>${escapeHtml(portfolio.name)}</h2><p>${escapeHtml(portfolio.portfolio_id)}</p></div>
-        <div class="section-actions">
-          <span class="status-pill">${portfolio.risk_control.trading_enabled ? "trading enabled" : "kill switch active"}</span>
-          ${hasRole("approver") ? `
-            <button class="secondary-button" id="portfolio-disable">${portfolio.risk_control.trading_enabled ? "Stop trading" : "Keep stopped"}</button>
-            <button class="secondary-button" id="portfolio-enable">Enable trading</button>
-          ` : ""}
-        </div>
-      </div>
-      <div class="detail-grid">
-        <div class="detail-cell"><span>Cash</span><strong>${formatNumber(portfolio.cash_balance)}</strong></div>
-        <div class="detail-cell"><span>Equity</span><strong>${formatNumber(portfolio.equity)}</strong></div>
-        <div class="detail-cell"><span>Gross exposure</span><strong>${formatNumber(portfolio.gross_exposure)}</strong></div>
-        <div class="detail-cell"><span>Reserved notional</span><strong>${formatNumber(portfolio.reserved_notional)}</strong></div>
-      </div>
-      ${hasRole("researcher") ? `
-        <form class="portfolio-risk-form" id="portfolio-risk-form">
-          <label><span>Symbol</span><input id="portfolio-symbol" value="NIFTY" required></label>
-          <label><span>Side</span><select id="portfolio-side"><option>BUY</option><option>SELL</option></select></label>
-          <label><span>Quantity</span><input id="portfolio-quantity" type="number" min="1" value="1" required></label>
-          <label><span>Price</span><input id="portfolio-price" type="number" min="0.01" step="0.01" required></label>
-          <button type="submit" class="primary-button">Check and reserve risk</button>
-        </form>
-        <div id="portfolio-risk-result"></div>
-      ` : ""}
-      <div class="table-wrap portfolio-positions">
-        <table>
-          <thead><tr><th>Symbol</th><th>Quantity</th><th>Average</th><th>Last</th><th>Market value</th><th>Realized P&amp;L</th></tr></thead>
-          <tbody>${portfolio.positions.length ? portfolio.positions.map((position) => `
-            <tr>
-              <td>${escapeHtml(position.symbol)}</td>
-              <td>${formatNumber(position.quantity, 0)}</td>
-              <td>${formatNumber(position.average_price)}</td>
-              <td>${formatNumber(position.last_price)}</td>
-              <td>${formatNumber(position.market_value)}</td>
-              <td>${formatNumber(position.realized_pnl)}</td>
-            </tr>
-          `).join("") : `<tr><td colspan="6">No open positions.</td></tr>`}</tbody>
-        </table>
-      </div>
-    `;
-    $("#portfolio-risk-form")?.addEventListener("submit", (event) => (
-      submitPortfolioRisk(event, portfolioId)
-    ));
-    $("#portfolio-disable")?.addEventListener("click", () => (
-      setPortfolioControl(portfolioId, false)
-    ));
-    $("#portfolio-enable")?.addEventListener("click", () => (
-      setPortfolioControl(portfolioId, true)
-    ));
-  } catch (error) {
-    toast(error.message);
-  }
-}
-
-async function submitPortfolioRisk(event, portfolioId) {
-  event.preventDefault();
-  try {
-    const price = Number($("#portfolio-price").value);
-    const result = await api(
-      `/portfolios/${encodeURIComponent(portfolioId)}/risk-check`,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          symbol: $("#portfolio-symbol").value.toUpperCase(),
-          side: $("#portfolio-side").value,
-          quantity: Number($("#portfolio-quantity").value),
-          price,
-        }),
-      },
-    );
-    const container = $("#portfolio-risk-result");
-    container.className = `risk-result ${result.approved ? "approved" : "rejected"}`;
-    container.innerHTML = `
-      <strong>${result.approved ? "Approved" : "Rejected"}</strong>
-      <span>${escapeHtml(result.reason)}</span>
-      ${result.reservation_id ? `
-        <div class="section-actions">
-          ${hasRole("approver") ? `<button class="secondary-button" id="consume-reservation">Record fill</button>` : ""}
-          <button class="secondary-button" id="release-reservation">Release reservation</button>
-        </div>
-      ` : ""}
-    `;
-    $("#consume-reservation")?.addEventListener("click", async () => {
-      try {
-        await api(`/portfolios/${encodeURIComponent(portfolioId)}/fills`, {
-          method: "POST",
-          body: JSON.stringify({
-            reservation_id: result.reservation_id,
-            reference_id: `ui_fill_${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`,
-            price,
-            fees: 0,
-          }),
-        });
-        toast("Portfolio fill recorded");
-        await loadOverview();
-        await loadPortfolio(portfolioId);
-      } catch (error) {
-        toast(error.message);
-      }
-    });
-    $("#release-reservation")?.addEventListener("click", async () => {
-      try {
-        await api(
-          `/portfolio-risk/reservations/${encodeURIComponent(result.reservation_id)}/release`,
-          { method: "POST" },
-        );
-        toast("Reservation released");
-        await loadOverview();
-        await loadPortfolio(portfolioId);
-      } catch (error) {
-        toast(error.message);
-      }
-    });
-  } catch (error) {
-    toast(error.message);
-  }
-}
-
-async function setPortfolioControl(portfolioId, enabled) {
-  const reason = window.prompt(
-    enabled ? "Reason for enabling trading" : "Reason for stopping trading",
-  );
-  if (!reason) return;
-  try {
-    await api(
-      `/portfolios/${encodeURIComponent(portfolioId)}/trading-control`,
-      {
-        method: "POST",
-        body: JSON.stringify({ enabled, reason }),
-      },
-    );
-    toast(enabled ? "Trading enabled" : "Kill switch activated");
-    await loadOverview();
-    await loadPortfolio(portfolioId);
-  } catch (error) {
-    toast(error.message);
-  }
 }
 
 function renderExperiments() {
@@ -2409,280 +2196,6 @@ function drawPnlChart(run) {
   ], { digits: 2, color: cssVar("--green") });
 }
 
-function renderApprovals() {
-  const container = $("#approval-list");
-  if (!state.approvals.length) {
-    container.innerHTML = `<div class="empty-state">No pending approvals.</div>`;
-    return;
-  }
-  container.innerHTML = state.approvals.map((approval) => `
-    <article class="approval-item" data-approval-id="${escapeHtml(approval.approval_id)}">
-      <div class="item-header">
-        <div>
-          <strong>${escapeHtml(approval.requested_action)}</strong>
-          <p>Intent ${escapeHtml(approval.intent_id)} · requested by ${escapeHtml(approval.requested_by)}</p>
-        </div>
-        <span class="status-pill">pending</span>
-      </div>
-      <div class="approval-actions">
-        <button class="decision-button approve" data-decision="approve">Approve</button>
-        <button class="decision-button reject" data-decision="reject">Reject</button>
-      </div>
-    </article>
-  `).join("");
-  container.querySelectorAll("[data-decision]").forEach((button) => {
-    button.addEventListener("click", (event) => decideApproval(
-      button.closest("[data-approval-id]").dataset.approvalId,
-      button.dataset.decision === "approve",
-      event.currentTarget,
-    ));
-  });
-}
-
-function renderPaperTrading() {
-  renderPaperRunOptions();
-  renderPaperIntents();
-}
-
-function renderPaperRunOptions() {
-  const runSelect = $("#paper-run");
-  if (!runSelect) return;
-  const semiAutoRuns = state.runs.filter((run) => (
-    run.execution_mode === "semi_auto"
-  ));
-  runSelect.innerHTML = semiAutoRuns.length
-    ? semiAutoRuns.map((run) => `
-      <option value="${escapeHtml(run.run_id)}">${escapeHtml(run.run_id)} - ${escapeHtml(run.strategy)}</option>
-    `).join("")
-    : `<option value="">No semi-auto runs yet</option>`;
-  runSelect.disabled = !semiAutoRuns.length;
-  $("#prepare-paper-intent").disabled = !semiAutoRuns.length || !hasRole("researcher");
-  if (semiAutoRuns.length) {
-    loadPaperDecisions(semiAutoRuns[0].run_id);
-  } else {
-    $("#paper-decision").innerHTML = `<option value="">Run a semi-auto backtest first</option>`;
-  }
-}
-
-async function loadPaperDecisions(runId) {
-  const select = $("#paper-decision");
-  select.innerHTML = `<option value="">Loading approved decisions...</option>`;
-  try {
-    const run = state.runs.find((item) => item.run_id === runId);
-    const dataset = state.datasets.find((item) => item.dataset_id === run?.dataset_id);
-    if (dataset?.exchange) $("#paper-exchange").value = dataset.exchange;
-    const risk = await api(`/runs/${encodeURIComponent(runId)}/risk`);
-    const maxSignalAge = Number(state.platformSummary?.safety?.paper_signal_max_age_minutes || 0);
-    const latestTime = Date.now();
-    const decisions = (risk.decisions || []).filter((decision) => (
-      decision.approved
-      && decision.checks?.execution_mode_check?.mode === "semi_auto"
-      && Number(decision.approved_quantity || 0) > 0
-      && (!maxSignalAge || (
-        Number.isFinite(Date.parse(decision.timestamp))
-        && latestTime - Date.parse(decision.timestamp) <= maxSignalAge * 60 * 1000
-        && latestTime - Date.parse(decision.timestamp) >= -60 * 1000
-      ))
-    ));
-    select.innerHTML = decisions.length
-      ? decisions.map((decision) => {
-        const side = decision.signal_type === "exit" ? "SELL" : "BUY";
-        const label = `${side} ${decision.symbol || "symbol"} qty ${decision.approved_quantity} - ${decision.signal_reason || decision.reason}`;
-        return `<option value="${escapeHtml(decision.decision_id)}"
-          data-symbol="${escapeHtml(decision.symbol || "")}"
-          data-side="${escapeHtml(side)}"
-          data-quantity="${escapeHtml(decision.approved_quantity)}"
-          data-strategy="${escapeHtml(state.runs.find((run) => run.run_id === runId)?.strategy || "IIMC")}">${escapeHtml(label)}</option>`;
-      }).join("")
-      : `<option value="">No approved semi-auto decisions</option>`;
-    $("#prepare-paper-intent").disabled = !decisions.length || !hasRole("researcher");
-    $("#paper-helper").textContent = decisions.length
-      ? "Preparing an intent creates an analyzer-ready paper order from a risk-approved decision. Use a limit price for a deterministic analyzer submission."
-      : (maxSignalAge
-        ? `No current paper-eligible decision. Refresh OpenAlgo history and run the strategy again; signals expire after ${maxSignalAge} minutes.`
-        : "This run has no approved semi-auto decisions. Run another semi-auto backtest or adjust strategy parameters.");
-  } catch (error) {
-    select.innerHTML = `<option value="">Could not load decisions</option>`;
-    $("#paper-helper").textContent = error.message;
-    $("#prepare-paper-intent").disabled = true;
-  }
-}
-
-async function submitPaperIntent(event) {
-  event.preventDefault();
-  const option = $("#paper-decision").selectedOptions[0];
-  if (!option?.value) return;
-  const button = $("#prepare-paper-intent");
-  button.disabled = true;
-  try {
-    const orderType = $("#paper-order-type").value;
-    const limitPrice = $("#paper-limit-price").value
-      ? Number($("#paper-limit-price").value)
-      : null;
-    const triggerPrice = $("#paper-trigger-price").value
-      ? Number($("#paper-trigger-price").value)
-      : null;
-    if (["LIMIT", "SL"].includes(orderType) && !limitPrice) {
-      throw new Error(`${orderType} paper orders need a limit price`);
-    }
-    if (["SL", "SL-M"].includes(orderType) && !triggerPrice) {
-      throw new Error(`${orderType} paper orders need a trigger price`);
-    }
-    const payload = {
-      decision_id: option.value,
-      symbol: option.dataset.symbol,
-      exchange: $("#paper-exchange").value,
-      side: option.dataset.side,
-      product: $("#paper-product").value,
-      order_type: orderType,
-      quantity: Number(option.dataset.quantity),
-      strategy_name: option.dataset.strategy || "IIMC",
-      limit_price: limitPrice,
-      trigger_price: triggerPrice,
-      requested_by: state.principal?.username || "workspace_user",
-    };
-    const intent = await api("/sandbox/intents", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    });
-    toast(`Intent ${intent.intent_id} prepared for OpenAlgo analyzer`);
-    await loadOverview();
-  } catch (error) {
-    toast(error.message);
-  } finally {
-    button.disabled = !hasRole("researcher");
-  }
-}
-
-function paperQuotePrice(quote) {
-  for (const key of ["ltp", "last_price", "close"]) {
-    const value = Number(quote?.[key]);
-    if (Number.isFinite(value) && value > 0) return value;
-  }
-  return null;
-}
-
-function paperPriceWithTick(price, tickSize) {
-  const tick = Number(tickSize);
-  if (!Number.isFinite(tick) || tick <= 0) return String(price);
-  const rounded = Math.round(price / tick) * tick;
-  const decimals = Math.max(0, Math.min(6, String(tick).split(".")[1]?.length || 0));
-  return rounded.toFixed(decimals);
-}
-
-async function useCurrentPaperQuote() {
-  const option = $("#paper-decision").selectedOptions[0];
-  if (!option?.value || !option.dataset.symbol) {
-    toast("Select an approved risk decision first");
-    return;
-  }
-  const button = $("#paper-use-ltp");
-  button.disabled = true;
-  try {
-    const exchange = $("#paper-exchange").value;
-    const result = await api(
-      `/platform/instruments/quote?query=${encodeURIComponent(option.dataset.symbol)}&exchange=${encodeURIComponent(exchange)}`,
-    );
-    if (!result.ok) throw new Error(result.message || "Current provider quote is unavailable");
-    const price = paperQuotePrice(result.quote);
-    if (price === null) throw new Error("Provider quote did not include a usable price");
-    const tickSize = result.instrument?.tick_size;
-    $("#paper-limit-price").value = paperPriceWithTick(price, tickSize);
-    $("#paper-helper").textContent = `Current OpenAlgo LTP for ${result.resolved_symbol} is ${paperPriceWithTick(price, tickSize)}. Review the limit price before preparing the intent.`;
-  } catch (error) {
-    toast(error.message);
-  } finally {
-    button.disabled = false;
-  }
-}
-
-function renderPaperIntents() {
-  const table = $("#paper-intents-table");
-  if (!table) return;
-  table.innerHTML = state.sandboxIntents.length
-    ? state.sandboxIntents.map((intent) => `
-      <tr data-intent-id="${escapeHtml(intent.intent_id)}">
-        <td>${escapeHtml(intent.intent_id)}<br><small>${escapeHtml(intent.run_id || "-")}</small></td>
-        <td>${escapeHtml(intent.symbol)} ${escapeHtml(intent.exchange)}</td>
-        <td>${escapeHtml(intent.side)}</td>
-        <td>${formatNumber(intent.quantity, 0)}</td>
-        <td><span class="status-pill">${escapeHtml(intent.status)}</span></td>
-        <td>${escapeHtml(intent.broker_order_id || "-")}</td>
-        <td>${renderIntentActions(intent)}</td>
-      </tr>
-    `).join("")
-    : `<tr><td colspan="7">No OpenAlgo sandbox intents prepared yet.</td></tr>`;
-  table.querySelectorAll("[data-intent-action]").forEach((button) => {
-    button.addEventListener("click", (event) => handleIntentAction(
-      button.dataset.intentAction,
-      button.closest("[data-intent-id]").dataset.intentId,
-      event.currentTarget,
-    ));
-  });
-}
-
-function renderIntentActions(intent) {
-  const actions = [];
-  if (intent.status === "approved" && hasRole("researcher")) {
-    actions.push(`<button class="secondary-button intent-action" data-intent-action="submit">Submit</button>`);
-  }
-  if (["submitted", "open", "pending"].includes(intent.status) && hasRole("researcher")) {
-    actions.push(`<button class="secondary-button intent-action" data-intent-action="reconcile">Check status</button>`);
-  }
-  if (!actions.length) return "-";
-  return actions.join(" ");
-}
-
-async function handleIntentAction(action, intentId, button) {
-  if (button) button.disabled = true;
-  try {
-    if (action === "submit") {
-      await api(`/sandbox/intents/${encodeURIComponent(intentId)}/submit`, {
-        method: "POST",
-        body: JSON.stringify({ actor: state.principal?.username || "workspace_user" }),
-      });
-      toast(`Order ${intentId} submitted to your broker`);
-    }
-    if (action === "reconcile") {
-      await api(`/sandbox/intents/${encodeURIComponent(intentId)}/reconcile`, {
-        method: "POST",
-        body: JSON.stringify({ actor: state.principal?.username || "workspace_user" }),
-      });
-      toast(`Order ${intentId} status refreshed`);
-    }
-    await loadOverview();
-  } catch (error) {
-    toast(error.message);
-  } finally {
-    if (button) button.disabled = false;
-  }
-}
-
-async function decideApproval(approvalId, approved, button) {
-  const reason = window.prompt(
-    approved ? "Reason for approval" : "Reason for rejection",
-    approved ? "Reviewed for OpenAlgo sandbox execution" : "",
-  );
-  if (!reason) return;
-  if (button) button.disabled = true;
-  try {
-    await api(`/approvals/${encodeURIComponent(approvalId)}/decision`, {
-      method: "POST",
-      body: JSON.stringify({
-        approved,
-        decided_by: "workspace_user",
-        reason,
-      }),
-    });
-    toast(approved ? "Approval recorded" : "Rejection recorded");
-    await loadOverview();
-  } catch (error) {
-    toast(error.message);
-  } finally {
-    if (button) button.disabled = false;
-  }
-}
-
 function renderKnowledgeDocuments() {
   const container = $("#knowledge-doc-list");
   if (!container) return;
@@ -3177,11 +2690,6 @@ function wireEvents() {
     syncCustomStrategyRules();
   });
   syncCustomStrategyRules();
-  $("#paper-intent-form").addEventListener("submit", submitPaperIntent);
-  $("#paper-run").addEventListener("change", (event) => {
-    if (event.target.value) loadPaperDecisions(event.target.value);
-  });
-  $("#paper-use-ltp").addEventListener("click", useCurrentPaperQuote);
   $("#knowledge-search-form").addEventListener("submit", submitKnowledgeSearch);
   $("#knowledge-upload-form").addEventListener("submit", submitKnowledgeUpload);
   $("#fundamentals-import-form").addEventListener("submit", submitFundamentalsImport);
@@ -3193,7 +2701,6 @@ function wireEvents() {
   $("#logout-button").addEventListener("click", logout);
   $("#compare-runs").addEventListener("click", compareSelectedRuns);
   $("#experiment-form").addEventListener("submit", submitExperiment);
-  $("#portfolio-create-form").addEventListener("submit", submitPortfolio);
   document.querySelectorAll(".account-tab").forEach((button) => {
     button.addEventListener("click", () => {
       document.querySelectorAll(".account-tab").forEach((b) => b.classList.remove("active"));
@@ -3309,21 +2816,6 @@ function wireEvents() {
       const experiments = await api("/experiments/robustness?limit=50");
       state.experiments = experiments.experiments || [];
       renderExperiments();
-    },
-    "refresh-portfolios": async () => {
-      const portfolios = await api("/portfolios");
-      state.portfolios = portfolios.portfolios || [];
-      renderPortfolios();
-    },
-    "refresh-approvals": async () => {
-      const [approvals, intents] = await Promise.all([
-        hasRole("approver") ? api("/approvals/pending") : Promise.resolve({ approvals: [] }),
-        api("/sandbox/intents?limit=50"),
-      ]);
-      state.approvals = approvals.approvals || [];
-      state.sandboxIntents = intents.intents || [];
-      renderApprovals();
-      renderPaperTrading();
     },
     "refresh-data": async () => {
       const datasets = await api("/datasets");
