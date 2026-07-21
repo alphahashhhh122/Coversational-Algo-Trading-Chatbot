@@ -104,6 +104,7 @@ class ChatService:
         "run_custom_strategy_spec",
         "prepare_sandbox_order_intent",
         "prepare_live_order_intent",
+        "run_technical_screen",
     }
 
     def answer(

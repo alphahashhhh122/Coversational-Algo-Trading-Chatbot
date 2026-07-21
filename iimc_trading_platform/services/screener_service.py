@@ -23,6 +23,38 @@ _CONDITIONS = {
     "volume_spike",
 }
 
+# Curated NIFTY 50 constituents (NSE symbols). Index membership is revised
+# periodically by NSE; this is a representative snapshot used as a ready-made
+# scanning universe so the client never has to build a watchlist by hand.
+NIFTY_50 = (
+    "ADANIENT", "ADANIPORTS", "APOLLOHOSP", "ASIANPAINT", "AXISBANK",
+    "BAJAJ-AUTO", "BAJAJFINSV", "BAJFINANCE", "BEL", "BHARTIARTL",
+    "BPCL", "BRITANNIA", "CIPLA", "COALINDIA", "DIVISLAB",
+    "DRREDDY", "EICHERMOT", "GRASIM", "HCLTECH", "HDFCBANK",
+    "HDFCLIFE", "HEROMOTOCO", "HINDALCO", "HINDUNILVR", "ICICIBANK",
+    "INDUSINDBK", "INFY", "ITC", "JSWSTEEL", "KOTAKBANK",
+    "LT", "LTIM", "M&M", "MARUTI", "NESTLEIND",
+    "NTPC", "ONGC", "POWERGRID", "RELIANCE", "SBILIFE",
+    "SBIN", "SHRIRAMFIN", "SUNPHARMA", "TATACONSUM", "TATAMOTORS",
+    "TATASTEEL", "TCS", "TECHM", "TITAN", "TRENT",
+    "ULTRACEMCO", "WIPRO",
+)
+
+_UNIVERSES: dict[str, tuple[str, ...]] = {
+    "nifty50": NIFTY_50,
+    "nifty": NIFTY_50,
+    "nifty_50": NIFTY_50,
+}
+
+
+def resolve_universe(name: str) -> list[dict[str, str]] | None:
+    """Return [{symbol, exchange}] for a known index name, else None."""
+    key = "".join(ch for ch in name.lower() if ch.isalnum())
+    symbols = _UNIVERSES.get(key) or _UNIVERSES.get(name.lower().replace(" ", ""))
+    if not symbols:
+        return None
+    return [{"symbol": symbol, "exchange": "NSE"} for symbol in symbols]
+
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
@@ -99,6 +131,7 @@ class ScreenerService:
         period: int = 14,
         interval: str = "D",
         lookback_days: int = 60,
+        universe: str | None = None,
     ) -> dict[str, Any]:
         if condition not in _CONDITIONS:
             raise ValueError(
@@ -109,18 +142,32 @@ class ScreenerService:
             raise ValueError(
                 "OpenAlgo credentials are required for live screening"
             )
-        watchlist = self.list_symbols()["symbols"]
-        if not watchlist:
-            raise ValueError(
-                "The watchlist is empty. Say 'add RELIANCE to watchlist' "
-                "first."
-            )
+        # A named index (e.g. NIFTY 50) is scanned directly; otherwise fall
+        # back to the user's saved watchlist.
+        if universe:
+            symbols = resolve_universe(universe)
+            if symbols is None:
+                raise ValueError(
+                    f"I don't have a built-in list for {universe!r}. "
+                    "Try 'NIFTY 50', or add symbols to your watchlist and "
+                    "screen that."
+                )
+            universe_label = "nifty50"
+        else:
+            symbols = self.list_symbols()["symbols"]
+            universe_label = "watchlist"
+            if not symbols:
+                raise ValueError(
+                    "Tell me which stocks to scan — e.g. 'screen NIFTY 50 "
+                    "for RSI below 30' — or add symbols to your watchlist "
+                    "first."
+                )
         end = date.today()
         start = end - timedelta(days=lookback_days)
         matches: list[dict[str, Any]] = []
         non_matches: list[dict[str, Any]] = []
         skipped: list[dict[str, str]] = []
-        for item in watchlist:
+        for item in symbols:
             try:
                 response = self.client.historical(
                     symbol=item["symbol"],
@@ -160,7 +207,9 @@ class ScreenerService:
             "threshold": threshold,
             "period": period,
             "interval": interval,
-            "watchlist_size": len(watchlist),
+            "universe": universe_label,
+            "universe_size": len(symbols),
+            "watchlist_size": len(symbols),
             "matches": matches,
             "non_matches": non_matches,
             "skipped": skipped,

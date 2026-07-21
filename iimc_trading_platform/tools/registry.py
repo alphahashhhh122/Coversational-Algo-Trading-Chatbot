@@ -292,6 +292,7 @@ class TechnicalScreenInput(ToolInput):
     threshold: float = Field(default=30.0, gt=0)
     period: int = Field(default=14, ge=2, le=200)
     interval: str = Field(default="D", max_length=8)
+    universe: str | None = Field(default=None, max_length=30)
 
 
 class ApprovePendingOrderInput(ToolInput):
@@ -1804,11 +1805,12 @@ def build_default_tool_registry(
             ToolDefinition(
                 name="run_technical_screen",
                 description=(
-                    "Scan the watchlist with live OpenAlgo candles for a "
+                    "Scan a stock universe with live OpenAlgo candles for a "
                     "technical condition: rsi_below/rsi_above <threshold>, "
                     "price_above_ema/price_below_ema <period>, or "
-                    "volume_spike <multiplier>. Unfetchable symbols are "
-                    "reported as skipped."
+                    "volume_spike <multiplier>. Set universe='nifty50' to scan "
+                    "the NIFTY 50, or leave it empty to scan the saved "
+                    "watchlist. Unfetchable symbols are reported as skipped."
                 ),
                 input_model=TechnicalScreenInput,
                 handler=lambda value: _screener(db_path).scan(
@@ -1824,6 +1826,9 @@ def build_default_tool_registry(
                     interval=TechnicalScreenInput.model_validate(
                         value.model_dump()
                     ).interval,
+                    universe=TechnicalScreenInput.model_validate(
+                        value.model_dump()
+                    ).universe,
                 ),
                 side_effects="read-only OpenAlgo history requests",
                 retry_safe=True,

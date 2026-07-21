@@ -803,43 +803,11 @@ class OfflineOrchestrator:
             and re.search(r"\b(?:show|list|my)\b.{0,15}\bwatch\s*list\b", text)
         ):
             return OrchestrationDecision("list_watchlist", {})
-        technical_screen = re.search(
-            r"\b(?:stocks?|symbols?|watchlist)\b.{0,40}?"
-            r"\b(rsi|volume|ema)\b.{0,30}?"
-            r"\b(below|above|under|over|spike|high)\b"
-            r".{0,15}?(\d+(?:\.\d+)?)?",
-            text,
-        )
-        if technical_screen and "run_technical_screen" in tool_names:
-            indicator = technical_screen.group(1)
-            comparator = technical_screen.group(2)
-            number = technical_screen.group(3)
-            if indicator == "rsi":
-                condition = (
-                    "rsi_below"
-                    if comparator in {"below", "under"}
-                    else "rsi_above"
-                )
-                threshold = float(number) if number else 30.0
-            elif indicator == "ema":
-                condition = (
-                    "price_below_ema"
-                    if comparator in {"below", "under"}
-                    else "price_above_ema"
-                )
-                threshold = 1.0
-            else:
-                condition = "volume_spike"
-                threshold = float(number) if number else 2.0
-            arguments: dict[str, Any] = {
-                "condition": condition,
-                "threshold": threshold,
-            }
-            if indicator == "ema" and number:
-                arguments["period"] = int(float(number))
+        screen_args = _parse_technical_screen(text)
+        if screen_args and "run_technical_screen" in tool_names:
             return OrchestrationDecision(
                 "run_technical_screen",
-                arguments,
+                screen_args,
             )
         alert_match = (
             re.search(
@@ -1918,6 +1886,61 @@ def _is_sandbox_intent_request(text: str) -> bool:
     )
 
 
+def _parse_technical_screen(text: str) -> dict[str, Any] | None:
+    """Parse a technical screen request into run_technical_screen arguments.
+
+    Handles both orderings, e.g. 'stocks where RSI is below 30' and
+    'stocks trading below their 50-day EMA'. Defaults to scanning the
+    NIFTY 50 so no watchlist is required; 'watchlist' opts into that instead.
+    """
+    if not re.search(
+        r"\b(?:stocks?|symbols?|watch\s*list|screen|scan|nifty)\b", text
+    ):
+        return None
+    if not re.search(r"\b(rsi|ema|sma|volume)\b", text):
+        return None
+
+    args: dict[str, Any] = {}
+    number_match = re.search(r"(\d+(?:\.\d+)?)", text)
+    number = float(number_match.group(1)) if number_match else None
+    # The threshold is the number stated after the comparator, so
+    # "14-day RSI below 30" reads 30, not the period 14.
+    after_comparator = re.search(
+        r"\b(?:below|above|over|under|than|higher|lower)\s+(\d+(?:\.\d+)?)",
+        text,
+    )
+    stated = float(after_comparator.group(1)) if after_comparator else None
+
+    if re.search(r"\brsi\b", text):
+        above = bool(
+            re.search(r"\b(above|over|greater|more\s+than|higher)\b", text)
+        )
+        args["condition"] = "rsi_above" if above else "rsi_below"
+        args["threshold"] = stated if stated is not None else (
+            70.0 if above else 30.0
+        )
+    elif re.search(r"\b(ema|sma|moving\s+average)\b", text):
+        below = bool(re.search(r"\b(below|under|less\s+than|lower)\b", text))
+        args["condition"] = "price_below_ema" if below else "price_above_ema"
+        args["threshold"] = 1.0
+        # A period like "50-day" / "50 day" / "50 ema" sizes the average.
+        period_match = re.search(
+            r"(\d+)\s*(?:-?\s*day|-?\s*period|\s+(?:ema|sma))", text
+        )
+        if period_match:
+            args["period"] = max(2, min(200, int(period_match.group(1))))
+    elif re.search(r"\bvolume\b", text):
+        args["condition"] = "volume_spike"
+        args["threshold"] = stated if stated is not None else (
+            number if number is not None else 2.0
+        )
+    else:
+        return None
+
+    args["universe"] = None if re.search(r"\bwatch\s*list\b", text) else "nifty50"
+    return args
+
+
 def _parse_direct_order(message: str, text: str) -> dict[str, Any] | None:
     """Parse a discretionary order like 'buy 10 RELIANCE' or 'sell 5 TCS'.
 
@@ -2262,8 +2285,8 @@ def _open_ended_advice_response() -> str:
         "I'm not a licensed financial adviser, so I can't tell you which "
         "stock to buy or pick one for you. But I can help you decide with "
         "real data — tell me what you're after and I'll run it:\n"
-        "- **Screen by a rule**, e.g. 'find NIFTY 50 stocks where RSI is "
-        "below 30' or 'stocks near their 52-week low'\n"
+        "- **Screen the NIFTY 50**, e.g. 'find NIFTY 50 stocks where RSI is "
+        "below 30' or 'NIFTY 50 stocks trading below their 50-day EMA'\n"
         "- **Analyse a specific company**, e.g. 'analyse RELIANCE "
         "fundamentally' or 'price and news for HDFCBANK'\n"
         "- **Backtest an idea**, e.g. 'backtest an EMA crossover on "
@@ -3075,26 +3098,37 @@ def _grounded_fallback_response(
     if tool_name == "run_technical_screen":
         matches = result.get("matches", [])
         skipped = result.get("skipped", [])
+        condition = str(result.get("condition", "")).replace("_", " ")
+        universe = result.get("universe", "watchlist")
+        universe_label = (
+            "NIFTY 50" if universe == "nifty50" else "your watchlist"
+        )
+        scanned = result.get("universe_size", result.get("watchlist_size", 0))
         match_lines = [
-            f"- **{item['symbol']}**: close {item.get('last_close')}"
-            + (
-                f", RSI {item['rsi']}" if "rsi" in item else ""
-            )
-            + (
-                f", EMA {item['ema']}" if "ema" in item else ""
-            )
+            f"- **{item['symbol']}**: close ₹{item.get('last_close')}"
+            + (f" · RSI {item['rsi']}" if "rsi" in item else "")
+            + (f" · EMA {item['ema']}" if "ema" in item else "")
+            + (f" · volume {item['volume']}" if "volume" in item else "")
             for item in matches
-        ] or ["- (no watchlist symbols matched)"]
+        ]
         skipped_note = (
-            f"\n{len(skipped)} symbol(s) skipped (data unavailable)."
+            f"\n\n_{len(skipped)} of {scanned} couldn't be checked "
+            "(no data returned)._"
             if skipped
             else ""
         )
+        if not matches:
+            return (
+                f"I scanned {scanned} {universe_label} stock(s) for "
+                f"**{condition} {result.get('threshold')}** on "
+                f"{result.get('interval')} candles — **none matched** right "
+                f"now.{skipped_note}"
+            )
         return (
-            f"Technical screen **{result.get('condition')} "
-            f"{result.get('threshold')}** over "
-            f"{result.get('watchlist_size', 0)} watchlist symbol(s), "
-            f"{result.get('interval')} candles:\n"
+            f"Scanned {scanned} {universe_label} stock(s) for "
+            f"**{condition} {result.get('threshold')}** "
+            f"({result.get('interval')} candles). "
+            f"**{len(matches)} match(es):**\n"
             + "\n".join(match_lines)
             + skipped_note
         )
