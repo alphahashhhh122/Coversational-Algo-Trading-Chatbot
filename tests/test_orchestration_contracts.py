@@ -1340,9 +1340,9 @@ class OrchestrationContractsTest(unittest.TestCase):
         decision = OfflineOrchestrator().select_tool(
             "Analyze document Acme Industries Annual Report", [], registry,
         )
-        self.assertEqual(decision.tool_name, "analyze_knowledge_document")
+        self.assertEqual(decision.tool_name, "find_and_analyze_document")
         self.assertEqual(
-            decision.arguments["document"],
+            decision.arguments["query"],
             "Acme Industries Annual Report",
         )
 
@@ -1353,9 +1353,9 @@ class OrchestrationContractsTest(unittest.TestCase):
             [],
             registry,
         )
-        self.assertEqual(decision.tool_name, "analyze_knowledge_document")
+        self.assertEqual(decision.tool_name, "find_and_analyze_document")
         self.assertEqual(
-            decision.arguments["document"], "Q4 Earnings Transcript",
+            decision.arguments["query"], "Q4 Earnings Transcript",
         )
 
     def test_offline_router_document_analysis_without_title_clarifies(self) -> None:
@@ -1364,7 +1364,7 @@ class OrchestrationContractsTest(unittest.TestCase):
             "Analyze the document", [], registry,
         )
         self.assertIsNone(decision.tool_name)
-        self.assertIn("Which stored document", decision.direct_response)
+        self.assertIn("Which document", decision.direct_response)
 
     def test_offline_router_research_symbol_still_routes_to_context(self) -> None:
         registry = build_default_tool_registry(Path("unused.duckdb"))

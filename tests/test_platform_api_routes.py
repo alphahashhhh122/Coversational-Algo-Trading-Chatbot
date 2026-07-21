@@ -205,9 +205,9 @@ class PlatformApiRoutesTest(unittest.TestCase):
         )
         self.assertEqual(chat.status_code, 200)
         payload = chat.json()
-        self.assertEqual(payload["intent"], "analyze_knowledge_document")
+        self.assertEqual(payload["intent"], "find_and_analyze_document")
         self.assertIn("EV sales", payload["answer"])
-        self.assertIn("search knowledge", payload["answer"].lower())
+        self.assertIn("stored document", payload["answer"].lower())
 
     def test_uploaded_document_survives_knowledge_sync_job(self) -> None:
         upload = self.client.post(

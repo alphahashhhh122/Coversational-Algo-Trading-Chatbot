@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>IIMC Trading Research Workspace</title>
-  <link rel="stylesheet" href="/static/styles.css?v=20260721g">
+  <link rel="stylesheet" href="/static/styles.css?v=20260721h">
 </head>
 <body>
   <div class="app-shell">
@@ -189,22 +189,6 @@
         </div>
         <div class="run-detail hidden" id="run-detail"></div>
 
-        <section class="command-panel market-news-panel">
-          <div class="panel-heading compact-heading">
-            <div>
-              <h2>Market News</h2>
-              <p>Latest headlines for a symbol or theme.</p>
-            </div>
-          </div>
-          <form class="market-news-form" id="market-news-form">
-            <label><span>Query</span><input id="market-news-query" value="NIFTY" required></label>
-            <label><span>Symbol</span><input id="market-news-symbol" value="NIFTY"></label>
-            <button type="submit" class="primary-button" id="fetch-market-news">Fetch</button>
-          </form>
-          <div class="market-news-status" id="market-news-status">Loading news...</div>
-          <div class="market-news-list" id="market-news-list"></div>
-        </section>
-
         <details class="workspace-tools">
           <summary>Robustness experiments (out-of-sample validation)</summary>
           <div class="workspace-tools-content">
@@ -356,38 +340,22 @@
         <div class="section-heading">
           <div>
             <h2>Data</h2>
-            <p>Market data, documents, and financials.</p>
+            <p>Your documents and financials. Market data is fetched automatically — you never import it.</p>
           </div>
           <button class="secondary-button" id="refresh-data">Refresh</button>
         </div>
-        <details class="workspace-tools">
-          <summary>Advanced: manually import market data (backtests do this automatically)</summary>
-          <div class="workspace-tools-content">
-          <form class="knowledge-search-form" id="openalgo-history-import-form">
-            <label><span>Symbol</span><input id="openalgo-history-symbol" placeholder="RELIANCE" required></label>
-            <label><span>Exchange</span><input id="openalgo-history-exchange" value="NSE" required></label>
-            <label><span>Asset class</span><select id="openalgo-history-asset"><option value="equity">Equity</option><option value="index">Index</option><option value="futures">Futures</option><option value="options">Options</option><option value="commodity">Commodity</option><option value="crypto">Crypto</option></select></label>
-            <label><span>Interval</span><input id="openalgo-history-interval" value="5m" required></label>
-            <label><span>Start</span><input id="openalgo-history-start" type="date" required></label>
-            <label><span>End</span><input id="openalgo-history-end" type="date" required></label>
-            <label><span>Dataset ID</span><input id="openalgo-history-dataset" placeholder="Auto-generated when blank"></label>
-            <button type="submit" class="primary-button" id="import-openalgo-history">Import provider history</button>
-          </form>
-          <pre class="json-view hidden" id="openalgo-history-import-result"></pre>
-          </div>
-        </details>
         <section class="rag-panel">
           <div class="section-heading">
             <div>
               <h2>Company Documents</h2>
-              <p>Upload annual reports, transcripts, or research notes. Ask the chat to search or analyze them.</p>
+              <p>Upload annual reports, transcripts, or research notes — or just ask the chat "analyze the &lt;company&gt; annual report" and it will find, fetch, and read it for you.</p>
             </div>
           </div>
           <form class="knowledge-search-form" id="knowledge-upload-form">
             <label><span>Title</span><input id="knowledge-upload-title" maxlength="200" placeholder="Acme Industries Annual Report 2026" required></label>
             <label><span>File (.txt / .md)</span><input id="knowledge-upload-file" type="file" accept=".txt,.md,.markdown,text/plain,text/markdown"></label>
             <label class="experiment-grid-input"><span>Or paste text</span><textarea id="knowledge-upload-text" rows="6" placeholder="Paste the document text here..."></textarea></label>
-            <button type="submit" class="primary-button" id="knowledge-upload-submit">Index document</button>
+            <button type="submit" class="primary-button" id="knowledge-upload-submit">Add document</button>
           </form>
           <div class="knowledge-doc-list" id="knowledge-doc-list"></div>
         </section>
@@ -395,14 +363,18 @@
           <div class="section-heading">
             <div>
               <h2>Financial Statements</h2>
-              <p>Import annual or quarterly statements, then ask the chat: "analyze &lt;symbol&gt; fundamentally". Ratios use standard formulas.</p>
+              <p>Add a company's statements, then ask the chat: "analyse &lt;symbol&gt; fundamentally". Ratios use standard formulas.</p>
             </div>
           </div>
-          <form class="knowledge-search-form" id="fundamentals-import-form">
-            <label><span>Symbol</span><input id="fundamentals-symbol" maxlength="40" placeholder="ACME" required></label>
-            <label><span>Currency</span><input id="fundamentals-currency" maxlength="10" value="INR" required></label>
-            <label><span>Source</span><input id="fundamentals-source" maxlength="200" placeholder="annual_report_fy2026" required></label>
-            <label class="experiment-grid-input"><span>Statements (JSON array)</span><textarea id="fundamentals-statements" rows="9" spellcheck="false">[
+          <div class="fundamentals-status" id="fundamentals-status"></div>
+          <details class="workspace-tools">
+            <summary>Add statements (paste JSON)</summary>
+            <div class="workspace-tools-content">
+              <form class="knowledge-search-form" id="fundamentals-import-form">
+                <label><span>Symbol</span><input id="fundamentals-symbol" maxlength="40" placeholder="ACME" required></label>
+                <label><span>Currency</span><input id="fundamentals-currency" maxlength="10" value="INR" required></label>
+                <label><span>Source</span><input id="fundamentals-source" maxlength="200" placeholder="annual_report_fy2026" required></label>
+                <label class="experiment-grid-input"><span>Statements (JSON array)</span><textarea id="fundamentals-statements" rows="9" spellcheck="false">[
   {
     "period": "FY2026",
     "period_end": "2026-03-31",
@@ -420,85 +392,16 @@
     "dividends_paid": 60
   }
 ]</textarea></label>
-            <button type="submit" class="primary-button" id="fundamentals-import-submit">Import statements</button>
-          </form>
-          <div class="fundamentals-status" id="fundamentals-status"></div>
+                <button type="submit" class="primary-button" id="fundamentals-import-submit">Add statements</button>
+              </form>
+            </div>
+          </details>
         </section>
         <details class="workspace-tools">
-          <summary>Stored market data (managed automatically)</summary>
+          <summary>Market data (fetched automatically as you use it)</summary>
           <div class="workspace-tools-content">
+            <p class="guide-note">You never import market data. When you ask for a quote, run a backtest, or screen, the platform pulls the history it needs from your broker and caches it here.</p>
             <div class="dataset-list" id="dataset-list"></div>
-          </div>
-        </details>
-        <details class="workspace-tools">
-          <summary>Advanced: developer data tools</summary>
-          <div class="workspace-tools-content">
-            <section class="rag-panel">
-              <div class="section-heading">
-                <div>
-                  <h2>Local OHLCV Import</h2>
-                  <p>Equity, index, futures, options, commodity, and crypto candles for research.</p>
-                </div>
-              </div>
-              <form class="knowledge-search-form" id="ohlcv-import-form">
-                <label><span>Dataset ID</span><input id="ohlcv-dataset-id" required></label>
-                <label><span>Asset class</span><select id="ohlcv-asset-class"><option value="equity">Equity</option><option value="index">Index</option><option value="futures">Futures</option><option value="options">Options OHLCV</option><option value="commodity">Commodity</option><option value="crypto">Crypto</option></select></label>
-                <label><span>Symbol</span><input id="ohlcv-symbol" required></label>
-                <label><span>Exchange</span><input id="ohlcv-exchange" required></label>
-                <label><span>Interval</span><input id="ohlcv-interval" value="5m" required></label>
-                <label class="experiment-grid-input"><span>Candles (JSON array)</span><textarea id="ohlcv-candles" rows="7" required></textarea></label>
-                <button type="submit" class="primary-button" id="import-ohlcv">Import OHLCV</button>
-              </form>
-              <pre class="json-view hidden" id="ohlcv-import-result"></pre>
-            </section>
-            <section class="rag-panel">
-              <div class="section-heading">
-                <div>
-                  <h2>Point-in-Time Feature Import</h2>
-                  <p>Import numeric IV/OI, fundamentals, sentiment, or alternative-data features with observed and available timestamps.</p>
-                </div>
-              </div>
-              <form class="knowledge-search-form" id="feature-import-form">
-                <label><span>Dataset ID</span><input id="feature-dataset-id" required></label>
-                <label><span>Symbol</span><input id="feature-symbol" required></label>
-                <label><span>Exchange</span><input id="feature-exchange" required></label>
-                <label class="experiment-grid-input"><span>Observations (JSON array)</span><textarea id="feature-observations" rows="7" required></textarea></label>
-                <button type="submit" class="primary-button" id="import-features">Import feature series</button>
-              </form>
-              <pre class="json-view hidden" id="feature-import-result"></pre>
-            </section>
-            <section class="rag-panel">
-              <div class="section-heading">
-                <div>
-                  <h2>Options Feature Derivation</h2>
-                  <p>Derive IV, open-interest, put/call ratio, and option-volume series from an options dataset.</p>
-                </div>
-              </div>
-              <form class="knowledge-search-form" id="options-feature-form">
-                <label><span>Options dataset ID</span><input id="options-feature-source" required></label>
-                <label><span>New feature dataset ID</span><input id="options-feature-dataset-id" required></label>
-                <label><span>Features (comma separated)</span><input id="options-feature-names" value="open_interest,put_call_oi_ratio,iv_skew" required></label>
-                <label><span>Availability delay (seconds)</span><input id="options-feature-delay" type="number" min="0" max="86400" value="0" required></label>
-                <button type="submit" class="primary-button" id="derive-options-features">Derive options features</button>
-              </form>
-              <pre class="json-view hidden" id="options-feature-result"></pre>
-            </section>
-            <section class="rag-panel">
-              <div class="section-heading">
-                <div>
-                  <h2>Document Search</h2>
-                  <p>Search your uploaded documents.</p>
-                </div>
-              </div>
-              <form class="knowledge-search-form" id="knowledge-search-form">
-                <label>
-                  <span>Query</span>
-                  <input id="knowledge-query" value="OpenAlgo workflow and risk management" required>
-                </label>
-                <button type="submit" class="primary-button" id="run-knowledge-search">Search docs</button>
-              </form>
-              <pre class="json-view" id="knowledge-search-result">Search results will appear here.</pre>
-            </section>
           </div>
         </details>
       </section>
@@ -638,6 +541,6 @@
     </form>
   </div>
   <div class="toast" id="toast" role="status"></div>
-  <script src="/static/app.js?v=20260721g" defer></script>
+  <script src="/static/app.js?v=20260721h" defer></script>
 </body>
 </html>

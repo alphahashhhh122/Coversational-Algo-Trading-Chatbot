@@ -896,36 +896,64 @@ class OfflineOrchestrator:
                 "fetch_web_document",
                 {"url": url_match.group(0).rstrip(".,)")},
             )
-        document_analysis_match = re.search(
-            r"(?:analy[sz]e|summari[sz]e|review"
-            r"|extract\s+(?:fundamentals|financials)\s+from)\s+"
-            r"(?:the\s+)?(?:uploaded\s+)?"
-            r"(?:document|doc|report|filing|transcript)\s*"
-            r"(?:called\s+|named\s+|titled\s+)?(.*)$",
-            message,
-            flags=re.IGNORECASE,
+        doc_type_words = (
+            r"annual\s+report|quarterly\s+report|earnings\s+(?:call|report)|"
+            r"report|filing|transcript|10-?k|10-?q|prospectus|whitepaper|"
+            r"white\s+paper|press\s+release|document|doc"
         )
         if (
-            document_analysis_match
-            and "analyze_knowledge_document" in tool_names
-        ):
-            document_title = document_analysis_match.group(1).strip().strip(
-                "\"'?."
+            "find_and_analyze_document" in tool_names
+            and re.search(
+                r"\b(?:analy[sz]e|summari[sz]e|review|read|explain)\b", text
             )
-            if not document_title:
+            and re.search(rf"\b(?:{doc_type_words})\b", text)
+            and not _is_strategy_creation_request(text)
+            and not re.search(r"\bfundamental", text)
+        ):
+            quoted = re.search(r"['\"]([^'\"]{2,120})['\"]", message)
+            if quoted:
+                subject = quoted.group(1).strip()
+            else:
+                subject = re.sub(
+                    r"(?is)^.*?\b"
+                    r"(?:analy[sz]e|summari[sz]e|review|read|explain)\b\s*",
+                    "",
+                    message,
+                )
+                subject = re.sub(
+                    r"(?i)^(?:(?:the|this|that|a|an|my|our|uploaded|latest)"
+                    r"\s+)+",
+                    "",
+                    subject,
+                )
+                subject = re.sub(
+                    r"(?i)^(?:document|doc|report|filing|transcript)\s+"
+                    r"(?:called\s+|named\s+|titled\s+|for\s+|of\s+|on\s+"
+                    r"|about\s+)?",
+                    "",
+                    subject,
+                )
+                subject = subject.strip(" \"'?.!")
+            meaningful = re.sub(
+                r"(?i)\b(?:document|doc|report|filing|transcript|annual"
+                r"|quarterly|earnings|call|prospectus|whitepaper|paper"
+                r"|the|a|an|uploaded|latest)\b",
+                "",
+                subject,
+            ).strip(" \"'?.!")
+            if not subject or not meaningful:
                 return OrchestrationDecision(
                     tool_name=None,
                     arguments={},
                     direct_response=(
-                        "Which stored document should I analyze? Say "
-                        "'analyze document <title>'. You can upload company "
-                        "reports in the Data view or list stored documents "
-                        "with 'list documents'."
+                        "Which document should I analyze? Name a report — e.g. "
+                        "'analyze the Tata Motors annual report' — paste a URL, "
+                        "or upload it in the Data tab."
                     ),
                 )
             return OrchestrationDecision(
-                "analyze_knowledge_document",
-                {"document": document_title},
+                "find_and_analyze_document",
+                {"query": subject},
             )
         screen_match = re.search(
             r"(?:run\s+(?:the\s+)?([\w-]+)\s+screen"
@@ -2658,6 +2686,10 @@ def _strategy_parameters(text: str, strategy_name: str) -> dict[str, Any]:
 def _symbol_from_text(text: str) -> str | None:
     upper = text.upper()
     excluded = {
+        # Short English stopwords that otherwise get grabbed as tickers,
+        # e.g. "backtest AN EMA crossover ON WIPRO".
+        "A", "AN", "AS", "AT", "BE", "BY", "DO", "IF", "IN", "IS", "IT",
+        "OF", "ON", "OR", "SO", "TO", "UP", "WE", "AM", "US",
         "ABOUT",
         "AND",
         "ANY",
@@ -3231,6 +3263,28 @@ def _grounded_fallback_response(
             "chunk(s)).\n\n"
             f"You can now ask: 'analyze document {result.get('title')}' or "
             "'search knowledge <topic>'."
+        )
+    if tool_name == "find_and_analyze_document":
+        chunks = result.get("chunks", [])
+        excerpt_lines = []
+        for chunk in chunks:
+            content = " ".join(str(chunk.get("content", "")).split())
+            if len(content) > 320:
+                content = content[:320].rstrip() + "…"
+            excerpt_lines.append(f"{chunk.get('chunk_index', 0) + 1}. {content}")
+        excerpts = "\n".join(excerpt_lines) or "(no readable text)"
+        if result.get("source") == "web_fetched":
+            source = (
+                f"I fetched **{result.get('title')}** from "
+                f"{result.get('source_url')} and indexed it"
+            )
+        else:
+            source = f"From your stored document **{result.get('title')}**"
+        return (
+            f"{source} ({result.get('chunk_count', 0)} section(s), "
+            f"{result.get('total_words', 0)} words).\n\n"
+            f"Here is what it covers:\n{excerpts}\n\n"
+            "Ask a follow-up and I'll answer from this document."
         )
     if tool_name == "analyze_knowledge_document":
         chunks = result.get("chunks", [])

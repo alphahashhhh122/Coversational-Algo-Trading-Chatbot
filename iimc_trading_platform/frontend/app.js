@@ -460,29 +460,6 @@ async function refreshLandingNews() {
   renderLandingNews();
 }
 
-async function submitMarketNews(event) {
-  event.preventDefault();
-  const button = $("#fetch-market-news");
-  const params = new URLSearchParams({
-    query: $("#market-news-query").value.trim(),
-    symbol: $("#market-news-symbol").value.trim(),
-  });
-  button.disabled = true;
-  $("#market-news-status").textContent = "Checking configured provider...";
-  try {
-    await api(`/market-news/fetch?${params.toString()}`, {
-      method: "POST",
-    });
-    state.marketNews = await api("/market-news/latest?limit=5");
-    renderMarketNewsPanel("Provider-backed headlines fetched and stored.");
-  } catch (error) {
-    state.marketNews = await api("/market-news/latest?limit=5");
-    renderMarketNewsPanel(error.message);
-  } finally {
-    button.disabled = false;
-  }
-}
-
 function capabilityStatus(label, stateLabel, description, tone = "ready") {
   return `
     <article class="capability-item ${escapeHtml(tone)}">
@@ -1927,33 +1904,6 @@ async function loadRun(runId) {
   }
 }
 
-async function submitKnowledgeSearch(event) {
-  event.preventDefault();
-  const button = $("#run-knowledge-search");
-  const box = $("#knowledge-search-result");
-  button.disabled = true;
-  button.textContent = "Searching...";
-  try {
-    const payload = await api("/knowledge/search", {
-      method: "POST",
-      body: JSON.stringify({
-        query: $("#knowledge-query").value,
-        limit: 5,
-      }),
-    });
-    box.textContent = JSON.stringify(payload, null, 2);
-  } catch (error) {
-    box.textContent = JSON.stringify(
-      { ok: false, safe_failure: true, message: error.message },
-      null,
-      2,
-    );
-  } finally {
-    button.disabled = false;
-    button.textContent = "Search docs";
-  }
-}
-
 async function generateReport(runId, button) {
   if (button) button.disabled = true;
   try {
@@ -2362,129 +2312,6 @@ async function toggleDatasetChart(article, button) {
   }
 }
 
-async function submitOhlcvImport(event) {
-  event.preventDefault();
-  const button = $("#import-ohlcv");
-  const resultBox = $("#ohlcv-import-result");
-  button.disabled = true;
-  resultBox.classList.remove("hidden");
-  try {
-    const candles = JSON.parse($("#ohlcv-candles").value);
-    if (!Array.isArray(candles)) throw new Error("Candles must be a JSON array");
-    const result = await api("/datasets/ohlcv", {
-      method: "POST",
-      body: JSON.stringify({
-        dataset_id: $("#ohlcv-dataset-id").value.trim(),
-        asset_class: $("#ohlcv-asset-class").value,
-        symbol: $("#ohlcv-symbol").value.trim(),
-        exchange: $("#ohlcv-exchange").value.trim(),
-        interval: $("#ohlcv-interval").value.trim(),
-        candles,
-      }),
-    });
-    resultBox.textContent = JSON.stringify(result, null, 2);
-    toast(`Imported ${result.row_count} candles`);
-    await loadOverview();
-  } catch (error) {
-    resultBox.textContent = JSON.stringify({ ok: false, message: error.message }, null, 2);
-    toast(error.message);
-  } finally {
-    button.disabled = false;
-  }
-}
-
-async function submitOpenAlgoHistoryImport(event) {
-  event.preventDefault();
-  const button = $("#import-openalgo-history");
-  const resultBox = $("#openalgo-history-import-result");
-  button.disabled = true;
-  resultBox.classList.remove("hidden");
-  try {
-    const result = await api("/datasets/openalgo-history", {
-      method: "POST",
-      body: JSON.stringify({
-        symbol: $("#openalgo-history-symbol").value.trim(),
-        exchange: $("#openalgo-history-exchange").value.trim(),
-        asset_class: $("#openalgo-history-asset").value,
-        interval: $("#openalgo-history-interval").value.trim(),
-        start_date: $("#openalgo-history-start").value,
-        end_date: $("#openalgo-history-end").value,
-        dataset_id: $("#openalgo-history-dataset").value.trim() || null,
-      }),
-    });
-    resultBox.textContent = JSON.stringify(result, null, 2);
-    toast(`Imported ${formatNumber(result.row_count, 0)} OpenAlgo candles`);
-    await loadOverview();
-    setView("runs");
-  } catch (error) {
-    resultBox.textContent = JSON.stringify({ ok: false, message: error.message }, null, 2);
-    toast(error.message);
-  } finally {
-    button.disabled = false;
-  }
-}
-
-async function submitFeatureImport(event) {
-  event.preventDefault();
-  const button = $("#import-features");
-  const resultBox = $("#feature-import-result");
-  button.disabled = true;
-  resultBox.classList.remove("hidden");
-  try {
-    const observations = JSON.parse($("#feature-observations").value);
-    if (!Array.isArray(observations)) throw new Error("Observations must be a JSON array");
-    const result = await api("/datasets/features", {
-      method: "POST",
-      body: JSON.stringify({
-        dataset_id: $("#feature-dataset-id").value.trim(),
-        symbol: $("#feature-symbol").value.trim(),
-        exchange: $("#feature-exchange").value.trim(),
-        observations,
-      }),
-    });
-    resultBox.textContent = JSON.stringify(result, null, 2);
-    toast(`Imported ${result.row_count} point-in-time feature observations`);
-    await loadOverview();
-  } catch (error) {
-    resultBox.textContent = JSON.stringify({ ok: false, message: error.message }, null, 2);
-    toast(error.message);
-  } finally {
-    button.disabled = false;
-  }
-}
-
-async function submitOptionsFeatureDerivation(event) {
-  event.preventDefault();
-  const button = $("#derive-options-features");
-  const resultBox = $("#options-feature-result");
-  const sourceDataset = $("#options-feature-source").value.trim();
-  const featureNames = $("#options-feature-names").value
-    .split(",")
-    .map((name) => name.trim())
-    .filter(Boolean);
-  button.disabled = true;
-  resultBox.classList.remove("hidden");
-  try {
-    if (!featureNames.length) throw new Error("Enter at least one options feature");
-    const result = await api(`/datasets/options/${encodeURIComponent(sourceDataset)}/derive-features`, {
-      method: "POST",
-      body: JSON.stringify({
-        feature_dataset_id: $("#options-feature-dataset-id").value.trim(),
-        feature_names: featureNames,
-        availability_delay_seconds: Number($("#options-feature-delay").value || 0),
-      }),
-    });
-    resultBox.textContent = JSON.stringify(result, null, 2);
-    toast(`Derived ${result.row_count} options features`);
-    await loadOverview();
-  } catch (error) {
-    resultBox.textContent = JSON.stringify({ ok: false, message: error.message }, null, 2);
-    toast(error.message);
-  } finally {
-    button.disabled = false;
-  }
-}
-
 async function submitNlStrategyCompile(event) {
   event.preventDefault();
   const button = $("#compile-nl-strategy");
@@ -2677,7 +2504,6 @@ function wireEvents() {
       $("#chat-form").requestSubmit();
     });
   });
-  $("#market-news-form").addEventListener("submit", submitMarketNews);
   $("#toggle-live-dashboard").addEventListener(
     "click",
     () => setAutoRefresh(!state.autoRefresh),
@@ -2698,13 +2524,8 @@ function wireEvents() {
     syncCustomStrategyRules();
   });
   syncCustomStrategyRules();
-  $("#knowledge-search-form").addEventListener("submit", submitKnowledgeSearch);
   $("#knowledge-upload-form").addEventListener("submit", submitKnowledgeUpload);
   $("#fundamentals-import-form").addEventListener("submit", submitFundamentalsImport);
-  $("#ohlcv-import-form").addEventListener("submit", submitOhlcvImport);
-  $("#openalgo-history-import-form").addEventListener("submit", submitOpenAlgoHistoryImport);
-  $("#feature-import-form").addEventListener("submit", submitFeatureImport);
-  $("#options-feature-form").addEventListener("submit", submitOptionsFeatureDerivation);
   $("#login-form").addEventListener("submit", submitLogin);
   $("#logout-button").addEventListener("click", logout);
   $("#compare-runs").addEventListener("click", compareSelectedRuns);

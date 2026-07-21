@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 
 from ..db import connect
 from .retrieval import BM25Retriever, RetrievalDocument, Retriever, tokenize
@@ -249,6 +249,94 @@ class KnowledgeService:
         )
         return {**document, "source_url": final_url}
 
+    def search_and_fetch(
+        self,
+        query: str,
+        *,
+        fetched_by: str = "chat",
+    ) -> dict[str, Any]:
+        """Find a public page for a free-text query and index it.
+
+        Uses the keyless DuckDuckGo HTML endpoint to locate a URL, then reuses
+        the SSRF-guarded ``fetch_and_index_url``. Fails safely (clear message)
+        when search is unreachable, empty, or only yields unreadable results
+        (e.g. PDFs).
+        """
+        cleaned = " ".join(query.split()).strip()
+        if not cleaned:
+            raise ValueError("Tell me what document to look for.")
+        # DuckDuckGo's HTML endpoint returns server-rendered results only for a
+        # POST form submission (a GET returns a script-only shell).
+        request = urllib.request.Request(
+            "https://html.duckduckgo.com/html/",
+            data=urlencode({"q": cleaned}).encode("utf-8"),
+            method="POST",
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "iimc-trading-platform/1.0"
+                ),
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+        )
+        try:
+            with urllib.request.urlopen(
+                request, timeout=_FETCH_TIMEOUT_SECONDS
+            ) as response:
+                page = response.read(_MAX_FETCH_BYTES).decode(
+                    "utf-8", errors="replace"
+                )
+        except Exception as exc:
+            raise ValueError(
+                f"Web search is unavailable right now ({exc}). You can paste a "
+                "URL, or upload the document instead."
+            ) from exc
+        candidate_urls = _duckduckgo_result_urls(page)
+        if not candidate_urls:
+            raise ValueError(
+                f"I couldn't find a readable page for {cleaned!r}. Try a more "
+                "specific title, paste a URL, or upload the document."
+            )
+        last_error = "no readable result"
+        for url in candidate_urls[:5]:
+            if url.lower().split("?")[0].endswith((".pdf", ".zip", ".doc",
+                                                    ".docx", ".xls", ".xlsx")):
+                last_error = "the top results are files I can't read as text"
+                continue
+            try:
+                result = self.fetch_and_index_url(url, fetched_by=fetched_by)
+                return {**result, "search_query": cleaned}
+            except ValueError as exc:
+                last_error = str(exc)
+                continue
+        raise ValueError(
+            f"I found results for {cleaned!r} but couldn't read them "
+            f"({last_error}). Paste a URL or upload the document."
+        )
+
+    def find_and_analyze_document(
+        self,
+        query: str,
+        *,
+        max_chunks: int = 8,
+        fetched_by: str = "chat",
+    ) -> dict[str, Any]:
+        """Analyze a stored document, or fetch one from the web first."""
+        try:
+            overview = self.document_overview(query, max_chunks=max_chunks)
+            return {**overview, "source": "stored"}
+        except ValueError:
+            pass
+        fetched = self.search_and_fetch(query, fetched_by=fetched_by)
+        overview = self.document_overview(
+            fetched["document_id"], max_chunks=max_chunks
+        )
+        return {
+            **overview,
+            "source": "web_fetched",
+            "source_url": fetched.get("source_url"),
+        }
+
     def get_document(self, document_id: str) -> dict[str, Any]:
         documents = self.list_documents()["documents"]
         for document in documents:
@@ -425,6 +513,28 @@ def _reject_private_host(hostname: str) -> None:
                 "Fetching private, loopback, or link-local addresses is "
                 "not allowed"
             )
+
+
+def _duckduckgo_result_urls(html_text: str) -> list[str]:
+    """Extract organic result URLs from a DuckDuckGo HTML results page."""
+    urls: list[str] = []
+    for match in re.finditer(
+        r'class="result__a"[^>]*href="([^"]+)"', html_text
+    ):
+        href = html_module.unescape(match.group(1))
+        # DuckDuckGo wraps targets in a /l/?uddg=<encoded-url> redirect.
+        if "uddg=" in href:
+            query = urlparse(
+                href if href.startswith("http") else "https:" + href
+            ).query
+            values = parse_qs(query).get("uddg")
+            if values:
+                href = values[0]
+        if href.startswith("//"):
+            href = "https:" + href
+        if href.startswith("http") and href not in urls:
+            urls.append(href)
+    return urls
 
 
 def _extract_web_text(html_text: str) -> tuple[str | None, str]:
