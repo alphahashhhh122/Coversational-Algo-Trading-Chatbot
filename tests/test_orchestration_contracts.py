@@ -1378,12 +1378,14 @@ class OrchestrationContractsTest(unittest.TestCase):
         self.assertIsNone(decision.tool_name)
         self.assertIn("Which document", decision.direct_response)
 
-    def test_offline_router_research_symbol_still_routes_to_context(self) -> None:
+    def test_offline_router_analyze_symbol_routes_to_deep_research(self) -> None:
         registry = build_default_tool_registry(Path("unused.duckdb"))
         decision = OfflineOrchestrator().select_tool(
             "Analyze RELIANCE on NSE", [], registry,
         )
-        self.assertEqual(decision.tool_name, "get_research_context")
+        # A bare "analyze <symbol>" now gets the multi-analyst research agent.
+        self.assertEqual(decision.tool_name, "deep_research")
+        self.assertEqual(decision.arguments["symbol"], "RELIANCE")
 
     def test_persona_grounded_response_renders_bias_and_risk_rules(self) -> None:
         from iimc_trading_platform.orchestration import grounded_tool_response

@@ -107,6 +107,72 @@ class ScreenerService:
             con.close()
         return {"symbol": symbol.upper().strip(), "status": "removed"}
 
+    def technical_snapshot(
+        self,
+        symbol: str,
+        exchange: str = "NSE",
+        *,
+        interval: str = "D",
+        period: int = 14,
+        lookback_days: int = 200,
+    ) -> dict[str, Any]:
+        """RSI/EMA/trend read for a single symbol from live broker candles.
+
+        Returns a ``status`` of ``ok`` or ``unavailable`` (with a reason) and
+        never fabricates values when data cannot be fetched.
+        """
+        symbol = symbol.upper().strip()
+        exchange = exchange.upper().strip()
+        if self.client is None:
+            return {"status": "unavailable", "reason": "broker not configured"}
+        end = date.today()
+        start = end - timedelta(days=lookback_days)
+        try:
+            response = self.client.historical(
+                symbol=symbol,
+                exchange=exchange,
+                interval=interval,
+                start_date=start.isoformat(),
+                end_date=end.isoformat(),
+            )
+            candles = response.get("data") or []
+            closes = [float(row["close"]) for row in candles]
+        except Exception as exc:  # noqa: BLE001 - reported, not fabricated
+            return {"status": "unavailable", "reason": str(exc)[:160]}
+        if len(closes) < max(period + 1, 55):
+            return {
+                "status": "unavailable",
+                "reason": f"only {len(closes)} candles returned",
+            }
+        last = closes[-1]
+        rsi_value = round(_rsi(closes, period)[-1], 2)
+        ema20 = round(_ema(closes, 20)[-1], 2)
+        ema50 = round(_ema(closes, 50)[-1], 2)
+        if ema20 > ema50 and last > ema50:
+            trend = "uptrend"
+        elif ema20 < ema50 and last < ema50:
+            trend = "downtrend"
+        else:
+            trend = "sideways"
+        if rsi_value >= 70:
+            momentum = "overbought"
+        elif rsi_value <= 30:
+            momentum = "oversold"
+        else:
+            momentum = "neutral"
+        return {
+            "status": "ok",
+            "symbol": symbol,
+            "exchange": exchange,
+            "last_close": round(last, 2),
+            "rsi": rsi_value,
+            "ema20": ema20,
+            "ema50": ema50,
+            "trend": trend,
+            "momentum": momentum,
+            "candles_used": len(closes),
+        }
+
     def list_symbols(self) -> dict[str, Any]:
         con = connect(self.db_path)
         try:

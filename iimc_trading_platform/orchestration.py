@@ -1042,6 +1042,32 @@ class OfflineOrchestrator:
                     "financial statements in the Data tab first."
                 ),
             )
+        # Broad "research / deep dive / analyse SYMBOL" → the multi-analyst
+        # research agent. Runs after the fundamentals and document routes so
+        # "analyse X fundamentally" and "analyse the X report" keep their
+        # dedicated handlers.
+        if (
+            "deep_research" in tool_names
+            and re.search(
+                r"\b(?:research|deep[\s-]*dive|full\s+analysis|briefing"
+                r"|analy[sz]e|analysis\s+of|overview\s+of|study|look\s+into)\b",
+                text,
+            )
+            and not re.search(r"\bfundamental", text)
+            and not re.search(
+                r"\b(?:document|doc|report|filing|transcript)\b", text
+            )
+            and not _is_strategy_creation_request(text)
+        ):
+            research_symbol = _symbol_from_text(message)
+            if research_symbol:
+                return OrchestrationDecision(
+                    "deep_research",
+                    {
+                        "symbol": research_symbol,
+                        "exchange": _exchange_from_text(message, default="NSE"),
+                    },
+                )
         if (
             "get_research_context" in tool_names
             and any(
@@ -2745,6 +2771,10 @@ def _symbol_from_text(text: str) -> str | None:
         # e.g. "backtest AN EMA crossover ON WIPRO".
         "A", "AN", "AS", "AT", "BE", "BY", "DO", "IF", "IN", "IS", "IT",
         "OF", "ON", "OR", "SO", "TO", "UP", "WE", "AM", "US",
+        # Research/analysis verbs, e.g. "ANALYZE RELIANCE", "RESEARCH TCS".
+        "ANALYZE", "ANALYSE", "ANALYSIS", "RESEARCH", "STUDY", "REVIEW",
+        "SUMMARIZE", "SUMMARISE", "EXPLAIN", "TELL", "SHOW", "DEEP", "DIVE",
+        "FULL", "OVERVIEW", "BRIEFING", "LOOK", "INTO", "STORY",
         "ABOUT",
         "AND",
         "ANY",
@@ -2995,6 +3025,90 @@ def _name_suffix(symbol: Any, row: dict[str, Any]) -> str:
         row.get("exchange") or "NSE",
     )
     return f" ({name})" if name else ""
+
+
+def _render_research_briefing(result: dict[str, Any]) -> str:
+    """Deterministic multi-analyst briefing from gathered findings.
+
+    Used when no LLM is configured; otherwise the LLM composes a thesis from
+    the same structured findings. Only reports real data — unavailable
+    specialists are stated plainly.
+    """
+    symbol = result.get("symbol", "?")
+    name = result.get("company_name", symbol)
+    lines = [f"# {name} ({symbol}) — research briefing", ""]
+
+    valuation = result.get("valuation", {})
+    if valuation.get("available"):
+        ltp = valuation.get("ltp")
+        rng = []
+        if valuation.get("open") is not None:
+            rng.append(f"open ₹{valuation['open']}")
+        if valuation.get("high") is not None and valuation.get("low") is not None:
+            rng.append(f"day ₹{valuation['low']}–₹{valuation['high']}")
+        lines.append(
+            f"**Price:** ₹{ltp}" + (f" · {' · '.join(rng)}" if rng else "")
+        )
+    else:
+        lines.append(
+            f"**Price:** live quote unavailable ({valuation.get('reason', 'n/a')})."
+        )
+
+    technicals = result.get("technicals", {})
+    if technicals.get("available"):
+        lines.append(
+            f"**Technicals:** {technicals.get('trend')} · RSI "
+            f"{technicals.get('rsi')} ({technicals.get('momentum')}) · "
+            f"EMA20 ₹{technicals.get('ema20')} vs EMA50 ₹{technicals.get('ema50')}."
+        )
+    else:
+        lines.append(
+            f"**Technicals:** unavailable ({technicals.get('reason', 'n/a')})."
+        )
+
+    fundamentals = result.get("fundamentals", {})
+    if fundamentals.get("available"):
+        ratios = fundamentals.get("ratios", {})
+        shown = ", ".join(
+            f"{key.replace('_', ' ')} {value}"
+            for key, value in list(ratios.items())[:6]
+        )
+        period = fundamentals.get("period")
+        lines.append(
+            f"**Fundamentals**"
+            + (f" ({period})" if period else "")
+            + f": {shown}."
+        )
+    else:
+        lines.append(
+            "**Fundamentals:** none imported yet — add statements in the Data "
+            "tab to include them."
+        )
+
+    news = result.get("news", {})
+    if news.get("available"):
+        lines.append("**Recent news:**")
+        for headline in news.get("headlines", [])[:5]:
+            source = headline.get("source") or "unknown"
+            lines.append(f"- {headline.get('title')} ({source})")
+    else:
+        lines.append(
+            f"**Recent news:** unavailable ({news.get('reason', 'n/a')})."
+        )
+
+    gaps = result.get("gaps", [])
+    if gaps:
+        lines.append("")
+        lines.append(
+            "_This briefing summarises the data available now; missing pieces: "
+            + "; ".join(gap.split(":")[0] for gap in gaps)
+            + "._"
+        )
+    lines.append("")
+    lines.append(
+        "_Balanced summary of real data, not investment advice._"
+    )
+    return "\n".join(lines)
 
 
 def _render_account_snapshot(result: dict[str, Any]) -> str:
@@ -3319,6 +3433,8 @@ def _grounded_fallback_response(
             f"You can now ask: 'analyze document {result.get('title')}' or "
             "'search knowledge <topic>'."
         )
+    if tool_name == "deep_research":
+        return _render_research_briefing(result)
     if tool_name == "find_and_analyze_document":
         chunks = result.get("chunks", [])
         excerpt_lines = []

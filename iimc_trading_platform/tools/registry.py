@@ -267,6 +267,11 @@ class FindAndAnalyzeDocumentInput(ToolInput):
     max_chunks: int = Field(default=8, ge=1, le=50)
 
 
+class DeepResearchInput(ToolInput):
+    symbol: str = Field(min_length=1, max_length=40)
+    exchange: str = Field(default="NSE", max_length=20)
+
+
 class FundamentalAnalysisInput(ToolInput):
     symbol: str = Field(min_length=1, max_length=40)
     market_price: float | None = Field(default=None, gt=0)
@@ -600,6 +605,11 @@ def build_default_tool_registry(
     platform_dashboard = PlatformDashboardService(active_config)
     personas = PersonaService(db_path)
     instruments = InstrumentDiscoveryService(active_config)
+    from ..services.research_agent_service import ResearchAgentService
+
+    research_agent = ResearchAgentService(
+        fundamentals, news, instruments, _screener(db_path)
+    )
     sandbox_read = SandboxExecutionService(
         db_path,
         AuditService(DuckDBAuditRepository(db_path)),
@@ -953,6 +963,35 @@ def build_default_tool_registry(
                 retry_safe=True,
                 capabilities=ToolCapabilityMetadata(
                     actions=("retrieve", "import"),
+                    execution_modes=("research",),
+                    risk_level="low",
+                ),
+            ),
+            ToolDefinition(
+                name="deep_research",
+                description=(
+                    "Produce a multi-analyst research briefing for a stock: "
+                    "fans out to valuation, fundamentals, technicals, and news "
+                    "specialists in parallel and returns structured findings to "
+                    "synthesize into a balanced thesis. Read-only; never places "
+                    "or prepares orders; unavailable sections are reported, not "
+                    "fabricated. Use for 'research/analyse/deep dive on SYMBOL'."
+                ),
+                input_model=DeepResearchInput,
+                handler=lambda value: research_agent.run(
+                    DeepResearchInput.model_validate(value.model_dump()).symbol,
+                    DeepResearchInput.model_validate(
+                        value.model_dump()
+                    ).exchange,
+                ),
+                side_effects=(
+                    "read-only: parallel quote/fundamentals/technicals/news "
+                    "lookups"
+                ),
+                retry_safe=True,
+                capabilities=ToolCapabilityMetadata(
+                    actions=("research", "analyze", "retrieve"),
+                    asset_classes=("equity",),
                     execution_modes=("research",),
                     risk_level="low",
                 ),
