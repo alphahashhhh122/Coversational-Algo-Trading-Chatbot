@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>IIMC Trading Research Workspace</title>
-  <link rel="stylesheet" href="/static/styles.css?v=20260721b">
+  <link rel="stylesheet" href="/static/styles.css?v=20260721c">
 </head>
 <body>
   <div class="app-shell">
@@ -113,6 +113,17 @@
             </form>
           </section>
 
+          <aside class="landing-aside">
+            <section class="landing-news">
+              <div class="panel-heading compact-heading">
+                <div>
+                  <h2>Market headlines</h2>
+                  <p id="landing-news-status">Loading headlines…</p>
+                </div>
+                <button class="icon-button" id="landing-news-refresh" title="Refresh headlines" aria-label="Refresh headlines">↻</button>
+              </div>
+              <div class="landing-news-list" id="landing-news-list"></div>
+            </section>
           <details class="guide-panel">
             <summary>How to use this platform — step by step</summary>
             <ol class="guide-steps">
@@ -124,6 +135,7 @@
             </ol>
             <p class="guide-note">Paper mode is the default and uses simulated money. Live trading only activates behind risk checks and your explicit approval — the red LIVE banner in Execution tells you which mode you're in.</p>
           </details>
+          </aside>
         </div>
       </section>
 
@@ -707,6 +719,6 @@
     </form>
   </div>
   <div class="toast" id="toast" role="status"></div>
-  <script src="/static/app.js?v=20260721b" defer></script>
+  <script src="/static/app.js?v=20260721c" defer></script>
 </body>
 </html>

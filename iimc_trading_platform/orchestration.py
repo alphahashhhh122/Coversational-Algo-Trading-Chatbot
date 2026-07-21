@@ -441,9 +441,9 @@ class OfflineOrchestrator:
                 tool_name=None,
                 arguments={},
                 direct_response=(
-                    "Hello! I can help with instrument quotes, market news, "
-                    "data imports, strategy creation in plain language, "
-                    "backtests, readiness checks, and paper-order preparation. "
+                    "Hello! I can help with live quotes and market news, "
+                    "company research, building and backtesting a strategy in "
+                    "plain language, and placing or tracking orders. "
                     "What would you like to do?"
                 ),
                 authoritative=True,
@@ -464,8 +464,8 @@ class OfflineOrchestrator:
                     "human approval are enforced by the platform itself — "
                     "they cannot be bypassed, skipped, or simulated through "
                     "conversation. No order has been placed. If you want to "
-                    "trade, I can prepare a governed order intent that you "
-                    "approve explicitly."
+                    "trade, I can prepare an order for you to approve "
+                    "explicitly."
                 ),
                 authoritative=True,
             )
@@ -475,6 +475,13 @@ class OfflineOrchestrator:
                 tool_name=None,
                 arguments={},
                 direct_response=_domain_refusal_response(off_topic_category),
+                authoritative=True,
+            )
+        if _is_open_ended_advice(text, message):
+            return OrchestrationDecision(
+                tool_name=None,
+                arguments={},
+                direct_response=_open_ended_advice_response(),
                 authoritative=True,
             )
         if (
@@ -2158,8 +2165,8 @@ def _educational_response(concept: str) -> str:
         return known
     return (
         f"I don't have a built-in explanation for '{concept}', but you can "
-        f"try: 'search knowledge {concept}' to check the governed document "
-        f"base, or ask about specific indicators (RSI, EMA, MACD, "
+        f"try: 'search knowledge {concept}' to check your uploaded "
+        f"documents, or ask about specific indicators (RSI, EMA, MACD, "
         f"Bollinger, VWAP, ATR), strategies (intraday, swing, momentum, "
         f"value investing), or concepts (stop loss, PE ratio, Sharpe ratio, "
         f"drawdown, options, candlestick patterns)."
@@ -2214,6 +2221,54 @@ def _domain_refusal_response(category: str) -> str:
         "- **Strategies**: describe one in plain language and I'll compile "
         "and backtest it\n"
         "- **Your account**: 'show my positions', 'my fund balance'"
+    )
+
+
+_ADVICE_PATTERNS = (
+    r"which\s+stock",
+    r"what\s+stock",
+    r"which\s+share",
+    r"best\s+stock",
+    r"best\s+share",
+    r"top\s+stock",
+    r"what\s+should\s+i\s+(?:buy|invest|trade)",
+    r"what\s+to\s+(?:buy|invest)",
+    r"recommend\s+(?:a\s+)?(?:stock|share|trade)",
+    r"stock\s+tip",
+    r"multibagger",
+    r"best\s+investment",
+    r"which\s+stocks?\s+to\s+(?:buy|invest|trade)",
+    r"good\s+stock\s+to\s+buy",
+)
+
+
+def _is_open_ended_advice(text: str, message: str) -> bool:
+    """Detect vague 'what should I buy' asks with no concrete instrument.
+
+    These are personalised-recommendation requests the platform cannot and
+    should not answer blindly. If the user already named a ticker we let the
+    normal tools handle it.
+    """
+    if not any(re.search(pattern, text) for pattern in _ADVICE_PATTERNS):
+        return False
+    # If they named a concrete uppercase ticker, treat it as a specific ask.
+    if re.search(r"\b[A-Z]{3,}\b", message):
+        return False
+    return True
+
+
+def _open_ended_advice_response() -> str:
+    return (
+        "I'm not a licensed financial adviser, so I can't tell you which "
+        "stock to buy or pick one for you. But I can help you decide with "
+        "real data — tell me what you're after and I'll run it:\n"
+        "- **Screen by a rule**, e.g. 'find NIFTY 50 stocks where RSI is "
+        "below 30' or 'stocks near their 52-week low'\n"
+        "- **Analyse a specific company**, e.g. 'analyse RELIANCE "
+        "fundamentally' or 'price and news for HDFCBANK'\n"
+        "- **Backtest an idea**, e.g. 'backtest an EMA crossover on "
+        "INFY'\n\n"
+        "Which of these would you like, and on which stock or index?"
     )
 
 
@@ -3451,10 +3506,12 @@ def _grounded_fallback_response(
         )
     if tool_name == "prepare_live_order_intent":
         return (
-            f"Prepared live order intent {result['intent_id']} for "
-            f"{result['symbol']} {result['side']} {result['quantity']}. "
-            f"Approval {result['approval_id']} is mandatory before OpenAlgo "
-            "live submission."
+            f"⚠ **LIVE order ready for your approval**\n"
+            f"- {result['side']} {result['quantity']} {result['symbol']} "
+            f"({result.get('exchange', 'NSE')})\n\n"
+            "This will place a **real** order with real money. Reply "
+            "**approve** to send it to your broker, or ignore it to cancel. "
+            "Nothing has been placed yet."
         )
     if tool_name == "assess_dataset_freshness":
         return (

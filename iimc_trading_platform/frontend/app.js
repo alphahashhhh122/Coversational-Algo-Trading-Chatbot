@@ -427,19 +427,59 @@ function renderMarketNewsPanel(message = "") {
   const articles = news.articles || [];
   const statusText = message || (
     configured
-      ? `${formatNumber(articles.length, 0)} stored provider-backed headline(s)`
-      : "Market news provider is not configured; no fake headlines are generated."
+      ? `${formatNumber(articles.length, 0)} headline(s)`
+      : "News provider not configured yet."
   );
-  $("#market-news-status").textContent = statusText;
-  $("#market-news-status").className = `market-news-status ${configured ? "ready" : "attention"}`;
-  $("#market-news-list").innerHTML = articles.length
-    ? articles.map((article) => `
-      <article class="market-news-item">
-        <strong>${escapeHtml(article.title)}</strong>
-        <span>${escapeHtml(article.source || "unknown")} · ${escapeHtml(article.published_at || article.retrieved_at || "stored")}</span>
-      </article>
-    `).join("")
-    : `<div class="empty-state">No stored provider-backed headlines.</div>`;
+  const status = $("#market-news-status");
+  if (status) {
+    status.textContent = statusText;
+    status.className = `market-news-status ${configured ? "ready" : "attention"}`;
+  }
+  const list = $("#market-news-list");
+  if (list) {
+    list.innerHTML = articles.length
+      ? articles.map((article) => `
+        <article class="market-news-item">
+          <strong>${escapeHtml(article.title)}</strong>
+          <span>${escapeHtml(article.source || "unknown")} · ${escapeHtml(article.published_at || article.retrieved_at || "stored")}</span>
+        </article>
+      `).join("")
+      : `<div class="empty-state">No headlines yet.</div>`;
+  }
+  renderLandingNews();
+}
+
+// Compact read-only headlines shown on the Chat landing page.
+function renderLandingNews() {
+  const list = $("#landing-news-list");
+  const status = $("#landing-news-status");
+  if (!list) return;
+  const news = state.marketNews || {};
+  const configured = Boolean(news.news_configured);
+  const articles = (news.articles || []).slice(0, 6);
+  if (status) {
+    status.textContent = configured
+      ? "Latest market headlines"
+      : "Connect a news provider to see headlines.";
+  }
+  list.innerHTML = articles.length
+    ? articles.map((article) => {
+      const meta = `${article.source || "unknown"} · ${article.published_at || article.retrieved_at || "stored"}`;
+      const title = escapeHtml(article.title);
+      return article.url
+        ? `<a class="market-news-item" href="${escapeHtml(article.url)}" target="_blank" rel="noopener noreferrer"><strong>${title}</strong><span>${escapeHtml(meta)}</span></a>`
+        : `<article class="market-news-item"><strong>${title}</strong><span>${escapeHtml(meta)}</span></article>`;
+    }).join("")
+    : `<div class="empty-state">No headlines yet. Ask the chat: “news for Reliance”.</div>`;
+}
+
+async function refreshLandingNews() {
+  try {
+    state.marketNews = await api("/market-news/latest?limit=6");
+  } catch (error) {
+    // Keep whatever is cached.
+  }
+  renderLandingNews();
 }
 
 async function submitMarketNews(event) {
@@ -1836,6 +1876,9 @@ async function submitChat(event) {
     if (tradeIntents.includes(payload.intent)) {
       loadLiveTrades().catch(() => {});
     }
+    if (String(payload.intent || "").includes("news")) {
+      refreshLandingNews().catch(() => {});
+    }
   } catch (error) {
     typing.remove();
     appendMessage("assistant", error.message, "error");
@@ -3142,6 +3185,9 @@ function wireEvents() {
   });
   $("#live-trades-refresh")?.addEventListener("click", () => {
     loadLiveTrades().catch(() => {});
+  });
+  $("#landing-news-refresh")?.addEventListener("click", () => {
+    refreshLandingNews().catch(() => {});
   });
   $("#chat-input").addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !event.shiftKey) {
