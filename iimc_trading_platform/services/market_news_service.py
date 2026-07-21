@@ -282,6 +282,13 @@ class MarketNewsService:
             return "Indian stock market"
         if normalized in {"nifty", "nifty 50"}:
             return "NIFTY stock market"
+        # A bare ticker/common word (e.g. "reliance") returns noisy results;
+        # the full company name ("Reliance Industries") is far more specific.
+        from .instrument_names import company_name
+
+        name = company_name(symbol) if symbol else None
+        if name:
+            return name
         return query or symbol or "market"
 
     def _redact_secret(self, value: str) -> str:

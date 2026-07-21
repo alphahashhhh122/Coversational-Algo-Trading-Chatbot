@@ -2514,13 +2514,17 @@ def _market_query_from_text(message: str) -> str:
     without_request_words = re.sub(
         r"\b(what|is|the|market|status|scenario|price|share|stock|current|"
         r"latest|live|quote|quotes|ltp|rate|of|for|please|tell|me|whats|what's|"
-        r"and|about|how|then)\b",
+        r"and|about|how|then|news|headline|headlines|update|updates|outlook|"
+        r"research|today|recent|recently|give|show|get|any|week|next|trend|"
+        r"trending|happening|going|on)\b",
         " ",
         normalized_message,
         flags=re.IGNORECASE,
     )
     query = re.sub(r"\s+", " ", without_request_words).strip(" ?,.!:")
-    return query[:200] or message[:200]
+    # A bare "latest market news" leaves nothing — fall back to a clean,
+    # relevant default rather than echoing the request words back.
+    return query[:200] or "Indian stock market"
 
 
 def _tool_arguments(raw_arguments: str | None) -> dict[str, Any]:
@@ -2654,7 +2658,9 @@ def _strategy_parameters(text: str, strategy_name: str) -> dict[str, Any]:
 def _symbol_from_text(text: str) -> str | None:
     upper = text.upper()
     excluded = {
+        "ABOUT",
         "AND",
+        "ANY",
         "API",
         "ATM",
         "BUY",
@@ -2665,12 +2671,20 @@ def _symbol_from_text(text: str) -> str | None:
         "EMA",
         "FOR",
         "FUTURES",
+        "GET",
+        "GIVE",
+        "HAPPENING",
+        "HEADLINE",
+        "HEADLINES",
         "IV",
+        "LATEST",
         "LIMIT",
         "LIVE",
         "MARKET",
         "MIS",
         "MY",
+        "NEWS",
+        "NEXT",
         "NFO",
         "NRML",
         "NSE",
@@ -2678,20 +2692,32 @@ def _symbol_from_text(text: str) -> str | None:
         "OPTION",
         "OPTIONS",
         "ORDER",
+        "OUTLOOK",
         "PAPER",
         "PE",
         "PREPARE",
         "PUT",
+        "RECENT",
+        "RESEARCH",
         "RISK",
         "ROC",
         "RSI",
+        "SCENARIO",
         "SELL",
+        "SHOW",
         "SL",
         "SMA",
         "SPEC",
         "STRATEGY",
         "THE",
+        "TODAY",
+        "TREND",
+        "TRENDING",
+        "UPDATE",
+        "UPDATES",
+        "VIEW",
         "WANT",
+        "WEEK",
         "YOUR",
     }
     for pattern in (
