@@ -17,7 +17,6 @@ const state = {
   retrievalEvaluations: [],
   retention: null,
   alerts: [],
-  openalgoSnapshots: [],
   openalgoMonitor: null,
   marketNews: null,
   personas: [],
@@ -25,7 +24,6 @@ const state = {
   customStrategySpecs: [],
   nlCompiledResult: null,
   platformSummary: null,
-  operatorReview: null,
   dashboardWidgets: JSON.parse(
     localStorage.getItem("iimc_dashboard_widgets")
     || '["research","assets","backtests","openalgo","risk","execution"]',
