@@ -2225,20 +2225,20 @@ def _domain_refusal_response(category: str) -> str:
 
 
 _ADVICE_PATTERNS = (
-    r"which\s+stock",
-    r"what\s+stock",
-    r"which\s+share",
-    r"best\s+stock",
-    r"best\s+share",
-    r"top\s+stock",
-    r"what\s+should\s+i\s+(?:buy|invest|trade)",
-    r"what\s+to\s+(?:buy|invest)",
-    r"recommend\s+(?:a\s+)?(?:stock|share|trade)",
-    r"stock\s+tip",
-    r"multibagger",
-    r"best\s+investment",
-    r"which\s+stocks?\s+to\s+(?:buy|invest|trade)",
-    r"good\s+stock\s+to\s+buy",
+    r"\bwhat\s+should\s+i\s+(?:buy|invest|trade|pick)",
+    r"\bwhat\s+to\s+(?:buy|invest)",
+    r"\bwhich\s+(?:stock|share)s?\s+should\s+i",
+    r"\bwhat\s+(?:stock|share)s?\s+should\s+i",
+    r"\bwhich\s+(?:stock|share)s?\s+to\s+(?:buy|invest|trade)",
+    # "which stock today is best ...", "which share is the best"
+    r"\bwhich\s+(?:stock|share)\b.{0,30}\bbest\b",
+    r"\bbest\s+(?:stock|share)s?\s+to\s+(?:buy|invest|trade)",
+    r"\bbest\s+(?:stock|share)s?\s+(?:to|for|right\s+now|today|now)\b",
+    r"\brecommend\s+(?:a\s+|some\s+|me\s+)?(?:stock|share|trade)",
+    r"\bgood\s+(?:stock|share)\s+to\s+(?:buy|invest)",
+    r"\bstock\s+tip",
+    r"\bmultibagger",
+    r"\bbest\s+investment",
 )
 
 
