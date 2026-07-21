@@ -1452,16 +1452,13 @@ tbody tr:hover { background: var(--row-hover); }
 }
 
 @media (max-width: 680px) {
-  .app-shell { display: block; }
-  .sidebar {
-    position: static; width: 100%; height: auto; padding: 10px 12px;
-    flex-direction: row; align-items: center; overflow: auto;
-  }
-  .brand { padding: 0 8px 0 0; }
+  /* Keep the navigation as a slim vertical rail on the side — never a top bar. */
+  .app-shell { grid-template-columns: 60px minmax(0, 1fr); }
+  .sidebar { padding-inline: 8px; }
+  .brand span { display: none; }
   .brand-mark { width: 34px; height: 34px; }
-  nav { display: flex; }
-  .nav-item { width: 42px; min-width: 42px; padding: 0; }
-  .sidebar-footer { display: none; }
+  .nav-item { justify-content: center; }
+  .sidebar-footer a, #api-label { display: none; }
   main { padding: 0 14px 34px; }
   .topbar { align-items: flex-start; padding: 18px 0 14px; }
   .environment-badges { display: none; }

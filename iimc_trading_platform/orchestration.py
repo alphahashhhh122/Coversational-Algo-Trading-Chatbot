@@ -57,6 +57,18 @@ class Orchestrator(Protocol):
     ) -> str: ...
 
 
+def _pending_order_summary(approval: dict[str, Any]) -> str:
+    """Plain one-line summary of a pending order, e.g. 'BUY 10 RELIANCE'."""
+    side = approval.get("side")
+    quantity = approval.get("quantity")
+    symbol = approval.get("symbol")
+    if side and quantity and symbol:
+        order_type = str(approval.get("order_type") or "MARKET").lower()
+        return f"{side} {quantity} {symbol} ({order_type})"
+    action = str(approval.get("requested_action") or "order").replace("_", " ")
+    return action
+
+
 def grounded_tool_response(tool_name: str, result: dict[str, Any]) -> str:
     return _grounded_fallback_response(tool_name, result)
 
@@ -3482,12 +3494,32 @@ def _grounded_fallback_response(
     if tool_name == "square_off_all":
         return (
             "Square-off sent — all open positions are being closed at "
-            "market. Check Monitor or your broker orderbook to confirm."
+            "market. Check the Account tab or your broker orderbook to confirm."
         )
     if tool_name == "cancel_all_orders":
         return (
             "Cancel-all sent — your pending orders are being cancelled. "
-            "Check Monitor to confirm."
+            "Check the Account tab to confirm."
+        )
+    if tool_name == "list_pending_approvals":
+        approvals = result.get("approvals", [])
+        if not approvals:
+            return (
+                "You have no orders waiting for approval. Tell me an order "
+                "like 'buy 10 RELIANCE at market' to prepare one."
+            )
+        lines = [f"- {_pending_order_summary(a)}" for a in approvals[:10]]
+        if len(approvals) == 1:
+            return (
+                "You have **1 order waiting for your approval:**\n"
+                + "\n".join(lines)
+                + "\n\nReply **approve** to send it to your broker."
+            )
+        return (
+            f"You have **{len(approvals)} orders waiting for your "
+            "approval:**\n" + "\n".join(lines)
+            + "\n\nReply **approve** to send the most recent, or name the one "
+            "you want."
         )
     if tool_name == "approve_pending_order":
         status = result.get("status")
@@ -3497,24 +3529,24 @@ def _grounded_fallback_response(
             )
         if status == "not_found":
             return (
-                f"I couldn't find a pending order for {result.get('intent_id')}. "
+                f"I couldn't find that pending order. "
                 "Say 'show pending orders' to see what's waiting."
             )
         if status == "multiple_pending":
             lines = [
-                f"- {a['intent_id']}: {a['requested_action']}"
+                f"- {_pending_order_summary(a)}"
                 for a in result.get("approvals", [])[:10]
             ]
             return (
-                "You have several orders waiting. Which one? Say "
-                "'approve <intent_id>':\n" + "\n".join(lines)
+                "You have several orders waiting — which one?\n"
+                + "\n".join(lines)
             )
         broker = result.get("broker_order_id")
         return (
             f"Approved and submitted. Order status: "
             f"**{result.get('order_status')}**"
             + (f" · broker order {broker}" if broker else "")
-            + ". You can see it in Monitor and in your broker's orderbook."
+            + ". You can see it in the Account tab and in your broker's orderbook."
         )
     if tool_name == "prepare_direct_order":
         approval = result.get("approval_id")

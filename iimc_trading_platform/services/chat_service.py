@@ -105,6 +105,7 @@ class ChatService:
         "prepare_sandbox_order_intent",
         "prepare_live_order_intent",
         "run_technical_screen",
+        "list_pending_approvals",
     }
 
     def answer(

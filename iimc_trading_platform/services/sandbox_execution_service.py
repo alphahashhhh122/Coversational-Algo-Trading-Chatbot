@@ -857,11 +857,14 @@ class SandboxExecutionService:
         try:
             rows = con.execute(
                 """
-                SELECT approval_id, entity_id, requested_action, requested_by,
-                       created_at
-                FROM approval_requests
-                WHERE status = 'pending'
-                ORDER BY created_at
+                SELECT a.approval_id, a.entity_id, a.requested_action,
+                       a.requested_by, a.created_at,
+                       i.symbol, i.exchange, i.side, i.quantity, i.order_type,
+                       i.execution_mode
+                FROM approval_requests a
+                LEFT JOIN order_intents i ON i.intent_id = a.entity_id
+                WHERE a.status = 'pending'
+                ORDER BY a.created_at
                 """
             ).fetchall()
         finally:
@@ -874,6 +877,12 @@ class SandboxExecutionService:
                     "requested_action": row[2],
                     "requested_by": row[3],
                     "created_at": row[4],
+                    "symbol": row[5],
+                    "exchange": row[6],
+                    "side": row[7],
+                    "quantity": row[8],
+                    "order_type": row[9],
+                    "execution_mode": row[10],
                 }
                 for row in rows
             ]
