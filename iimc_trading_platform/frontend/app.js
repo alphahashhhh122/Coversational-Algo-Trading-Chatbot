@@ -1862,6 +1862,7 @@ async function submitChat(event) {
     });
     typing.remove();
     appendMessage("assistant", payload.answer, "", { stream: true });
+    maybeRenderApprovalPrompt(payload);
     if (["get_openalgo_snapshot", "get_openalgo_monitor"].includes(payload.intent)) {
       try {
         await loadAccount();
@@ -1886,6 +1887,52 @@ async function submitChat(event) {
     $("#send-button").disabled = false;
     input.focus();
   }
+}
+
+// When the assistant prepares an order, show clickable Approve / Cancel
+// buttons right in the chat so the client never leaves the conversation.
+function maybeRenderApprovalPrompt(payload) {
+  const orderIntents = ["prepare_direct_order", "prepare_live_order_intent"];
+  if (!orderIntents.includes(payload.intent)) return;
+  const data = payload.data || {};
+  const intentId = data.intent_id;
+  const pending = data.status === "pending_approval" || data.approval_id;
+  if (!intentId || !pending) return;
+  const isLive = payload.intent === "prepare_live_order_intent";
+  const summary = [data.side, data.quantity, data.symbol]
+    .filter(Boolean).join(" ");
+
+  const prompt = document.createElement("div");
+  prompt.className = `approval-prompt${isLive ? " live" : ""}`;
+  prompt.innerHTML = `
+    <div class="approval-text">
+      ${isLive ? "⚠ <strong>LIVE order</strong> — real money. " : ""}
+      Approve ${summary ? `<strong>${escapeHtml(summary)}</strong>` : "this order"}?
+    </div>
+    <div class="approval-actions">
+      <button type="button" class="primary-button approval-approve">✓ Approve &amp; send</button>
+      <button type="button" class="secondary-button approval-cancel">Cancel</button>
+    </div>
+  `;
+  $("#messages").appendChild(prompt);
+  $("#messages").scrollTop = $("#messages").scrollHeight;
+
+  const disable = () => prompt.querySelectorAll("button").forEach((b) => (b.disabled = true));
+  prompt.querySelector(".approval-approve").addEventListener("click", () => {
+    if (isLive && !window.confirm(
+      `Place a REAL live order (${summary || "this order"}) with real money?`,
+    )) return;
+    disable();
+    prompt.classList.add("resolved");
+    $("#chat-input").value = `approve ${intentId}`;
+    $("#chat-form").requestSubmit();
+  });
+  prompt.querySelector(".approval-cancel").addEventListener("click", () => {
+    disable();
+    prompt.classList.add("resolved");
+    prompt.querySelector(".approval-text").innerHTML =
+      "Cancelled — nothing was sent to your broker.";
+  });
 }
 
 function renderRuns() {

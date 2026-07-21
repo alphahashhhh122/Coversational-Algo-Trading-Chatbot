@@ -929,6 +929,12 @@ tbody tr:hover { background: var(--row-hover); }
 }
 .openalgo-status-card strong { font-size: 12px; text-transform: uppercase; }
 .openalgo-status-card span { margin-top: 5px; color: var(--muted); font-size: 12px; }
+.approval-prompt { margin: 4px 0 12px; padding: 12px 14px; border: 1px solid var(--accent); border-radius: 8px; background: var(--surface-soft); display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.approval-prompt.live { border-color: #e74c3c; background: color-mix(in srgb, #e74c3c 8%, transparent); }
+.approval-prompt.resolved { border-color: var(--line); background: var(--surface-soft); opacity: 0.85; }
+.approval-text { font-size: 14px; }
+.approval-actions { display: flex; gap: 8px; }
+.approval-actions .primary-button { padding: 7px 14px; }
 .landing-aside { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 .landing-news { padding: 14px 16px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
 .landing-news .panel-heading { margin-bottom: 10px; }
