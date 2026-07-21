@@ -149,7 +149,7 @@ function renderTimelineRows(events) {
       <td class="event-summary">
         ${escapeHtml(summarizeTimelineEvent(event))}
         <details>
-          <summary>Inspect stored evidence</summary>
+          <summary>Details</summary>
           <pre>${escapeHtml(JSON.stringify(event.details, null, 2))}</pre>
         </details>
       </td>
@@ -271,10 +271,6 @@ async function loadHealth() {
         modeBanner.className = "mode-banner live";
       }
     }
-    $("#orchestrator-badge").textContent = llmConfigured
-      ? `${llmProvider.toUpperCase()} orchestration`
-      : "LLM key required";
-    $("#verification-status").textContent = state.health.status === "healthy" ? "Healthy" : "Attention";
     if (checks.authentication_required) {
       if (state.token) await loadPrincipal();
       else showLogin();
@@ -506,45 +502,45 @@ function renderCommandCenter(documentCount) {
 
   $("#capability-list").innerHTML = [
     capabilityStatus(
-      "LLM orchestration",
+      "Assistant",
       llmConfigured ? "configured" : "key required",
-      `${llmProvider.toUpperCase()} routes natural-language requests into governed tools; final mode requires a configured model key.`,
+      "Understands plain-language requests about markets, your account, strategies, and trades. Needs a model key to run.",
       llmConfigured ? "ready" : "attention",
     ),
     capabilityStatus(
       "Market research",
       datasetCount ? "ready" : "needs data",
-      `${formatNumber(datasetCount, 0)} governed dataset(s), ${formatNumber(documentCount, 0)} searchable document(s).`,
+      `${formatNumber(datasetCount, 0)} dataset(s), ${formatNumber(documentCount, 0)} searchable document(s).`,
       datasetCount ? "ready" : "attention",
     ),
     capabilityStatus(
       "Backtesting",
       strategyCount ? "ready" : "needs strategies",
-      `${formatNumber(strategyCount, 0)} registered strategy engine(s) with stored run evidence.`,
+      `${formatNumber(strategyCount, 0)} strategy engine(s) available. History is fetched automatically when needed.`,
       strategyCount ? "ready" : "attention",
     ),
     capabilityStatus(
       "Paper trading",
       openalgoConfigured ? "credentialed" : "credential required",
-      "OpenAlgo analyzer submission requires credentials, analyzer mode, and a risk-approved decision.",
+      "Paper orders route to your broker's practice account. Needs broker credentials and your approval.",
       openalgoConfigured ? "gated" : "attention",
     ),
     capabilityStatus(
       "Live trading",
       liveEnabled ? "enabled" : "disabled",
-      "Live execution is blocked unless explicitly configured and still follows backend risk gates.",
+      "Live orders are blocked unless enabled, and always require your explicit approval.",
       liveEnabled ? "gated" : "blocked",
     ),
     capabilityStatus(
       "Strategy personas",
       personaCount ? "ready" : "needs profiles",
-      `${formatNumber(personaCount, 0)} governed persona profile(s) available for strategy bias, risk rules, and dashboard focus.`,
+      `${formatNumber(personaCount, 0)} persona profile(s) that shape strategy bias and risk rules.`,
       personaCount ? "ready" : "attention",
     ),
     capabilityStatus(
-      "Multi-asset readiness",
+      "Multi-asset support",
       `${formatNumber(assetsWithData, 0)} with data`,
-      "Equity, derivatives, commodity, and crypto requests are validated per symbol/provider before use.",
+      "Equities, derivatives, commodities, and crypto are checked per symbol before use.",
       assetsWithData ? "ready" : "attention",
     ),
   ].join("");
@@ -595,14 +591,14 @@ function renderDashboardWidgets(latestRun) {
   const gatedPaths = Object.values(executionPaths)
     .filter((item) => item.requires_human_approval).length;
   const widgetData = {
-    research: ["Research data", formatNumber(state.datasets.reduce((sum, item) => sum + Number(item.row_count || 0), 0), 0), "Rows in governed local catalog"],
+    research: ["Research data", formatNumber(state.datasets.reduce((sum, item) => sum + Number(item.row_count || 0), 0), 0), "Rows in your local data"],
     assets: ["Asset coverage", `${formatNumber(assetsWithData, 0)} / ${formatNumber(assetsSupported, 0)}`, "Architectural support with local data availability tracked"],
     backtests: ["Backtests", formatNumber(state.runs.length, 0), latestRun ? `Latest ${latestRun.strategy || latestRun.strategy_id}` : "No completed run selected"],
     openalgo: ["OpenAlgo", state.openalgoMonitor?.status || "checking", state.openalgoMonitor?.message || "Provider status is loaded from backend"],
     risk: ["Approvals", formatNumber(state.approvals.length, 0), "Human-gated external actions"],
     execution: ["Execution gates", formatNumber(gatedPaths, 0), "Only configured live trading requires explicit approval"],
     news: ["Market news", state.platformSummary?.market_news?.configured ? "configured" : "not configured", "No provider means no fake headlines"],
-    personas: ["Personas", formatNumber(state.personas.length, 0), "Governed strategy and risk profiles available to the assistant"],
+    personas: ["Personas", formatNumber(state.personas.length, 0), "Strategy and risk profiles available to the assistant"],
   };
   $("#dashboard-widgets").innerHTML = state.dashboardWidgets.map((id) => {
     const item = widgetData[id];
@@ -639,26 +635,24 @@ function renderPersonas() {
         <article class="persona-item">
           <div>
             <strong>${escapeHtml(persona.name)}</strong>
-            <span>${escapeHtml(persona.persona_id)}</span>
           </div>
           <p>${escapeHtml(persona.description)}</p>
           <small>Assets: ${escapeHtml(assets || "none")} · Bias: ${escapeHtml(strategies || "none")}</small>
           ${riskParts.length ? `<small>Risk: ${escapeHtml(riskParts.join(" · "))}</small>` : ""}
           ${focus ? `<small>Focus: ${escapeHtml(focus)}</small>` : ""}
-          ${persona.prompt_guidance ? `<small class="persona-guidance">${escapeHtml(persona.prompt_guidance)}</small>` : ""}
         </article>
       `;
     }).join("")
-    : `<div class="empty-state">No governed personas configured.</div>`;
+    : `<div class="empty-state">No personas configured.</div>`;
 }
 
 function renderQuickActions() {
   const prompts = [
-    "What governed market data is available?",
-    "Check if RELIANCE NSE equity 5m is ready for research and execution.",
-    "Can we paper trade NIFTY options, what is blocked?",
-    "Explain the latest strategy run with signal, risk, order, fill, and performance evidence.",
-    "What is the current OpenAlgo analyzer and account readiness?",
+    "What's the price of Reliance?",
+    "Backtest an EMA crossover on HDFCBANK",
+    "What's my P&L today?",
+    "Show my positions",
+    "News for Tata Steel",
   ];
   $("#quick-actions").innerHTML = prompts.map((prompt) => `
     <button class="secondary-button quick-action" type="button" data-prompt="${escapeHtml(prompt)}">${escapeHtml(prompt)}</button>
@@ -1278,7 +1272,7 @@ async function validateCustomStrategySpec() {
     const missing = result.missing_capabilities || [];
     status.textContent = missing.length
       ? `Requires review: ${missing.map((item) => item.value || item.kind).join(", ")}`
-      : "Rules are executable by the native deterministic runtime.";
+      : "These rules are ready to backtest.";
     status.className = `custom-strategy-status ${missing.length ? "attention" : "ready"}`;
   } catch (error) {
     status.textContent = error.message;
@@ -1757,30 +1751,6 @@ async function restoreChatHistory() {
   }
 }
 
-function renderEvidence(payload) {
-  // Evidence stays backend-only (persisted + audit); no chat-side panel.
-  const container = $("#evidence-content");
-  if (!container) return;
-  $("#evidence-empty")?.classList.add("hidden");
-  container.classList.remove("hidden");
-  const ids = payload.evaluation?.evidence_ids || [];
-  container.innerHTML = `
-    <div class="evidence-item">
-      <span>Intent</span><strong>${escapeHtml(payload.intent)}</strong>
-    </div>
-    <div class="evidence-item">
-      <span>Orchestration</span><strong>${escapeHtml(payload.orchestration_mode)}</strong>
-    </div>
-    <div class="evidence-item">
-      <span>Evaluator</span><strong>${payload.evaluation?.passed ? "Passed" : "Attention required"}</strong>
-    </div>
-    <div class="evidence-item">
-      <span>Evidence IDs</span><strong>${ids.map(escapeHtml).join("<br>") || "None"}</strong>
-    </div>
-    <pre class="json-view">${escapeHtml(JSON.stringify(payload.data, null, 2))}</pre>
-  `;
-}
-
 async function submitChat(event) {
   event.preventDefault();
   const input = $("#chat-input");
@@ -1798,7 +1768,6 @@ async function submitChat(event) {
     });
     typing.remove();
     appendMessage("assistant", payload.answer, "", { stream: true });
-    renderEvidence(payload);
     if (["get_openalgo_snapshot", "get_openalgo_monitor"].includes(payload.intent)) {
       try {
         await loadAccount();
@@ -1882,8 +1851,8 @@ async function submitBacktest(event) {
       data_source: "real",
       visible_in_openalgo: false,
       explanation: payload.execution_mode === "semi_auto"
-        ? "This semi-auto run creates risk-approved paper order evidence; OpenAlgo analyzer submission uses an explicit intent."
-        : "This is an IIMC historical backtest, not OpenAlgo broker activity.",
+        ? "This paper run recorded an approved order; the actual broker submission is a separate step."
+        : "This is a historical backtest, not live broker activity.",
     }, null, 2);
     toast(`Backtest ${payload.run_id} completed`);
     await loadOverview();
@@ -1958,7 +1927,7 @@ async function loadRun(runId) {
         <div class="section-heading">
           <div>
             <h3>Performance Metrics</h3>
-            <p>Persisted summary from the research ledger, not recalculated in the browser.</p>
+            <p>Summary from the completed backtest.</p>
           </div>
         </div>
         <div class="performance-metric-grid">
@@ -1971,7 +1940,7 @@ async function loadRun(runId) {
           <canvas class="curve" id="equity-curve" width="900" height="190" aria-label="Equity curve"></canvas>
         </section>
         <section class="chart-panel">
-          <div><strong>Workflow Counts</strong><span>Persisted evidence records</span></div>
+          <div><strong>Activity Counts</strong><span>Signals, orders, and fills</span></div>
           <canvas class="curve" id="workflow-chart" width="420" height="190" aria-label="Workflow counts"></canvas>
         </section>
         <section class="chart-panel">
@@ -1983,7 +1952,7 @@ async function loadRun(runId) {
         <div class="section-heading">
           <div>
             <h3>Signal-to-fill timeline</h3>
-            <p>Chronological persisted evidence. Parent IDs connect each decision to its upstream event.</p>
+            <p>Every step of the backtest in order, from signal to fill.</p>
           </div>
           ${timeline.events.length > 40 ? `<button class="secondary-button" id="show-all-events">Show all ${formatNumber(timeline.events.length, 0)}</button>` : ""}
         </div>
@@ -2507,7 +2476,7 @@ function renderIntentActions(intent) {
     actions.push(`<button class="secondary-button intent-action" data-intent-action="submit">Submit</button>`);
   }
   if (["submitted", "open", "pending"].includes(intent.status) && hasRole("researcher")) {
-    actions.push(`<button class="secondary-button intent-action" data-intent-action="reconcile">Reconcile</button>`);
+    actions.push(`<button class="secondary-button intent-action" data-intent-action="reconcile">Check status</button>`);
   }
   if (!actions.length) return "-";
   return actions.join(" ");
@@ -2521,14 +2490,14 @@ async function handleIntentAction(action, intentId, button) {
         method: "POST",
         body: JSON.stringify({ actor: state.principal?.username || "workspace_user" }),
       });
-      toast(`Intent ${intentId} submitted to OpenAlgo analyzer`);
+      toast(`Order ${intentId} submitted to your broker`);
     }
     if (action === "reconcile") {
       await api(`/sandbox/intents/${encodeURIComponent(intentId)}/reconcile`, {
         method: "POST",
         body: JSON.stringify({ actor: state.principal?.username || "workspace_user" }),
       });
-      toast(`Intent ${intentId} reconciled`);
+      toast(`Order ${intentId} status refreshed`);
     }
     await loadOverview();
   } catch (error) {
@@ -2668,7 +2637,7 @@ async function submitKnowledgeUpload(event) {
 function renderDatasets() {
   const container = $("#dataset-list");
   if (!state.datasets.length) {
-    container.innerHTML = `<div class="empty-state">No governed datasets.</div>`;
+    container.innerHTML = `<div class="empty-state">No datasets yet.</div>`;
     return;
   }
   container.innerHTML = state.datasets.map((dataset) => {
@@ -2768,7 +2737,7 @@ async function submitOhlcvImport(event) {
       }),
     });
     resultBox.textContent = JSON.stringify(result, null, 2);
-    toast(`Imported ${result.row_count} governed OHLCV candles`);
+    toast(`Imported ${result.row_count} candles`);
     await loadOverview();
   } catch (error) {
     resultBox.textContent = JSON.stringify({ ok: false, message: error.message }, null, 2);
@@ -2860,7 +2829,7 @@ async function submitOptionsFeatureDerivation(event) {
       }),
     });
     resultBox.textContent = JSON.stringify(result, null, 2);
-    toast(`Derived ${result.row_count} governed options feature observations`);
+    toast(`Derived ${result.row_count} options features`);
     await loadOverview();
   } catch (error) {
     resultBox.textContent = JSON.stringify({ ok: false, message: error.message }, null, 2);
@@ -3078,7 +3047,7 @@ function wireEvents() {
   $("#save-nl-strategy").addEventListener("click", saveNlStrategy);
   $("#custom-strategy-template").addEventListener("change", () => {
     $("#custom-strategy-description").value = (
-      `Local governed ${$("#custom-strategy-template").selectedOptions[0].textContent} strategy.`
+      `My ${$("#custom-strategy-template").selectedOptions[0].textContent} strategy.`
     );
     syncCustomStrategyRules();
   });
@@ -3194,8 +3163,6 @@ function wireEvents() {
     localStorage.setItem("iimc_chat_session", state.sessionId);
     $("#messages").innerHTML = "";
     appendMessage("assistant", "New session started. What would you like to look at?");
-    $("#evidence-content")?.classList.add("hidden");
-    $("#evidence-empty")?.classList.remove("hidden");
   });
   const refreshActions = {
     "refresh-overview": loadOverview,

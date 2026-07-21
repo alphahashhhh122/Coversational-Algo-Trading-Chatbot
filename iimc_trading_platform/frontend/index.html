@@ -21,7 +21,7 @@
           <span aria-hidden="true">◆</span> Chat
         </button>
         <button class="nav-item" data-view="runs">
-          <span aria-hidden="true">▥</span> Research
+          <span aria-hidden="true">▥</span> Backtests
         </button>
         <button class="nav-item" data-view="strategies">
           <span aria-hidden="true">ƒ</span> Strategies
@@ -58,7 +58,6 @@
         </div>
         <div class="environment-badges">
           <span class="badge" id="user-badge">Local development</span>
-          <span class="badge" id="orchestrator-badge">Loading orchestration</span>
           <span class="badge safe" id="live-badge">Live checking</span>
           <button class="secondary-button hidden" id="logout-button">Log out</button>
         </div>
@@ -68,7 +67,6 @@
         <div><span>Data</span><strong id="database-status">Checking</strong></div>
         <div><span>Assistant</span><strong id="llm-status">Checking</strong></div>
         <div><span>Broker</span><strong id="openalgo-status">Checking</strong></div>
-        <div class="hidden"><span>Verification</span><strong id="verification-status">Checking</strong></div>
       </section>
 
       <!-- ============================ CHAT ============================ -->
@@ -109,9 +107,9 @@
             <ol class="guide-steps">
               <li><strong>Research</strong> — ask the chat anything: <em>"price of Reliance"</em>, <em>"put-call ratio for Nifty"</em>, <em>"analyze TCS fundamentally"</em>, <em>"find stocks where RSI is below 30"</em>.</li>
               <li><strong>Create a strategy</strong> — describe it in plain English in the chat (e.g. <em>"Create a Reliance 5 minute strategy that buys when EMA 9 crosses above EMA 21 with a 2% stop loss"</em>), then open <strong>Strategies</strong> to review and save it.</li>
-              <li><strong>Backtest</strong> — open <strong>Research</strong>, pick your dataset and strategy, press <strong>Run backtest</strong>. You'll see trades, P&amp;L, drawdown, and the equity curve. Choose mode <strong>Semi-auto paper prep</strong> when you want to trade the signals.</li>
-              <li><strong>Paper trade</strong> — open <strong>Execution</strong>: select the run and its risk decision, press <strong>Prepare intent</strong>, then <strong>Approve</strong> it (you are the human in the loop), then <strong>Submit</strong>. The order goes to your broker's Analyzer (paper) account.</li>
-              <li><strong>See results</strong> — the <strong>Monitor</strong> tab shows your funds, positions, orders, and trades synced from the broker — and the same order appears live in <strong>OpenAlgo's own dashboard</strong> at <em>127.0.0.1:5000</em> (Orderbook / Analyzer view). Emergency buttons there let you cancel all orders or square off everything.</li>
+              <li><strong>Backtest</strong> — just ask, e.g. <em>"backtest an EMA crossover on HDFCBANK"</em>. History is fetched automatically — no manual import needed. You'll see trades, P&amp;L, drawdown, and the equity curve.</li>
+              <li><strong>Trade</strong> — tell the chat the order, e.g. <em>"buy 10 RELIANCE at market"</em> or <em>"sell 5 TCS"</em>. The assistant prepares it and asks you to confirm — reply <strong>approve</strong> and it goes to your broker. You can also <em>"square off everything"</em> or <em>"cancel all orders"</em>.</li>
+              <li><strong>See results</strong> — the <strong>Monitor</strong> tab shows your funds, positions, orders, and trades synced from the broker.</li>
             </ol>
             <p class="guide-note">Paper mode is the default and uses simulated money. Live trading only activates behind risk checks and your explicit approval — the red LIVE banner in Execution tells you which mode you're in.</p>
           </details>
@@ -247,7 +245,7 @@
           <div class="panel-heading">
             <div>
               <h2>Describe a Strategy</h2>
-              <p>Written in plain language, compiled to a governed rule spec. Nothing runs until you review and save it.</p>
+              <p>Written in plain language, turned into a clear set of rules. Nothing runs until you review and save it.</p>
             </div>
           </div>
           <form class="nl-strategy-form" id="nl-strategy-form">
@@ -272,7 +270,7 @@
           <div class="panel-heading">
             <div>
               <h2>Saved Strategies</h2>
-              <p>Governed rule specs. Executable drafts can be backtested through the native deterministic runtime.</p>
+              <p>Your saved strategies. Drafts can be backtested instantly.</p>
             </div>
           </div>
           <div class="custom-strategy-review">
@@ -318,7 +316,7 @@
                 </label>
                 <label class="custom-strategy-description">
                   <span>Description</span>
-                  <textarea id="custom-strategy-description" rows="3" required>Local governed rule-spec strategy.</textarea>
+                  <textarea id="custom-strategy-description" rows="3" required>My strategy.</textarea>
                 </label>
                 <label class="custom-strategy-description">
                   <span>Rules (editable JSON)</span>
@@ -362,7 +360,7 @@
           <div class="section-heading">
             <div>
               <h2>Company Documents</h2>
-              <p>Upload annual reports, transcripts, or research notes into the governed corpus. Ask the chat to search or analyze them.</p>
+              <p>Upload annual reports, transcripts, or research notes. Ask the chat to search or analyze them.</p>
             </div>
           </div>
           <form class="knowledge-search-form" id="knowledge-upload-form">
@@ -377,7 +375,7 @@
           <div class="section-heading">
             <div>
               <h2>Financial Statements</h2>
-              <p>Import annual or quarterly statements, then ask the chat: "analyze &lt;symbol&gt; fundamentally". Ratios are deterministic with recorded formulas.</p>
+              <p>Import annual or quarterly statements, then ask the chat: "analyze &lt;symbol&gt; fundamentally". Ratios use standard formulas.</p>
             </div>
           </div>
           <form class="knowledge-search-form" id="fundamentals-import-form">
@@ -414,7 +412,7 @@
               <div class="section-heading">
                 <div>
                   <h2>Local OHLCV Import</h2>
-                  <p>Validated equity, index, futures, options, commodity, and crypto candles for governed research.</p>
+                  <p>Equity, index, futures, options, commodity, and crypto candles for research.</p>
                 </div>
               </div>
               <form class="knowledge-search-form" id="ohlcv-import-form">
@@ -448,7 +446,7 @@
               <div class="section-heading">
                 <div>
                   <h2>Options Feature Derivation</h2>
-                  <p>Derive IV, open-interest, put/call ratio, and option-volume feature series from a governed options dataset.</p>
+                  <p>Derive IV, open-interest, put/call ratio, and option-volume series from an options dataset.</p>
                 </div>
               </div>
               <form class="knowledge-search-form" id="options-feature-form">
@@ -463,8 +461,8 @@
             <section class="rag-panel">
               <div class="section-heading">
                 <div>
-                  <h2>Governed Document Search</h2>
-                  <p>Search indexed project/RAG documents with chunk provenance.</p>
+                  <h2>Document Search</h2>
+                  <p>Search your uploaded documents.</p>
                 </div>
               </div>
               <form class="knowledge-search-form" id="knowledge-search-form">
@@ -604,7 +602,7 @@
               <div class="command-hero">
                 <div>
                   <h2>Platform Overview</h2>
-                  <p>Capabilities, governed state, and optional live dashboard widgets.</p>
+                  <p>Capabilities, status, and optional dashboard widgets.</p>
                 </div>
                 <div class="command-controls">
                   <div class="command-safety" id="command-safety">Loading controls</div>
@@ -635,7 +633,7 @@
                   <div class="panel-heading compact-heading">
                     <div>
                       <h2>Strategy Personas</h2>
-                      <p>Governed profiles for strategy bias, risk, and dashboard focus.</p>
+                      <p>Profiles that shape strategy bias, risk, and focus.</p>
                     </div>
                   </div>
                   <div class="persona-list" id="persona-list"></div>
@@ -647,20 +645,20 @@
               <div class="section-heading">
                 <div>
                   <h2>Operational Overview</h2>
-                  <p>Current governed state from the platform database.</p>
+                  <p>Current platform status.</p>
                 </div>
                 <button class="secondary-button" id="refresh-overview">Refresh</button>
               </div>
               <div class="metric-grid">
                 <div class="metric">
-                  <span>Governed rows</span>
+                  <span>Data rows</span>
                   <strong id="metric-rows">—</strong>
                   <small id="metric-quality">No dataset loaded</small>
                 </div>
                 <div class="metric">
                   <span>Recent runs</span>
                   <strong id="metric-runs">—</strong>
-                  <small>Persisted strategy executions</small>
+                  <small>Saved backtests</small>
                 </div>
                 <div class="metric">
                   <span>Pending approvals</span>
@@ -668,9 +666,9 @@
                   <small>Human decision required</small>
                 </div>
                 <div class="metric">
-                  <span>Knowledge corpus</span>
+                  <span>Documents</span>
                   <strong id="metric-documents">—</strong>
-                  <small>Governed project documents</small>
+                  <small>Saved documents</small>
                 </div>
               </div>
             </section>
