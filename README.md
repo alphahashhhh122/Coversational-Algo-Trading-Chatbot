@@ -1,26 +1,43 @@
 # Conversational Algo-Trading Platform
 
 A local-first research platform for algorithmic trading that you drive through
-plain-language chat. Ask for a quote, pull news, analyse a company, screen the
-NIFTY 50, backtest a strategy you describe in English, or place and track an
-order — all from one conversation, backed by real market data through
-[OpenAlgo](https://openalgo.in).
+plain-language chat. Ask for a quote, pull news, research a company, screen the
+NIFTY 50, backtest a strategy you describe in English, discover a profitable
+configuration, or place and track an order — all from one conversation, backed by
+real market data through [OpenAlgo](https://openalgo.in).
+
+On top of the single-tool fast path sits a small **agent layer**: parallel
+multi-analyst research, an iterative self-critiquing deep-research loop, a
+strategy-discovery optimizer, and long-term memory. Every agent is read-only or
+prepare-for-approval — none can move money on its own — and none fabricates data.
 
 Built with **FastAPI**, **DuckDB** (single-file storage), a **Groq**-routed LLM
-orchestrator with a deterministic fallback, and a dependency-free vanilla-JS
-dashboard. Live trading is off by default and every order requires your explicit
-approval.
+orchestrator with a deterministic fallback, **LangGraph** for the iterative agent,
+and a dependency-free vanilla-JS dashboard. Live trading is off by default and
+every order requires your explicit approval.
 
 ## What you can do (all from chat)
 
 - **Market data** — live quotes and news; the symbol resolver refuses rather
   than guessing, so you never get the wrong company's price.
 - **Research** — fundamental analysis from imported statements, and document
-  search over reports/transcripts you upload.
+  search over reports/transcripts. Name a document you don't have and it will
+  fetch, index, and answer from a public source on its own.
+- **Research agents** — `"research RELIANCE"` fans out to valuation,
+  fundamentals, technicals, and news specialists in parallel; `"deep dive on
+  RELIANCE"` runs an iterative loop that assesses its own coverage and pulls a
+  **cited** source when data is thin. Read-only; every claim is traceable.
+- **Memory** — `"remember that I prefer low-risk swing trades"` and `"what did
+  we find on RELIANCE"` persist your preferences and past findings across
+  sessions (stored verbatim, never inferred).
 - **Screening** — scan the NIFTY 50 for a technical condition
   (`"find NIFTY 50 stocks where RSI is below 30"`) using live candles.
 - **Backtesting** — describe a strategy in English, review the compiled rules,
   and run it. History is fetched automatically; no manual data import.
+- **Strategy discovery** — `"find a good EMA strategy for RELIANCE"` backtests a
+  parameter grid over stored history and returns a ranked leaderboard, honestly
+  flagging thin/overfit results (it will say a template lost money rather than
+  invent a winner).
 - **Trading** — `"buy 10 RELIANCE at market"` prepares an order and shows an
   inline **Approve / Cancel** card in chat. Paper mode by default; live only
   when explicitly enabled. `"square off everything"` / `"cancel all orders"`
@@ -51,16 +68,25 @@ Key modules under `iimc_trading_platform/`:
 | `orchestration.py` | LLM tool selection and grounded responses |
 | `tools/registry.py` | Typed tool contracts (schema, roles, side effects) |
 | `services/` | Backtesting, risk, screener, news, retrieval, instrument names |
+| `services/research_agent_service.py` | Parallel multi-analyst research (`asyncio`) |
+| `services/deep_research_loop_service.py` | Iterative self-critiquing research (LangGraph) |
+| `services/strategy_optimizer_service.py` | Parameter-grid strategy discovery |
+| `services/memory_service.py` | Long-term notes + per-symbol research memory |
 | `infrastructure/` | DuckDB and OpenAlgo integration |
 | `frontend/` | Browser dashboard (no framework, no CDN) |
+
+The agent layer and its guardrails are documented in
+[`docs/AGENT_ARCHITECTURE.md`](docs/AGENT_ARCHITECTURE.md).
 
 ## Safety model
 
 - Live trading is disabled unless explicitly enabled in configuration.
 - Every order — paper or live — requires explicit human approval in chat before
   it reaches the broker.
+- Agents are read-only or *prepare-for-approval*: there is no code path from an
+  agent to order submission, and each has a bounded step budget.
 - The assistant never fabricates prices, news, P&L, or backtest results; missing
-  providers fail with a plain message.
+  providers fail with a plain message, and research reports cite their sources.
 - Secrets load from a local, git-ignored `.env` — never from committed source.
 
 ## Quick start
@@ -93,13 +119,14 @@ IIMC_REQUIRE_PAPER_APPROVAL=true
 ## Testing
 
 ```bash
-python -m pytest tests/ -q
+python -m pytest tests/ -q                    # full suite (345 tests)
+python -m pytest tests/ -q -m "not integration"   # faster: skip full-app tests
 ```
 
-The suite has 300+ tests across routing, the strategy compiler, deterministic
-backtests, the risk/approval state machine, the screener, and API contracts.
-Run it as a single process — the tests share a local DuckDB file and will
-collide if two runs overlap.
+The suite has 345 tests across routing, the strategy compiler, deterministic
+backtests, the risk/approval state machine, the screener, the research agents,
+memory, and API contracts. Run it as a single process — the tests share a local
+DuckDB file and will collide if two runs overlap.
 
 ## Project structure
 
