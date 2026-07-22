@@ -2848,6 +2848,21 @@ def _symbol_from_text(text: str) -> str | None:
         # e.g. "backtest AN EMA crossover ON WIPRO".
         "A", "AN", "AS", "AT", "BE", "BY", "DO", "IF", "IN", "IS", "IT",
         "OF", "ON", "OR", "SO", "TO", "UP", "WE", "AM", "US",
+        # Question / auxiliary / common function words. The whole message is
+        # upper-cased before matching, so every ordinary word looks like a
+        # ticker — these must be filtered or "what is the market outlook" picks
+        # up "WHAT" as the symbol.
+        "WHAT", "WHATS", "WHEN", "WHENS", "WHERE", "WHY", "HOW", "HOWS",
+        "WHO", "WHOM", "WHOSE", "WHICH", "WILL", "SHALL", "SHOULD", "COULD",
+        "WOULD", "CAN", "CANT", "CANNOT", "DOES", "DID", "DOING", "ARE",
+        "AINT", "WAS", "WERE", "HAS", "HAVE", "HAD", "THIS", "THAT", "THESE",
+        "THOSE", "THERE", "THEIR", "THEY", "THEM", "HERE", "THEN", "THAN",
+        "WITH", "FROM", "OVER", "UNDER", "WHILE", "ALSO", "JUST", "VERY",
+        "MUCH", "MORE", "MOST", "SOME", "ALL", "BOTH", "EACH", "PLEASE",
+        "THANKS", "YES", "NOW", "SOON", "YEAR", "MONTH", "DAY", "DAYS",
+        "TIME", "GOING", "GONNA", "LIKE", "GOOD", "BAD", "OKAY",
+        "ME", "YOU", "HIM", "HER", "HERS", "OUR", "OURS", "MINE", "ITS",
+        "I", "HELLO", "HI", "HEY", "PLS",
         # Research/analysis verbs, e.g. "ANALYZE RELIANCE", "RESEARCH TCS".
         "ANALYZE", "ANALYSE", "ANALYSIS", "RESEARCH", "STUDY", "REVIEW",
         "SUMMARIZE", "SUMMARISE", "EXPLAIN", "TELL", "SHOW", "DEEP", "DIVE",

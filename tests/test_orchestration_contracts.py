@@ -1387,6 +1387,22 @@ class OrchestrationContractsTest(unittest.TestCase):
         self.assertEqual(decision.tool_name, "deep_research")
         self.assertEqual(decision.arguments["symbol"], "RELIANCE")
 
+    def test_offline_router_market_outlook_has_no_bogus_symbol(self) -> None:
+        registry = build_default_tool_registry(Path("unused.duckdb"))
+        for phrase in (
+            "what is the market outlook for next week",
+            "whats the outlook for the market next week",
+            "give me the latest news",
+        ):
+            decision = OfflineOrchestrator().select_tool(phrase, [], registry)
+            self.assertEqual(decision.tool_name, "get_market_news", phrase)
+            self.assertIsNone(decision.arguments.get("symbol"), phrase)
+        # A real ticker in a news question is still picked up.
+        decision = OfflineOrchestrator().select_tool(
+            "what news on RELIANCE", [], registry,
+        )
+        self.assertEqual(decision.arguments.get("symbol"), "RELIANCE")
+
     def test_offline_router_deep_dive_routes_to_loop(self) -> None:
         registry = build_default_tool_registry(Path("unused.duckdb"))
         loop = OfflineOrchestrator().select_tool(
