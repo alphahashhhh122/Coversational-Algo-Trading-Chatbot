@@ -1231,7 +1231,11 @@ class OfflineOrchestrator:
             "deep_research" in tool_names
             and re.search(
                 r"\b(?:research|deep[\s-]*dive|full\s+analysis|briefing"
-                r"|analy[sz]e|analysis\s+of|overview\s+of|study|look\s+into)\b",
+                r"|analy[sz]e|analysis\s+of|overview\s+(?:of|on)|study"
+                r"|look\s+into|run[\s-]*down|tell\s+me\s+about"
+                r"|everything\s+(?:about|worth\s+knowing)|dig\s+into|lowdown"
+                r"|full\s+(?:picture|rundown|breakdown|profile)"
+                r"|breakdown\s+of|profile\s+of)\b",
                 text,
             )
             and not re.search(r"\bfundamental", text)

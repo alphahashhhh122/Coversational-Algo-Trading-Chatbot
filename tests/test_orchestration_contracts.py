@@ -1402,6 +1402,23 @@ class OrchestrationContractsTest(unittest.TestCase):
         self.assertEqual(decision.tool_name, "deep_research")
         self.assertEqual(decision.arguments["symbol"], "RELIANCE")
 
+    def test_offline_router_natural_research_phrasings(self) -> None:
+        # Natural phrasings without the word "research" still reach the agent.
+        registry = _shared_registry()
+        for phrase in (
+            "give me a full rundown on RELIANCE",
+            "tell me about RELIANCE",
+            "everything worth knowing about TCS",
+            "dig into INFY",
+        ):
+            decision = OfflineOrchestrator().select_tool(phrase, [], registry)
+            self.assertEqual(decision.tool_name, "deep_research", phrase)
+        # But a concept with no real ticker must NOT trigger it.
+        concept = OfflineOrchestrator().select_tool(
+            "tell me about RSI", [], registry,
+        )
+        self.assertNotEqual(concept.tool_name, "deep_research")
+
     def test_offline_router_market_outlook_has_no_bogus_symbol(self) -> None:
         registry = _shared_registry()
         for phrase in (
