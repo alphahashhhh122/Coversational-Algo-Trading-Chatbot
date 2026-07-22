@@ -89,6 +89,16 @@ class WatchService:
             "status": "active",
         }
 
+    def remove_by_id(self, watch_id: str) -> dict[str, Any]:
+        con = connect(self.db_path)
+        try:
+            con.execute(
+                "DELETE FROM technical_watches WHERE watch_id = ?", [watch_id]
+            )
+        finally:
+            con.close()
+        return {"watch_id": watch_id, "status": "removed"}
+
     def remove(self, symbol: str, exchange: str = "NSE") -> dict[str, Any]:
         con = connect(self.db_path)
         try:

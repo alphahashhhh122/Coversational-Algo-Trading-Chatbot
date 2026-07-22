@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>IIMC Trading Research Workspace</title>
-  <link rel="stylesheet" href="/static/styles.css?v=20260721h">
+  <link rel="stylesheet" href="/static/styles.css?v=20260722a">
 </head>
 <body>
   <div class="app-shell">
@@ -427,6 +427,18 @@
           <button class="secondary-button account-tab" data-account="tradebook">Trades</button>
         </div>
         <div class="account-view" id="account-view">Connect your broker to see your account.</div>
+        <section class="watches-panel">
+          <div class="section-heading">
+            <div>
+              <h2>Watches</h2>
+              <p>Technical-condition monitors (RSI / price vs EMA). They only notify — they never trade. Create one in chat, e.g. “watch RELIANCE for RSI below 30”.</p>
+            </div>
+            <div class="section-actions">
+              <button class="secondary-button" id="check-watches">Check now</button>
+            </div>
+          </div>
+          <div class="watches-list" id="watches-list">Loading watches…</div>
+        </section>
         <section class="danger-zone">
           <h2>Danger zone</h2>
           <p>These act on your live broker account immediately.</p>
@@ -541,6 +553,6 @@
     </form>
   </div>
   <div class="toast" id="toast" role="status"></div>
-  <script src="/static/app.js?v=20260721h" defer></script>
+  <script src="/static/app.js?v=20260722a" defer></script>
 </body>
 </html>

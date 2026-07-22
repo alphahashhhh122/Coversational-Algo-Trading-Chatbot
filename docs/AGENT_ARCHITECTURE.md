@@ -119,7 +119,11 @@ proactively; the `check_watches` chat tool runs it on demand so it's usable and
 demoable now. A watch **only ever notifies** — it never trades or prepares an
 order — and a symbol with no data is reported as unchecked, never triggered.
 Routed from "watch RELIANCE for RSI below 30" / "check my watches" / "stop
-watching RELIANCE"; the existing watch*list* is untouched.
+watching RELIANCE"; the existing watch*list* is untouched. Watches are also
+**visible in the UI** — a Watches panel in the Account view (`GET /watches`,
+`POST /watches/check`, `DELETE /watches/{id}`) lists them with a "Check now"
+button and per-row remove — and `evaluate()` is registered as a `watch_evaluation`
+job handler so a scheduler can run it proactively.
 
 ## Roadmap
 

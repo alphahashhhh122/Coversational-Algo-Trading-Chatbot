@@ -666,6 +666,8 @@ async function loadAccount() {
     ? "Connect your broker (OpenAlgo) to see live funds, positions, and orders."
     : (monitor.message || "");
   renderOpenAlgoMonitor(monitor);
+  // Watches are independent of live account data — load them regardless.
+  loadWatches().catch(() => {});
   document.querySelectorAll(".account-tab").forEach((button) => {
     button.disabled = notConfigured;
   });
@@ -743,6 +745,69 @@ async function loadAccountView(type) {
     box.innerHTML = renderAccountData(type, payload.data);
   } catch (error) {
     box.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
+  }
+}
+
+// --- Technical watches (RSI / price-vs-EMA monitors) ---
+const _watchConditionText = (condition, threshold) => ({
+  rsi_below: `RSI below ${threshold}`,
+  rsi_above: `RSI above ${threshold}`,
+  price_above_ema20: "price above EMA20",
+  price_below_ema20: "price below EMA20",
+}[condition] || condition);
+
+function renderWatches(watches) {
+  const box = $("#watches-list");
+  if (!box) return;
+  if (!watches.length) {
+    box.innerHTML = `<div class="empty-state">No watches yet. In chat, try “watch RELIANCE for RSI below 30”.</div>`;
+    return;
+  }
+  const rows = watches.map((w) => `<tr>
+      <td><strong>${escapeHtml(w.symbol)}</strong></td>
+      <td>${escapeHtml(_watchConditionText(w.condition, w.threshold))}</td>
+      <td><span class="watch-status watch-${escapeHtml(w.status)}">${escapeHtml(w.status)}</span></td>
+      <td>${w.last_value == null ? "—" : escapeHtml(String(w.last_value))}</td>
+      <td><button class="secondary-button watch-remove" data-watch-id="${escapeHtml(w.watch_id)}">Remove</button></td>
+    </tr>`).join("");
+  box.innerHTML = `<div class="table-wrap"><table><thead><tr><th>Symbol</th><th>Condition</th><th>Status</th><th>Last</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+async function loadWatches() {
+  const box = $("#watches-list");
+  if (!box) return;
+  try {
+    const payload = await api("/watches");
+    renderWatches(payload.watches || []);
+  } catch (error) {
+    box.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
+  }
+}
+
+async function checkWatches() {
+  const button = $("#check-watches");
+  if (button) button.disabled = true;
+  try {
+    const result = await api("/watches/check", { method: "POST" });
+    const fired = (result.fired || []).length;
+    toast(fired
+      ? `${fired} watch(es) fired`
+      : `Checked ${result.checked || 0} watch(es); none fired`);
+    if ((result.errors || []).length) toast(result.errors[0]);
+    await loadWatches();
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function removeWatch(watchId) {
+  try {
+    await api(`/watches/${encodeURIComponent(watchId)}`, { method: "DELETE" });
+    await loadWatches();
+  } catch (error) {
+    toast(error.message);
   }
 }
 
@@ -2536,6 +2601,11 @@ function wireEvents() {
       button.classList.add("active");
       loadAccountView(button.dataset.account).catch(() => {});
     });
+  });
+  $("#check-watches")?.addEventListener("click", checkWatches);
+  $("#watches-list")?.addEventListener("click", (event) => {
+    const button = event.target.closest(".watch-remove");
+    if (button) removeWatch(button.dataset.watchId);
   });
   document.querySelectorAll(".emergency-button").forEach((button) => {
     button.addEventListener("click", async () => {

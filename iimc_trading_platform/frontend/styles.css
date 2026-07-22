@@ -960,6 +960,11 @@ tbody tr:hover { background: var(--row-hover); }
 .account-funds span { display: block; color: var(--muted); font-size: 12px; }
 .account-funds strong { display: block; margin-top: 4px; font-size: 18px; }
 .account-total { margin-top: 10px; text-align: right; font-size: 14px; }
+.watches-panel { margin-top: 24px; }
+.watches-panel .section-heading p { max-width: 640px; }
+.watch-status { text-transform: capitalize; font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border, #ddd); }
+.watch-status.watch-active { color: #1e7e34; border-color: color-mix(in srgb, #1e7e34 40%, transparent); background: color-mix(in srgb, #1e7e34 8%, transparent); }
+.watch-status.watch-triggered { color: #b8860b; border-color: color-mix(in srgb, #b8860b 45%, transparent); background: color-mix(in srgb, #b8860b 10%, transparent); }
 .danger-zone { margin-top: 24px; padding: 16px; border: 1px solid #e74c3c; border-radius: 6px; background: color-mix(in srgb, #e74c3c 6%, transparent); }
 .danger-zone h2 { margin: 0 0 4px; font-size: 15px; color: #c0392b; }
 .danger-zone p { margin: 0 0 12px; color: var(--muted); font-size: 13px; }

@@ -35,6 +35,29 @@ class PlatformApiRoutesTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
 
+    def test_watches_endpoints_list_check_and_remove(self) -> None:
+        from iimc_trading_platform.services.screener_service import ScreenerService
+        from iimc_trading_platform.services.watch_service import WatchService
+
+        # Empty to start.
+        self.assertEqual(self.client.get("/watches").json()["watches"], [])
+        # Seed a watch, then it appears via the endpoint.
+        WatchService(self.db_path, ScreenerService(self.db_path)).create(
+            symbol="RELIANCE", condition="rsi_below", threshold=30
+        )
+        watches = self.client.get("/watches").json()["watches"]
+        self.assertEqual(len(watches), 1)
+        self.assertEqual(watches[0]["symbol"], "RELIANCE")
+        # Check evaluates and reports honestly (no broker -> reported error, no fire).
+        check = self.client.post("/watches/check").json()
+        self.assertEqual(check["checked"], 1)
+        self.assertEqual(check["fired"], [])
+        # Remove by id.
+        watch_id = watches[0]["watch_id"]
+        removed = self.client.delete(f"/watches/{watch_id}")
+        self.assertEqual(removed.status_code, 200)
+        self.assertEqual(self.client.get("/watches").json()["watches"], [])
+
     def test_platform_routes_are_in_openapi_without_annotation_crash(self) -> None:
         payload = self.client.get("/openapi.json").json()
         paths = payload["paths"]

@@ -283,6 +283,23 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     )
     market_news_service = MarketNewsService(active_config)
     instrument_discovery_service = InstrumentDiscoveryService(active_config)
+    from .services.screener_service import ScreenerService
+    from .services.watch_service import WatchService
+
+    watch_service = WatchService(
+        active_config.database_path,
+        ScreenerService(
+            active_config.database_path,
+            (
+                OpenAlgoClient(
+                    active_config.openalgo_base_url,
+                    active_config.openalgo_api_key,
+                )
+                if active_config.openalgo_api_key
+                else None
+            ),
+        ),
+    )
     research_service = ResearchService(
         active_config.database_path,
         capability_coverage_service,
@@ -956,6 +973,25 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         principal: Principal = Depends(viewer),
     ) -> dict[str, Any]:
         return openalgo_readiness_service.monitor()
+
+    @app.get("/watches")
+    def list_watches_endpoint(
+        principal: Principal = Depends(viewer),
+    ) -> dict[str, Any]:
+        return watch_service.list()
+
+    @app.post("/watches/check")
+    def check_watches_endpoint(
+        principal: Principal = Depends(viewer),
+    ) -> dict[str, Any]:
+        return watch_service.evaluate()
+
+    @app.delete("/watches/{watch_id}")
+    def remove_watch_endpoint(
+        watch_id: str,
+        principal: Principal = Depends(approver),
+    ) -> dict[str, Any]:
+        return watch_service.remove_by_id(watch_id)
 
     @app.get("/platform/instruments/search")
     def platform_instrument_search(

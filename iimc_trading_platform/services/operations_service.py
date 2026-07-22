@@ -169,6 +169,25 @@ def build_job_service(config: AppConfig) -> JobService:
             return price_alerts.evaluate()
 
         handlers["price_alert_evaluation"] = price_alert_evaluation
+
+        from .screener_service import ScreenerService
+        from .watch_service import WatchService
+
+        watch_service = WatchService(
+            config.database_path,
+            ScreenerService(
+                config.database_path,
+                OpenAlgoClient(
+                    config.openalgo_base_url,
+                    config.openalgo_api_key,
+                ),
+            ),
+        )
+
+        def watch_evaluation(payload: dict[str, Any]) -> dict[str, Any]:
+            return watch_service.evaluate()
+
+        handlers["watch_evaluation"] = watch_evaluation
     if config.market_news_provider and config.market_news_api_url:
         news = MarketNewsService(config)
 
