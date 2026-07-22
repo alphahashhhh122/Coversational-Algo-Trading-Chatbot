@@ -534,6 +534,31 @@ class OfflineOrchestrator:
                     message.strip().rstrip("?")
                 ),
             )
+        # A *qualitative* comparison of two or more REAL instruments ("which is
+        # stronger, INFY or TCS", "compare RELIANCE and TCS fundamentally") → the
+        # plan-and-execute research agent. A bare "compare A vs B" is left to the
+        # faster side-by-side quote route below, so this only fires when the ask
+        # is clearly about strength/quality, not just price.
+        if (
+            "compare_investments" in tool_names
+            and (
+                re.search(r"\bstronger\b|\bwhich is (?:a\s+)?better\b", text)
+                or (
+                    re.search(r"\bcompare\b|\bversus\b|\bvs\.?\b", text)
+                    and re.search(r"fundamental|financ|\binvest", text)
+                )
+            )
+            and not re.search(r"\bstrateg|\bbacktest|\brun_\w+", text)
+        ):
+            compare_symbols = _symbols_from_text(message)
+            if len(compare_symbols) >= 2:
+                return OrchestrationDecision(
+                    "compare_investments",
+                    {
+                        "symbols": compare_symbols,
+                        "exchange": _exchange_from_text(message, default="NSE"),
+                    },
+                )
         if (
             "approve_pending_order" in tool_names
             and re.search(r"\bapprove\b", text)
@@ -2990,6 +3015,26 @@ def _symbol_from_text(text: str) -> str | None:
     return candidates[0] if candidates else None
 
 
+def _symbols_from_text(message: str, *, limit: int = 3) -> list[str]:
+    """Resolve every real instrument named in a message (for comparisons).
+
+    Only tokens that resolve to a known instrument via ``company_name`` count, so
+    "compare reliance and tcs" yields [RELIANCE, TCS] while ordinary words are
+    ignored. Order-preserving and de-duplicated.
+    """
+
+    found: list[str] = []
+    for token in re.findall(r"\b[A-Za-z][A-Za-z0-9&.-]{1,19}\b", message):
+        candidate = _clean_symbol(token)
+        if not candidate or candidate in found:
+            continue
+        if _company_name(candidate):
+            found.append(candidate)
+            if len(found) >= limit:
+                break
+    return found
+
+
 def _clean_symbol(value: str) -> str:
     return _clean_identifier(value).replace("&", "").replace(".", "").upper()
 
@@ -3291,6 +3336,33 @@ def _short_date(value: Any) -> str | None:
         return None
     text = str(value)
     return text[:10] if len(text) >= 10 else text
+
+
+def _render_comparison_result(result: dict[str, Any]) -> str:
+    """Deterministic side-by-side comparison from the plan-and-execute agent."""
+    symbols = result.get("symbols", [])
+    lines = [f"**Comparing {' vs '.join(symbols)}**", ""]
+    comparison = result.get("comparison", [])
+    if comparison:
+        for row in comparison:
+            metric = str(row.get("metric", "")).replace("_", " ")
+            values = row.get("values", {})
+            shown = " · ".join(f"{sym} {values.get(sym)}" for sym in symbols)
+            lines.append(
+                f"- **{metric}** ({row.get('direction')} is better): {shown} "
+                f"→ {row.get('better')}"
+            )
+        lines.append("")
+    leader = result.get("fundamental_leader")
+    if leader:
+        lines.append(f"**On the fundamentals compared, {leader} leads.**")
+    for note in result.get("notes", []):
+        lines.append(f"- {note}")
+    lines.append("")
+    lines.append(
+        "_A factual comparison of available data, not a buy/sell recommendation._"
+    )
+    return "\n".join(lines)
 
 
 def _render_research_briefing(result: dict[str, Any]) -> str:
@@ -3758,6 +3830,8 @@ def _grounded_fallback_response(
         return _render_research_briefing(result)
     if tool_name == "deep_research_report":
         return _render_research_report(result)
+    if tool_name == "compare_investments":
+        return _render_comparison_result(result)
     if tool_name == "remember":
         return _render_remember_result(result)
     if tool_name == "recall_memory":

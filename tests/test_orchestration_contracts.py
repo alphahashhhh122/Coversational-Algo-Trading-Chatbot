@@ -1439,6 +1439,27 @@ class OrchestrationContractsTest(unittest.TestCase):
         )
         self.assertEqual(trades.tool_name, "get_openalgo_snapshot")
 
+    def test_offline_router_compare_two_real_tickers(self) -> None:
+        registry = _shared_registry()
+        for phrase in (
+            "which is stronger, INFY or TCS",
+            "compare RELIANCE and TCS fundamentally",
+            "which is a better investment, RELIANCE or TCS",
+        ):
+            decision = OfflineOrchestrator().select_tool(phrase, [], registry)
+            self.assertEqual(decision.tool_name, "compare_investments", phrase)
+            self.assertGreaterEqual(len(decision.arguments["symbols"]), 2, phrase)
+        # A bare price comparison still uses the fast side-by-side quote route.
+        quote = OfflineOrchestrator().select_tool(
+            "Compare Reliance vs TCS", [], registry,
+        )
+        self.assertEqual(quote.tool_name, "get_market_quote")
+        # A conceptual comparison (no real ticker) stays educational.
+        conceptual = OfflineOrchestrator().select_tool(
+            "difference between a mutual fund and an ETF", [], registry,
+        )
+        self.assertIsNone(conceptual.tool_name)
+
     def test_offline_router_walk_forward_validation(self) -> None:
         registry = _shared_registry()
         for phrase in (

@@ -93,6 +93,23 @@ in-memory `simulate_only` (no persistence) so it stays chat-snappy; the Backtest
 UI keeps the heavier, persisted `RobustnessService` for deeper experiments.
 Routed from "walk-forward / out-of-sample / is that strategy robust for SYMBOL".
 
+### Plan-and-execute comparison (`compare_investments`)
+`PlanExecuteService` (`services/plan_execute_service.py`) is a **LangGraph**
+plan → execute → synthesize agent: it plans one research step per symbol,
+executes those read-only research sub-agents in parallel, then synthesises a
+factual side-by-side — who leads on each fundamental ratio available for *every*
+symbol (higher ROE/margins better, lower debt better), with technical trend
+reported alongside. It names a leader only on a clear win, says "mixed" on a tie,
+and reports missing data rather than inventing it.
+
+Deliberately bounded and safe: **read-only, prepares no orders, gives no buy/sell
+recommendation** — it compares real data and nothing more. Routed from "which is
+stronger, A or B" / "compare A and B fundamentally"; a bare "compare A vs B"
+still uses the faster side-by-side quote route. (Surfacing a *prepared order*
+through the approval card via `interrupt()` is a deliberate future step — it
+needs checkpoint/resume across HTTP requests and is kept out until it can be done
+without weakening the human-approval guarantee.)
+
 ## Roadmap
 
 Remaining iterative/durable agents will use the same **LangGraph** runtime,
@@ -100,6 +117,4 @@ leaning on the parts the deep-research loop doesn't yet exercise —
 checkpoint/resume for durability, `interrupt()` for human approval, and
 streaming.
 
-1. **Plan-and-execute** — decompose a task, run read-only sub-agents, and surface
-   any prepared order through the existing in-chat approval card (`interrupt()`).
-2. **Watch/monitor agent** — scheduled, proactive, approval-gated.
+1. **Watch/monitor agent** — scheduled, proactive, approval-gated.

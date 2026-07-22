@@ -293,6 +293,11 @@ class WalkForwardValidationInput(ToolInput):
     strategy_name: Literal["ema_crossover", "sma_crossover"] = "ema_crossover"
 
 
+class CompareInvestmentsInput(ToolInput):
+    symbols: list[str] = Field(min_length=2, max_length=3)
+    exchange: str = Field(default="NSE", max_length=20)
+
+
 class RememberInput(ToolInput):
     note: str = Field(min_length=1, max_length=500)
 
@@ -636,6 +641,7 @@ def build_default_tool_registry(
     instruments = InstrumentDiscoveryService(active_config)
     from ..services.deep_research_loop_service import DeepResearchLoopService
     from ..services.memory_service import MemoryService
+    from ..services.plan_execute_service import PlanExecuteService
     from ..services.research_agent_service import ResearchAgentService
     from ..services.strategy_optimizer_service import StrategyOptimizerService
 
@@ -644,6 +650,7 @@ def build_default_tool_registry(
         fundamentals, news, instruments, _screener(db_path), memory=memory
     )
     deep_research_loop = DeepResearchLoopService(research_agent, knowledge)
+    plan_execute = PlanExecuteService(research_agent)
     optimizer = StrategyOptimizerService(backtests)
 
     def _resolve_dataset_for_symbol(
@@ -1176,6 +1183,32 @@ def build_default_tool_registry(
                 retry_safe=True,
                 capabilities=ToolCapabilityMetadata(
                     actions=("research", "analyze", "retrieve"),
+                    asset_classes=("equity",),
+                    execution_modes=("research",),
+                    risk_level="low",
+                ),
+            ),
+            ToolDefinition(
+                name="compare_investments",
+                description=(
+                    "Plan-and-execute comparison of two or three stocks: researches "
+                    "each in parallel (read-only), then reports a factual "
+                    "side-by-side of the fundamentals/technicals available and which "
+                    "name leads on each. Not a buy/sell recommendation and no orders "
+                    "are prepared; missing data is reported, not invented. Use for "
+                    "'compare A and B', 'A vs B', 'which is stronger, A or B'."
+                ),
+                input_model=CompareInvestmentsInput,
+                handler=lambda value: plan_execute.run(
+                    CompareInvestmentsInput.model_validate(value.model_dump()).symbols,
+                    CompareInvestmentsInput.model_validate(
+                        value.model_dump()
+                    ).exchange,
+                ),
+                side_effects="read-only: researches each symbol in parallel",
+                retry_safe=True,
+                capabilities=ToolCapabilityMetadata(
+                    actions=("research", "analyze", "compare"),
                     asset_classes=("equity",),
                     execution_modes=("research",),
                     risk_level="low",

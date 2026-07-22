@@ -108,6 +108,7 @@ class ChatService:
         "list_pending_approvals",
         "run_strategy_optimization",
         "validate_strategy_walk_forward",
+        "compare_investments",
         "remember",
         "recall_memory",
     }
