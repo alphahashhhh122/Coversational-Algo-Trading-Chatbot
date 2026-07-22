@@ -24,6 +24,11 @@ dependencies = [
 [project.optional-dependencies]
 dev = []
 
+[tool.pytest.ini_options]
+markers = [
+    "integration: builds a full FastAPI app and is slower; run the quick loop with -m 'not integration'",
+]
+
 [project.scripts]
 iimc-platform = "iimc_trading_platform.cli:main"
 
