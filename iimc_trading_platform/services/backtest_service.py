@@ -212,6 +212,57 @@ class BacktestService:
         self._finish_run(run_id, RunStatus.COMPLETED, None)
         return result
 
+    def simulate_only(
+        self,
+        *,
+        strategy_name: str,
+        candles: list,
+        parameters: dict[str, Any] | None = None,
+        requested_quantity: int = 1,
+        starting_equity: float = 1_000_000.0,
+        fee_bps: float = 1.0,
+        slippage_bps: float = 0.0,
+    ) -> dict[str, Any]:
+        """Fast in-memory backtest that returns metrics only.
+
+        Runs the strategy's signals through the ledger without persisting any
+        signals/risk decisions/orders/fills — for parameter exploration where
+        only the metrics matter. Nothing is written to the database.
+        """
+        strategy = self.strategy_registry.get(strategy_name)
+        validated = strategy.validate_parameters(parameters or {})
+        raw_signals = strategy.generate(candles, validated)
+        ledger = ResearchLedger(starting_equity)
+        for raw_signal in raw_signals:
+            quantity = (
+                ledger.position_quantity
+                if raw_signal.signal_type == "exit"
+                else requested_quantity
+            )
+            if quantity <= 0:
+                continue
+            ledger.process(
+                signal_type=raw_signal.signal_type,
+                market_price=raw_signal.price,
+                quantity=quantity,
+                fee_bps=fee_bps,
+                slippage_bps=slippage_bps,
+                timestamp=raw_signal.timestamp,
+                direction=raw_signal.direction,
+            )
+        drawdown = max_drawdown(ledger.equity_curve)
+        return_pct = (
+            (ledger.cumulative_pnl / starting_equity) * 100
+            if starting_equity
+            else 0.0
+        )
+        return {
+            "total_trades": len(ledger.closed_trade_pnls),
+            "net_pnl": round(ledger.cumulative_pnl, 2),
+            "max_drawdown": round(drawdown, 2),
+            "return_pct": round(return_pct, 4),
+        }
+
     def get_result(self, run_id: str) -> dict[str, Any] | None:
         con = connect(self.db_path)
         try:

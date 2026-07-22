@@ -32,6 +32,18 @@ that data (LLM), or a deterministic briefing when no LLM is configured. It is
 registered as the `deep_research` tool and routed from "research / deep dive /
 analyse SYMBOL". Purely read-only — no dependency beyond the standard library.
 
+### Strategy-discovery agent (`run_strategy_optimization`)
+`StrategyOptimizerService` backtests a small parameter grid for a template
+(EMA/SMA crossover) over stored history, ranks the runs by return (flagging
+too-few-trade overfits), and reports the leaderboard + best configuration.
+
+To stay interactive it uses a new **`BacktestService.simulate_only`** — a fast
+in-memory backtest that computes metrics without persisting the per-signal
+audit trail (a full search dropped from >120s to ~0.1s). Only a strategy you
+choose to *save* gets a full persisted run. Routed from "find / optimise / best
+strategy for SYMBOL"; research-only, never trades; reports real metrics (it will
+honestly say a template lost money rather than invent a winner).
+
 ## Roadmap
 
 Later, iterative/durable agents are added behind a **LangGraph** runtime (chosen
@@ -41,8 +53,8 @@ parallel fan-out above.
 
 1. **Long-term memory** — watchlist, risk profile, past reports.
 2. **Deep-research loop** — plan → gather → self-critique → refine → cited report.
-3. **Strategy discovery/optimization** — propose → backtest → evaluate → refine →
-   walk-forward validate, checkpointed.
+3. **Walk-forward validation** — extend the optimizer's best config with
+   out-of-sample robustness checks (`RobustnessService`), checkpointed.
 4. **Plan-and-execute** — decompose a task, run read-only sub-agents, and surface
    any prepared order through the existing in-chat approval card (`interrupt()`).
 5. **Watch/monitor agent** — scheduled, proactive, approval-gated.

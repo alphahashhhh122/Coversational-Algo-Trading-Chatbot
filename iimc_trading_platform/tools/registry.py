@@ -272,6 +272,14 @@ class DeepResearchInput(ToolInput):
     exchange: str = Field(default="NSE", max_length=20)
 
 
+class StrategyOptimizationInput(ToolInput):
+    symbol: str = Field(min_length=1, max_length=40)
+    exchange: str = Field(default="NSE", max_length=20)
+    asset_class: str = Field(default="equity", max_length=20)
+    interval: str = Field(default="5m", max_length=8)
+    strategy_name: Literal["ema_crossover", "sma_crossover"] = "ema_crossover"
+
+
 class FundamentalAnalysisInput(ToolInput):
     symbol: str = Field(min_length=1, max_length=40)
     market_price: float | None = Field(default=None, gt=0)
@@ -606,10 +614,53 @@ def build_default_tool_registry(
     personas = PersonaService(db_path)
     instruments = InstrumentDiscoveryService(active_config)
     from ..services.research_agent_service import ResearchAgentService
+    from ..services.strategy_optimizer_service import StrategyOptimizerService
 
     research_agent = ResearchAgentService(
         fundamentals, news, instruments, _screener(db_path)
     )
+    optimizer = StrategyOptimizerService(backtests)
+
+    def _resolve_dataset_for_symbol(
+        symbol: str | None,
+        exchange: str | None,
+        asset_class: str | None,
+        interval: str | None,
+    ) -> str:
+        dataset_id = _dataset_for_request(
+            db_path,
+            symbol=symbol,
+            exchange=exchange,
+            asset_class=asset_class,
+            interval=interval,
+            raise_on_missing=False,
+        )
+        if dataset_id is None and symbol and active_config.openalgo_api_key:
+            from datetime import date, timedelta
+
+            end = date.today()
+            start = end - timedelta(days=45)
+            try:
+                imported = openalgo_history_import.import_history(
+                    symbol=symbol,
+                    exchange=exchange or "NSE",
+                    asset_class=asset_class or "equity",
+                    interval=interval or "5m",
+                    start_date=start.isoformat(),
+                    end_date=end.isoformat(),
+                )
+                dataset_id = imported.get("dataset_id")
+            except Exception as exc:
+                raise ValueError(
+                    f"I couldn't pull {symbol} history from your broker "
+                    f"({exc}). Check the symbol and your broker connection."
+                ) from exc
+        if dataset_id is None:
+            raise ValueError(
+                f"No historical data is available for {symbol or 'this instrument'} "
+                "and the broker connection isn't set up to fetch it."
+            )
+        return dataset_id
     sandbox_read = SandboxExecutionService(
         db_path,
         AuditService(DuckDBAuditRepository(db_path)),
@@ -963,6 +1014,46 @@ def build_default_tool_registry(
                 retry_safe=True,
                 capabilities=ToolCapabilityMetadata(
                     actions=("retrieve", "import"),
+                    execution_modes=("research",),
+                    risk_level="low",
+                ),
+            ),
+            ToolDefinition(
+                name="run_strategy_optimization",
+                description=(
+                    "Discover a good strategy configuration for a symbol: "
+                    "backtests a small parameter grid for a template "
+                    "(ema_crossover/sma_crossover) over stored history and "
+                    "returns the ranked leaderboard and the best config by "
+                    "historical return, flagging too-few-trade overfits. "
+                    "Research backtests only; never trades; reports real "
+                    "metrics without fabrication. Use for 'find/optimise a "
+                    "strategy for SYMBOL'."
+                ),
+                input_model=StrategyOptimizationInput,
+                handler=lambda value: optimizer.optimize(
+                    dataset_id=_resolve_dataset_for_symbol(
+                        StrategyOptimizationInput.model_validate(
+                            value.model_dump()
+                        ).symbol,
+                        StrategyOptimizationInput.model_validate(
+                            value.model_dump()
+                        ).exchange,
+                        StrategyOptimizationInput.model_validate(
+                            value.model_dump()
+                        ).asset_class,
+                        StrategyOptimizationInput.model_validate(
+                            value.model_dump()
+                        ).interval,
+                    ),
+                    strategy_name=StrategyOptimizationInput.model_validate(
+                        value.model_dump()
+                    ).strategy_name,
+                ),
+                side_effects="runs several research backtests over stored data",
+                retry_safe=True,
+                capabilities=ToolCapabilityMetadata(
+                    actions=("backtest", "optimize", "research"),
                     execution_modes=("research",),
                     risk_level="low",
                 ),

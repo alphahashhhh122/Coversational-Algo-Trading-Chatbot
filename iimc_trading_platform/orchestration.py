@@ -634,6 +634,32 @@ class OfflineOrchestrator:
                 "get_execution_readiness",
                 _readiness_arguments(message),
             )
+        # "find/optimise/tune/best strategy for SYMBOL" → the optimizer agent
+        # (searches a parameter grid). Runs before the compile route so it wins
+        # over "create a strategy". Needs a concrete symbol.
+        if (
+            "run_strategy_optimization" in tool_names
+            and re.search(
+                r"\b(?:optimi[sz]e|optimi[sz]ation|tune|discover|find|search"
+                r"\s+for|best|profitable|winning)\b",
+                text,
+            )
+            and re.search(r"\bstrateg", text)
+        ):
+            opt_symbol = _symbol_from_text(message)
+            if opt_symbol:
+                opt_strategy = (
+                    "sma_crossover" if re.search(r"\bsma\b", text)
+                    else "ema_crossover"
+                )
+                return OrchestrationDecision(
+                    "run_strategy_optimization",
+                    {
+                        "symbol": opt_symbol,
+                        "exchange": _exchange_from_text(message, default="NSE"),
+                        "strategy_name": opt_strategy,
+                    },
+                )
         if (
             "compile_custom_strategy_spec" in tool_names
             and _is_strategy_creation_request(text)
@@ -3027,6 +3053,52 @@ def _name_suffix(symbol: Any, row: dict[str, Any]) -> str:
     return f" ({name})" if name else ""
 
 
+def _render_optimization_result(result: dict[str, Any]) -> str:
+    """Deterministic leaderboard for the strategy-optimizer agent."""
+    strategy = str(result.get("strategy", "")).replace("_", " ")
+    rows = [r for r in result.get("results", []) if r.get("return_pct") is not None]
+    best = result.get("best")
+    if not rows:
+        errs = [r.get("error") for r in result.get("results", []) if r.get("error")]
+        reason = errs[0] if errs else "no usable backtests"
+        return (
+            f"I couldn't optimise the {strategy} strategy — {reason}."
+        )
+    lines = [
+        f"I backtested {result.get('candidates_tried', 0)} {strategy} "
+        f"configurations over your stored history. Ranked by return:",
+        "",
+    ]
+    for row in rows[:8]:
+        params = row.get("parameters", {})
+        param_str = ", ".join(f"{k}={v}" for k, v in params.items())
+        flag = "" if row.get("reliable") else " _(too few trades)_"
+        lines.append(
+            f"- **{row.get('return_pct')}%** · P&L ₹{row.get('net_pnl')} · "
+            f"drawdown ₹{row.get('max_drawdown')} · "
+            f"{row.get('total_trades')} trades — {param_str}{flag}"
+        )
+    if best:
+        bp = ", ".join(f"{k}={v}" for k, v in best.get("parameters", {}).items())
+        lines.append("")
+        note = (
+            " (best available, but it had few trades — treat as weak evidence)"
+            if result.get("used_unreliable_best")
+            else ""
+        )
+        lines.append(
+            f"**Best configuration{note}:** {bp} → {best.get('return_pct')}% "
+            f"return, {best.get('total_trades')} trades."
+        )
+    lines.append("")
+    lines.append(
+        "_Historical backtest results only — past performance doesn't predict "
+        "future returns, and this isn't investment advice. Ask me to save the "
+        "best one as a strategy to trade it (with your approval)._"
+    )
+    return "\n".join(lines)
+
+
 def _render_research_briefing(result: dict[str, Any]) -> str:
     """Deterministic multi-analyst briefing from gathered findings.
 
@@ -3433,6 +3505,8 @@ def _grounded_fallback_response(
             f"You can now ask: 'analyze document {result.get('title')}' or "
             "'search knowledge <topic>'."
         )
+    if tool_name == "run_strategy_optimization":
+        return _render_optimization_result(result)
     if tool_name == "deep_research":
         return _render_research_briefing(result)
     if tool_name == "find_and_analyze_document":
