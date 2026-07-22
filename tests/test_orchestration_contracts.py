@@ -1418,6 +1418,27 @@ class OrchestrationContractsTest(unittest.TestCase):
         )
         self.assertEqual(decision.arguments.get("symbol"), "RELIANCE")
 
+    def test_offline_router_remember_wins_over_broker_tradebook(self) -> None:
+        # With a broker configured, "swing trades" used to trigger the tradebook
+        # snapshot and steal an explicit "remember ..." command. Memory must win.
+        registry = build_default_tool_registry(
+            Path("unused.duckdb"),
+            openalgo_base_url="http://127.0.0.1:5000",
+            openalgo_api_key="configured",
+        )
+        decision = OfflineOrchestrator().select_tool(
+            "Remember that I prefer low-risk swing trades on NIFTY 50 stocks",
+            [],
+            registry,
+        )
+        self.assertEqual(decision.tool_name, "remember")
+        self.assertIn("swing trades", decision.arguments["note"])
+        # A genuine tradebook request still routes to the broker snapshot.
+        trades = OfflineOrchestrator().select_tool(
+            "show my trades", [], registry,
+        )
+        self.assertEqual(trades.tool_name, "get_openalgo_snapshot")
+
     def test_offline_router_deep_dive_routes_to_loop(self) -> None:
         registry = _shared_registry()
         loop = OfflineOrchestrator().select_tool(

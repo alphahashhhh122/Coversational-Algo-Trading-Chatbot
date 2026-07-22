@@ -668,6 +668,36 @@ class OfflineOrchestrator:
                 "compile_custom_strategy_spec",
                 {"text": message},
             )
+        # Long-term memory is checked before the broker/account routes: an
+        # explicit "remember that I like swing trades" must not be mistaken for a
+        # tradebook lookup just because it contains the word "trades". Recall (a
+        # question) is checked before store so "do you remember ...?" isn't saved.
+        if "recall_memory" in tool_names and (
+            re.search(
+                r"\b(?:do you remember|what do you remember|"
+                r"what do you know about me|my (?:saved )?notes|"
+                r"what (?:did|have) (?:we|you) (?:find|found|research))\b",
+                text,
+            )
+            or re.search(
+                r"\b(?:what|which)\b.{0,40}\b(?:remember|noted|on file|"
+                r"find(?:ing)?s?\s+(?:on|about)|"
+                r"research(?:ed)?\s+(?:on|about))\b",
+                text,
+            )
+        ):
+            return OrchestrationDecision("recall_memory", {"query": message})
+        remember_match = re.match(
+            r"\s*(?:please\s+|can you\s+|could you\s+|pls\s+)?"
+            r"(?:remember|note|keep in mind|make a note of|don'?t forget)\b\s*"
+            r"(?:that\s+|to\s+|about\s+)?(.+)",
+            message,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        if remember_match and "remember" in tool_names:
+            note = remember_match.group(1).strip(" .\t\n")
+            if note:
+                return OrchestrationDecision("remember", {"note": note})
         if (
             "import_openalgo_history" in tool_names
             and _is_history_import_request(text)
@@ -879,34 +909,6 @@ class OfflineOrchestrator:
             and re.search(r"\b(?:show|list|my)\b.{0,15}\bwatch\s*list\b", text)
         ):
             return OrchestrationDecision("list_watchlist", {})
-        # Long-term memory: recall (a question) is checked before store so
-        # "do you remember ...?" doesn't get stored as a note.
-        if "recall_memory" in tool_names and (
-            re.search(
-                r"\b(?:do you remember|what do you remember|"
-                r"what do you know about me|my (?:saved )?notes|"
-                r"what (?:did|have) (?:we|you) (?:find|found|research))\b",
-                text,
-            )
-            or re.search(
-                r"\b(?:what|which)\b.{0,40}\b(?:remember|noted|on file|"
-                r"find(?:ing)?s?\s+(?:on|about)|"
-                r"research(?:ed)?\s+(?:on|about))\b",
-                text,
-            )
-        ):
-            return OrchestrationDecision("recall_memory", {"query": message})
-        remember_match = re.match(
-            r"\s*(?:please\s+|can you\s+|could you\s+|pls\s+)?"
-            r"(?:remember|note|keep in mind|make a note of|don'?t forget)\b\s*"
-            r"(?:that\s+|to\s+|about\s+)?(.+)",
-            message,
-            flags=re.IGNORECASE | re.DOTALL,
-        )
-        if remember_match and "remember" in tool_names:
-            note = remember_match.group(1).strip(" .\t\n")
-            if note:
-                return OrchestrationDecision("remember", {"note": note})
         screen_args = _parse_technical_screen(text)
         if screen_args and "run_technical_screen" in tool_names:
             return OrchestrationDecision(
@@ -3191,7 +3193,7 @@ def _render_recall_result(result: dict[str, Any]) -> str:
         lines.append("**What I remember:**")
         for note in notes:
             when = _short_date(note.get("created_at"))
-            suffix = f"  _(noted {when})_" if when else ""
+            suffix = f" — noted {when}" if when else ""
             lines.append(f"- {note.get('content')}{suffix}")
     else:
         lines.append(
