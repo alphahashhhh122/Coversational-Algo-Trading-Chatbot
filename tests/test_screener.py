@@ -68,7 +68,8 @@ class ScreenerServiceTest(unittest.TestCase):
         service = ScreenerService(self.db_path, FakeHistoryClient())
         service.remove_symbol("WEAKSTK")
         service.remove_symbol("STRONGSTK")
-        with self.assertRaisesRegex(ValueError, "watchlist is empty"):
+        # With no watchlist and no universe, scan asks the user what to scan.
+        with self.assertRaisesRegex(ValueError, "add symbols to your watchlist"):
             service.scan(condition="rsi_below")
 
     def test_router_watchlist_and_screen(self) -> None:

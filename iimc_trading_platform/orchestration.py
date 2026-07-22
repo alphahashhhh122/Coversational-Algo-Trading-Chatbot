@@ -1112,6 +1112,10 @@ class OfflineOrchestrator:
                 text,
             )
             and not re.search(r"\bfundamental", text)
+            # "research brief / market brief / brief for" is the separate
+            # create_research_brief feature — don't hijack it ("briefing" is
+            # fine; \bbrief\b won't match it).
+            and not re.search(r"\bbrief\b", text)
             and not _is_strategy_creation_request(text)
         ):
             report_symbol = _symbol_from_text(message)
@@ -1134,6 +1138,12 @@ class OfflineOrchestrator:
             and not re.search(
                 r"\b(?:document|doc|report|filing|transcript)\b", text
             )
+            # Defer "research brief / market brief / brief for" to the separate
+            # create_research_brief feature ("briefing" is unaffected).
+            and not re.search(r"\bbrief\b", text)
+            # Defer the "market research context / research context" readiness+news
+            # flow to its dedicated get_research_context tool.
+            and not re.search(r"\b(?:research\s+context|market\s+research)\b", text)
             and not _is_strategy_creation_request(text)
         ):
             research_symbol = _symbol_from_text(message)
