@@ -879,6 +879,34 @@ class OfflineOrchestrator:
             and re.search(r"\b(?:show|list|my)\b.{0,15}\bwatch\s*list\b", text)
         ):
             return OrchestrationDecision("list_watchlist", {})
+        # Long-term memory: recall (a question) is checked before store so
+        # "do you remember ...?" doesn't get stored as a note.
+        if "recall_memory" in tool_names and (
+            re.search(
+                r"\b(?:do you remember|what do you remember|"
+                r"what do you know about me|my (?:saved )?notes|"
+                r"what (?:did|have) (?:we|you) (?:find|found|research))\b",
+                text,
+            )
+            or re.search(
+                r"\b(?:what|which)\b.{0,40}\b(?:remember|noted|on file|"
+                r"find(?:ing)?s?\s+(?:on|about)|"
+                r"research(?:ed)?\s+(?:on|about))\b",
+                text,
+            )
+        ):
+            return OrchestrationDecision("recall_memory", {"query": message})
+        remember_match = re.match(
+            r"\s*(?:please\s+|can you\s+|could you\s+|pls\s+)?"
+            r"(?:remember|note|keep in mind|make a note of|don'?t forget)\b\s*"
+            r"(?:that\s+|to\s+|about\s+)?(.+)",
+            message,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        if remember_match and "remember" in tool_names:
+            note = remember_match.group(1).strip(" .\t\n")
+            if note:
+                return OrchestrationDecision("remember", {"note": note})
         screen_args = _parse_technical_screen(text)
         if screen_args and "run_technical_screen" in tool_names:
             return OrchestrationDecision(
@@ -3099,6 +3127,46 @@ def _render_optimization_result(result: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _render_remember_result(result: dict[str, Any]) -> str:
+    content = result.get("content", "")
+    return (
+        f"Got it — I'll remember that: “{content}”.\n\n"
+        "Ask “what do you remember” any time to see everything on file."
+    )
+
+
+def _render_recall_result(result: dict[str, Any]) -> str:
+    notes = result.get("notes", [])
+    research = result.get("research")
+    lines: list[str] = []
+    if notes:
+        lines.append("**What I remember:**")
+        for note in notes:
+            when = _short_date(note.get("created_at"))
+            suffix = f"  _(noted {when})_" if when else ""
+            lines.append(f"- {note.get('content')}{suffix}")
+    else:
+        lines.append(
+            "I don't have any saved notes yet. Tell me “remember that ...” "
+            "and I'll keep it."
+        )
+    if research:
+        when = _short_date(research.get("updated_at"))
+        lines.append("")
+        lines.append(
+            f"**Last research on {research.get('symbol')}"
+            f"{f' ({when})' if when else ''}:** {research.get('content')}"
+        )
+    return "\n".join(lines)
+
+
+def _short_date(value: Any) -> str | None:
+    if not value:
+        return None
+    text = str(value)
+    return text[:10] if len(text) >= 10 else text
+
+
 def _render_research_briefing(result: dict[str, Any]) -> str:
     """Deterministic multi-analyst briefing from gathered findings.
 
@@ -3509,6 +3577,10 @@ def _grounded_fallback_response(
         return _render_optimization_result(result)
     if tool_name == "deep_research":
         return _render_research_briefing(result)
+    if tool_name == "remember":
+        return _render_remember_result(result)
+    if tool_name == "recall_memory":
+        return _render_recall_result(result)
     if tool_name == "find_and_analyze_document":
         chunks = result.get("chunks", [])
         excerpt_lines = []

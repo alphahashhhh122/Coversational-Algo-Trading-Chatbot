@@ -280,6 +280,14 @@ class StrategyOptimizationInput(ToolInput):
     strategy_name: Literal["ema_crossover", "sma_crossover"] = "ema_crossover"
 
 
+class RememberInput(ToolInput):
+    note: str = Field(min_length=1, max_length=500)
+
+
+class RecallMemoryInput(ToolInput):
+    query: str | None = Field(default=None, max_length=200)
+
+
 class FundamentalAnalysisInput(ToolInput):
     symbol: str = Field(min_length=1, max_length=40)
     market_price: float | None = Field(default=None, gt=0)
@@ -613,11 +621,13 @@ def build_default_tool_registry(
     platform_dashboard = PlatformDashboardService(active_config)
     personas = PersonaService(db_path)
     instruments = InstrumentDiscoveryService(active_config)
+    from ..services.memory_service import MemoryService
     from ..services.research_agent_service import ResearchAgentService
     from ..services.strategy_optimizer_service import StrategyOptimizerService
 
+    memory = MemoryService(db_path)
     research_agent = ResearchAgentService(
-        fundamentals, news, instruments, _screener(db_path)
+        fundamentals, news, instruments, _screener(db_path), memory=memory
     )
     optimizer = StrategyOptimizerService(backtests)
 
@@ -1082,6 +1092,49 @@ def build_default_tool_registry(
                 retry_safe=True,
                 capabilities=ToolCapabilityMetadata(
                     actions=("research", "analyze", "retrieve"),
+                    asset_classes=("equity",),
+                    execution_modes=("research",),
+                    risk_level="low",
+                ),
+            ),
+            ToolDefinition(
+                name="remember",
+                description=(
+                    "Save something the user asks you to remember across "
+                    "sessions — a preference, a risk profile, a reminder. Stores "
+                    "the note verbatim; never invents or infers facts. Use for "
+                    "'remember that ...', 'note that I ...', 'keep in mind ...'."
+                ),
+                input_model=RememberInput,
+                handler=lambda value: memory.remember_note(
+                    RememberInput.model_validate(value.model_dump()).note
+                ),
+                side_effects="writes one row to agent_memory (user note)",
+                retry_safe=False,
+                capabilities=ToolCapabilityMetadata(
+                    actions=("store",),
+                    asset_classes=("equity",),
+                    execution_modes=("research",),
+                    risk_level="low",
+                ),
+            ),
+            ToolDefinition(
+                name="recall_memory",
+                description=(
+                    "Recall what has been remembered: the user's saved notes and, "
+                    "if a symbol is named, the last research summary on file for "
+                    "it. Returns exactly what was stored, with timestamps; nothing "
+                    "is fabricated. Use for 'what do you remember', 'what do you "
+                    "know about me', 'what did we find on SYMBOL'."
+                ),
+                input_model=RecallMemoryInput,
+                handler=lambda value: memory.recall(
+                    RecallMemoryInput.model_validate(value.model_dump()).query
+                ),
+                side_effects="read-only: reads agent_memory",
+                retry_safe=True,
+                capabilities=ToolCapabilityMetadata(
+                    actions=("retrieve",),
                     asset_classes=("equity",),
                     execution_modes=("research",),
                     risk_level="low",

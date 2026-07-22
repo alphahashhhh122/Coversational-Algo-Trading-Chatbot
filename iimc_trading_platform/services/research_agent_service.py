@@ -19,6 +19,7 @@ from .fundamentals_service import FundamentalsService
 from .instrument_discovery_service import InstrumentDiscoveryService
 from .instrument_names import company_name
 from .market_news_service import MarketNewsService
+from .memory_service import MemoryService
 from .screener_service import ScreenerService
 
 _KEY_RATIOS = (
@@ -35,11 +36,13 @@ class ResearchAgentService:
         news: MarketNewsService,
         instruments: InstrumentDiscoveryService,
         screener: ScreenerService,
+        memory: MemoryService | None = None,
     ) -> None:
         self.fundamentals = fundamentals
         self.news = news
         self.instruments = instruments
         self.screener = screener
+        self.memory = memory
 
     def run(self, symbol: str, exchange: str = "NSE") -> dict[str, Any]:
         return asyncio.run(self._run(symbol, exchange))
@@ -67,15 +70,53 @@ class ResearchAgentService:
             for key, sec in sections.items()
             if not sec.get("available")
         ]
-        return {
+        prior = self._prior_research(symbol)
+        result = {
             "symbol": symbol,
             "company_name": name,
             "exchange": exchange,
             **sections,
             "sections_available": available,
             "gaps": gaps,
+            "previously_researched": prior,
             "no_synthetic_fallback": True,
         }
+        self._remember(result)
+        return result
+
+    def _prior_research(self, symbol: str) -> dict[str, Any] | None:
+        """A one-line 'last time we looked' pointer, if we have one on file."""
+
+        if self.memory is None:
+            return None
+        try:
+            saved = self.memory.get_research(symbol)
+        except Exception:  # noqa: BLE001 - memory is a convenience, never fatal
+            return None
+        if not saved:
+            return None
+        return {"summary": saved["content"], "updated_at": saved.get("updated_at")}
+
+    def _remember(self, result: dict[str, Any]) -> None:
+        """Persist a compact, factual summary of this run for next time."""
+
+        if self.memory is None:
+            return
+        available = result["sections_available"]
+        summary = (
+            f"{result['company_name']} ({result['symbol']}): covered "
+            f"{', '.join(available) if available else 'no sections'}."
+        )
+        val = result.get("valuation", {})
+        if val.get("available") and val.get("ltp") is not None:
+            summary += f" Last price {val['ltp']}."
+        tech = result.get("technicals", {})
+        if tech.get("available") and tech.get("trend"):
+            summary += f" Trend {tech['trend']}, RSI {tech.get('rsi')}."
+        try:
+            self.memory.save_research(result["symbol"], summary)
+        except Exception:  # noqa: BLE001 - never let memory break a research run
+            pass
 
     def _valuation(self, symbol: str, exchange: str, name: str) -> dict[str, Any]:
         try:

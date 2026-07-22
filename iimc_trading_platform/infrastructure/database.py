@@ -890,6 +890,20 @@ def initialize_database(db_path: Path) -> None:
         )
         con.execute(
             """
+            CREATE TABLE IF NOT EXISTS agent_memory (
+                memory_id VARCHAR PRIMARY KEY,
+                kind VARCHAR NOT NULL,
+                memory_key VARCHAR NOT NULL,
+                content VARCHAR NOT NULL,
+                created_by VARCHAR NOT NULL,
+                created_at TIMESTAMP NOT NULL,
+                updated_at TIMESTAMP NOT NULL,
+                UNIQUE(kind, memory_key)
+            )
+            """
+        )
+        con.execute(
+            """
             CREATE TABLE IF NOT EXISTS price_alerts (
                 alert_id VARCHAR PRIMARY KEY,
                 symbol VARCHAR NOT NULL,

@@ -44,6 +44,23 @@ choose to *save* gets a full persisted run. Routed from "find / optimise / best
 strategy for SYMBOL"; research-only, never trades; reports real metrics (it will
 honestly say a template lost money rather than invent a winner).
 
+### Long-term memory (`remember` / `recall_memory`)
+`MemoryService` (`services/memory_service.py`) gives the agent layer a small,
+honest persistent store (`agent_memory` table):
+
+- **Notes** — free-text things the user asks it to keep (a preference, a risk
+  profile). Stored verbatim; nothing is inferred. Routed from "remember that
+  ...". Accumulate over time.
+- **Research summaries** — after every `deep_research` run the agent saves a
+  compact, factual one-liner for that symbol (sections covered, last price,
+  trend). One per symbol (upsert). The research agent also reads the prior
+  summary back into its findings so a fresh briefing knows it has looked before.
+
+Recall (`what do you remember`, `what did we find on SYMBOL`) returns exactly
+what was stored, with timestamps — never a fabrication. The **watchlist is not
+duplicated here**; it stays in `watchlist_symbols` (`ScreenerService`) and memory
+complements it.
+
 ## Roadmap
 
 Later, iterative/durable agents are added behind a **LangGraph** runtime (chosen
@@ -51,9 +68,8 @@ for loop control, checkpoint/resume, `interrupt()` for human approval, and
 streaming). LangGraph is introduced only when these are needed — not for the
 parallel fan-out above.
 
-1. **Long-term memory** — watchlist, risk profile, past reports.
-2. **Deep-research loop** — plan → gather → self-critique → refine → cited report.
-3. **Walk-forward validation** — extend the optimizer's best config with
+1. **Deep-research loop** — plan → gather → self-critique → refine → cited report.
+2. **Walk-forward validation** — extend the optimizer's best config with
    out-of-sample robustness checks (`RobustnessService`), checkpointed.
 4. **Plan-and-execute** — decompose a task, run read-only sub-agents, and surface
    any prepared order through the existing in-chat approval card (`interrupt()`).

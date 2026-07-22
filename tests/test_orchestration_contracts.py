@@ -1387,6 +1387,31 @@ class OrchestrationContractsTest(unittest.TestCase):
         self.assertEqual(decision.tool_name, "deep_research")
         self.assertEqual(decision.arguments["symbol"], "RELIANCE")
 
+    def test_offline_router_remember_stores_a_note(self) -> None:
+        registry = build_default_tool_registry(Path("unused.duckdb"))
+        decision = OfflineOrchestrator().select_tool(
+            "Remember that I prefer low-risk swing trades", [], registry,
+        )
+        self.assertEqual(decision.tool_name, "remember")
+        self.assertEqual(
+            decision.arguments["note"], "I prefer low-risk swing trades"
+        )
+
+    def test_offline_router_recall_question_is_not_stored(self) -> None:
+        registry = build_default_tool_registry(Path("unused.duckdb"))
+        decision = OfflineOrchestrator().select_tool(
+            "What do you remember about me?", [], registry,
+        )
+        self.assertEqual(decision.tool_name, "recall_memory")
+
+    def test_offline_router_recall_symbol_research(self) -> None:
+        registry = build_default_tool_registry(Path("unused.duckdb"))
+        decision = OfflineOrchestrator().select_tool(
+            "what did we find on RELIANCE", [], registry,
+        )
+        self.assertEqual(decision.tool_name, "recall_memory")
+        self.assertEqual(decision.arguments["query"], "what did we find on RELIANCE")
+
     def test_persona_grounded_response_renders_bias_and_risk_rules(self) -> None:
         from iimc_trading_platform.orchestration import grounded_tool_response
 
