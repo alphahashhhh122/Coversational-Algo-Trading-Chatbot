@@ -110,11 +110,22 @@ through the approval card via `interrupt()` is a deliberate future step — it
 needs checkpoint/resume across HTTP requests and is kept out until it can be done
 without weakening the human-approval guarantee.)
 
+### Watch/monitor agent (`create_watch` / `check_watches` / `list_watches` / `remove_watch`)
+`WatchService` (`services/watch_service.py`) watches *technical* conditions —
+RSI below/above a level, or price vs its EMA20 — evaluated against real broker
+candles (`ScreenerService.technical_snapshot`). It complements `PriceAlertService`
+(raw price thresholds). `evaluate()` is exposed so a scheduled job can run it
+proactively; the `check_watches` chat tool runs it on demand so it's usable and
+demoable now. A watch **only ever notifies** — it never trades or prepares an
+order — and a symbol with no data is reported as unchecked, never triggered.
+Routed from "watch RELIANCE for RSI below 30" / "check my watches" / "stop
+watching RELIANCE"; the existing watch*list* is untouched.
+
 ## Roadmap
 
-Remaining iterative/durable agents will use the same **LangGraph** runtime,
-leaning on the parts the deep-research loop doesn't yet exercise —
-checkpoint/resume for durability, `interrupt()` for human approval, and
-streaming.
-
-1. **Watch/monitor agent** — scheduled, proactive, approval-gated.
+The read-only agentic layer is in place. The remaining, deliberately-deferred
+step is **action under approval**: letting a plan-and-execute run *prepare* an
+order and surface it through the existing in-chat approval card via LangGraph
+`interrupt()` (checkpoint/resume across HTTP requests). It stays out until it can
+be done without weakening the standing guarantee — a human approves every order,
+and no agent has a code path to the broker.

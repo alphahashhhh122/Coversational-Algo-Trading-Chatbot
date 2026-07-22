@@ -1439,6 +1439,33 @@ class OrchestrationContractsTest(unittest.TestCase):
         )
         self.assertEqual(trades.tool_name, "get_openalgo_snapshot")
 
+    def test_offline_router_technical_watch_agent(self) -> None:
+        registry = _shared_registry()
+        create = OfflineOrchestrator().select_tool(
+            "watch RELIANCE for RSI below 30", [], registry,
+        )
+        self.assertEqual(create.tool_name, "create_watch")
+        self.assertEqual(create.arguments["symbol"], "RELIANCE")
+        self.assertEqual(create.arguments["condition"], "rsi_below")
+        self.assertEqual(create.arguments["threshold"], 30.0)
+
+        check = OfflineOrchestrator().select_tool(
+            "check my watches", [], registry,
+        )
+        self.assertEqual(check.tool_name, "check_watches")
+
+        stop = OfflineOrchestrator().select_tool(
+            "stop watching RELIANCE", [], registry,
+        )
+        self.assertEqual(stop.tool_name, "remove_watch")
+        self.assertEqual(stop.arguments["symbol"], "RELIANCE")
+
+        # The existing watchlist ("watch list") is not hijacked.
+        wl = OfflineOrchestrator().select_tool(
+            "add RELIANCE to my watchlist", [], registry,
+        )
+        self.assertEqual(wl.tool_name, "add_watchlist_symbol")
+
     def test_offline_router_compare_two_real_tickers(self) -> None:
         registry = _shared_registry()
         for phrase in (

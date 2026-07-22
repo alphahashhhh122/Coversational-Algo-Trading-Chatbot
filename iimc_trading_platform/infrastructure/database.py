@@ -904,6 +904,23 @@ def initialize_database(db_path: Path) -> None:
         )
         con.execute(
             """
+            CREATE TABLE IF NOT EXISTS technical_watches (
+                watch_id VARCHAR PRIMARY KEY,
+                symbol VARCHAR NOT NULL,
+                exchange VARCHAR NOT NULL,
+                condition VARCHAR NOT NULL,
+                threshold DOUBLE,
+                status VARCHAR NOT NULL,
+                created_by VARCHAR NOT NULL,
+                created_at TIMESTAMP NOT NULL,
+                last_value DOUBLE,
+                last_checked_at TIMESTAMP,
+                triggered_at TIMESTAMP
+            )
+            """
+        )
+        con.execute(
+            """
             CREATE TABLE IF NOT EXISTS price_alerts (
                 alert_id VARCHAR PRIMARY KEY,
                 symbol VARCHAR NOT NULL,

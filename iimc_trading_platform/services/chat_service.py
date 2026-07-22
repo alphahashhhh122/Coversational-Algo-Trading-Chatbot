@@ -109,6 +109,10 @@ class ChatService:
         "run_strategy_optimization",
         "validate_strategy_walk_forward",
         "compare_investments",
+        "create_watch",
+        "list_watches",
+        "remove_watch",
+        "check_watches",
         "remember",
         "recall_memory",
     }

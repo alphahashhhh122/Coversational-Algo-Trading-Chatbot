@@ -9,6 +9,7 @@ from difflib import get_close_matches
 from typing import Any, Protocol
 
 from .services.instrument_names import company_name as _company_name
+from .services.watch_service import parse_watch_request as _parse_watch_request
 from .tools.registry import ToolRegistry
 
 
@@ -960,6 +961,52 @@ class OfflineOrchestrator:
             and re.search(r"\b(?:show|list|my)\b.{0,15}\bwatch\s*list\b", text)
         ):
             return OrchestrationDecision("list_watchlist", {})
+        # Technical watch/monitor agent — distinct from the watchlist above.
+        # Check / list / stop are handled before "watch X for <condition>".
+        _is_watchlist = re.search(r"watch\s*list", text)
+        if (
+            not _is_watchlist
+            and "check_watches" in tool_names
+            and re.search(
+                r"\b(?:check|run|evaluate)\b.{0,20}\bwatch(?:es)?\b"
+                r"|\bwatch(?:es)?\b.{0,20}\b(?:fired|triggered|hit)\b",
+                text,
+            )
+        ):
+            return OrchestrationDecision("check_watches", {})
+        if (
+            not _is_watchlist
+            and "list_watches" in tool_names
+            and re.search(r"\b(?:show|list|my)\b.{0,12}\bwatch(?:es)?\b", text)
+        ):
+            return OrchestrationDecision("list_watches", {})
+        watch_stop = re.search(
+            r"\b(?:stop\s+watching|unwatch|remove\s+(?:the\s+)?watch"
+            r"\s+(?:on|for)?)\s+([A-Za-z][\w&.-]{1,19})",
+            message,
+            flags=re.IGNORECASE,
+        )
+        if watch_stop and "remove_watch" in tool_names:
+            return OrchestrationDecision(
+                "remove_watch", {"symbol": watch_stop.group(1).upper()}
+            )
+        if (
+            not _is_watchlist
+            and "create_watch" in tool_names
+            and re.search(r"\bwatch\b|\bmonitor\b|\balert\s+me\b", text)
+        ):
+            parsed = _parse_watch_request(message)
+            watch_symbol = _symbol_from_text(message) if parsed else None
+            if parsed and watch_symbol:
+                return OrchestrationDecision(
+                    "create_watch",
+                    {
+                        "symbol": watch_symbol,
+                        "condition": parsed["condition"],
+                        "threshold": parsed["threshold"],
+                        "exchange": _exchange_from_text(message, default="NSE"),
+                    },
+                )
         screen_args = _parse_technical_screen(text)
         if screen_args and "run_technical_screen" in tool_names:
             return OrchestrationDecision(
@@ -2934,6 +2981,10 @@ def _symbol_from_text(text: str) -> str | None:
         "CHECK", "VALIDATE", "ROBUST", "ROBUSTNESS", "FORWARD", "SAMPLE",
         "OVERFIT", "HOLD", "HOLDS", "WALK", "OPTIMIZE", "OPTIMISE", "TUNE",
         "DISCOVER", "FIND", "BEST", "PROFITABLE", "WINNING",
+        # Watch / monitor words, e.g. "WATCH RELIANCE for RSI below 30".
+        "WATCH", "WATCHES", "WATCHING", "MONITOR", "ALERT", "NOTIFY",
+        "BELOW", "ABOVE", "UNDER", "OVER", "DROPS", "CROSS", "CROSSES",
+        "WHEN", "UNWATCH",
         "ABOUT",
         "AND",
         "ANY",
@@ -3338,6 +3389,60 @@ def _short_date(value: Any) -> str | None:
     return text[:10] if len(text) >= 10 else text
 
 
+def _watch_condition_text(condition: str | None, threshold: Any) -> str:
+    mapping = {
+        "rsi_below": f"RSI below {threshold}",
+        "rsi_above": f"RSI above {threshold}",
+        "price_above_ema20": "price crossing above its EMA20",
+        "price_below_ema20": "price crossing below its EMA20",
+    }
+    return mapping.get(condition or "", str(condition))
+
+
+def _render_watch_list(result: dict[str, Any]) -> str:
+    watches = result.get("watches", [])
+    if not watches:
+        return (
+            "You have no technical watches yet. Try “watch RELIANCE for RSI "
+            "below 30”."
+        )
+    lines = ["**Your technical watches:**"]
+    for w in watches:
+        cond = _watch_condition_text(w.get("condition"), w.get("threshold"))
+        status = w.get("status")
+        tail = ""
+        if w.get("last_value") is not None:
+            tail = f" — last read {w['last_value']}"
+        lines.append(f"- **{w.get('symbol')}**: {cond} · {status}{tail}")
+    return "\n".join(lines)
+
+
+def _render_watch_check(result: dict[str, Any]) -> str:
+    checked = result.get("checked", 0)
+    fired = result.get("fired", [])
+    errors = result.get("errors", [])
+    if checked == 0 and not fired:
+        return (
+            "There are no active watches to check. Add one with “watch RELIANCE "
+            "for RSI below 30”."
+        )
+    lines = [f"Checked {checked} active watch(es)."]
+    if fired:
+        lines.append("")
+        lines.append("**Fired:**")
+        for w in fired:
+            cond = _watch_condition_text(w.get("condition"), w.get("threshold"))
+            lines.append(
+                f"- **{w.get('symbol')}**: {cond} (now {w.get('last_value')})"
+            )
+    else:
+        lines.append("None have fired yet.")
+    if errors:
+        lines.append("")
+        lines.append("_Couldn't check: " + "; ".join(errors[:5]) + "._")
+    return "\n".join(lines)
+
+
 def _render_comparison_result(result: dict[str, Any]) -> str:
     """Deterministic side-by-side comparison from the plan-and-execute agent."""
     symbols = result.get("symbols", [])
@@ -3722,6 +3827,19 @@ def _grounded_fallback_response(
             f"Watchlist updated: **{result.get('symbol')}** "
             f"{result.get('status')}."
         )
+    if tool_name == "create_watch":
+        return (
+            f"Now watching **{result.get('symbol')}** for "
+            f"{_watch_condition_text(result.get('condition'), result.get('threshold'))}. "
+            "I'll flag it when it fires — say “check my watches” any time. "
+            "(A watch only notifies; it never trades.)"
+        )
+    if tool_name == "remove_watch":
+        return f"Stopped watching **{result.get('symbol')}**."
+    if tool_name == "list_watches":
+        return _render_watch_list(result)
+    if tool_name == "check_watches":
+        return _render_watch_check(result)
     if tool_name == "list_watchlist":
         symbols = result.get("symbols", [])
         if not symbols:

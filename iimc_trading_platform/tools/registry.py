@@ -298,6 +298,20 @@ class CompareInvestmentsInput(ToolInput):
     exchange: str = Field(default="NSE", max_length=20)
 
 
+class CreateWatchInput(ToolInput):
+    symbol: str = Field(min_length=1, max_length=40)
+    condition: Literal[
+        "rsi_below", "rsi_above", "price_above_ema20", "price_below_ema20"
+    ]
+    threshold: float | None = Field(default=None, ge=0, le=100)
+    exchange: str = Field(default="NSE", max_length=20)
+
+
+class WatchSymbolInput(ToolInput):
+    symbol: str = Field(min_length=1, max_length=40)
+    exchange: str = Field(default="NSE", max_length=20)
+
+
 class RememberInput(ToolInput):
     note: str = Field(min_length=1, max_length=500)
 
@@ -652,6 +666,10 @@ def build_default_tool_registry(
     deep_research_loop = DeepResearchLoopService(research_agent, knowledge)
     plan_execute = PlanExecuteService(research_agent)
     optimizer = StrategyOptimizerService(backtests)
+
+    from ..services.watch_service import WatchService
+
+    watches = WatchService(db_path, _screener(db_path))
 
     def _resolve_dataset_for_symbol(
         symbol: str | None,
@@ -1183,6 +1201,93 @@ def build_default_tool_registry(
                 retry_safe=True,
                 capabilities=ToolCapabilityMetadata(
                     actions=("research", "analyze", "retrieve"),
+                    asset_classes=("equity",),
+                    execution_modes=("research",),
+                    risk_level="low",
+                ),
+            ),
+            ToolDefinition(
+                name="create_watch",
+                description=(
+                    "Start watching a stock for a technical condition — RSI "
+                    "below/above a level, or price above/below its EMA20 — "
+                    "evaluated against real broker candles. It only ever "
+                    "notifies; it never trades or prepares an order. Use for "
+                    "'watch RELIANCE for RSI below 30'."
+                ),
+                input_model=CreateWatchInput,
+                handler=lambda value: watches.create(
+                    symbol=CreateWatchInput.model_validate(value.model_dump()).symbol,
+                    condition=CreateWatchInput.model_validate(
+                        value.model_dump()
+                    ).condition,
+                    threshold=CreateWatchInput.model_validate(
+                        value.model_dump()
+                    ).threshold,
+                    exchange=CreateWatchInput.model_validate(
+                        value.model_dump()
+                    ).exchange,
+                ),
+                side_effects="writes one row to technical_watches",
+                retry_safe=False,
+                capabilities=ToolCapabilityMetadata(
+                    actions=("monitor", "store"),
+                    asset_classes=("equity",),
+                    execution_modes=("research",),
+                    risk_level="low",
+                ),
+            ),
+            ToolDefinition(
+                name="list_watches",
+                description=(
+                    "List the technical watches on file and their status "
+                    "(active / triggered). Read-only."
+                ),
+                input_model=EmptyInput,
+                handler=lambda value: watches.list(),
+                side_effects="read-only: reads technical_watches",
+                retry_safe=True,
+                capabilities=ToolCapabilityMetadata(
+                    actions=("retrieve",),
+                    asset_classes=("equity",),
+                    execution_modes=("research",),
+                    risk_level="low",
+                ),
+            ),
+            ToolDefinition(
+                name="remove_watch",
+                description=(
+                    "Stop watching a stock's technical condition. Use for 'stop "
+                    "watching RELIANCE'."
+                ),
+                input_model=WatchSymbolInput,
+                handler=lambda value: watches.remove(
+                    WatchSymbolInput.model_validate(value.model_dump()).symbol,
+                    WatchSymbolInput.model_validate(value.model_dump()).exchange,
+                ),
+                side_effects="deletes matching rows from technical_watches",
+                retry_safe=True,
+                capabilities=ToolCapabilityMetadata(
+                    actions=("monitor",),
+                    asset_classes=("equity",),
+                    execution_modes=("research",),
+                    risk_level="low",
+                ),
+            ),
+            ToolDefinition(
+                name="check_watches",
+                description=(
+                    "Evaluate all active technical watches now against fresh "
+                    "broker candles and report which conditions have fired. "
+                    "Read-only; only notifies, never trades. Use for 'check my "
+                    "watches'."
+                ),
+                input_model=EmptyInput,
+                handler=lambda value: watches.evaluate(),
+                side_effects="reads live candles; marks fired watches triggered",
+                retry_safe=True,
+                capabilities=ToolCapabilityMetadata(
+                    actions=("monitor", "retrieve"),
                     asset_classes=("equity",),
                     execution_modes=("research",),
                     risk_level="low",

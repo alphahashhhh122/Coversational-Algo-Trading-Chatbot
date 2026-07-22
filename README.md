@@ -38,6 +38,15 @@ every order requires your explicit approval.
   parameter grid over stored history and returns a ranked leaderboard, honestly
   flagging thin/overfit results (it will say a template lost money rather than
   invent a winner).
+- **Walk-forward validation** — `"is that EMA strategy robust for RELIANCE?"`
+  optimises on older data then tests the winner on newer, unseen data, and
+  reports whether it holds up or is overfit.
+- **Compare investments** — `"which is stronger, RELIANCE or TCS?"` researches
+  both in parallel and reports a factual side-by-side of the fundamentals (not a
+  buy/sell recommendation).
+- **Watch conditions** — `"watch RELIANCE for RSI below 30"`, then
+  `"check my watches"`. Technical-condition monitors that only ever notify —
+  they never trade.
 - **Trading** — `"buy 10 RELIANCE at market"` prepares an order and shows an
   inline **Approve / Cancel** card in chat. Paper mode by default; live only
   when explicitly enabled. `"square off everything"` / `"cancel all orders"`
