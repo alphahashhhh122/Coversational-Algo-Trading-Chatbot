@@ -272,6 +272,11 @@ class DeepResearchInput(ToolInput):
     exchange: str = Field(default="NSE", max_length=20)
 
 
+class DeepResearchReportInput(ToolInput):
+    symbol: str = Field(min_length=1, max_length=40)
+    exchange: str = Field(default="NSE", max_length=20)
+
+
 class StrategyOptimizationInput(ToolInput):
     symbol: str = Field(min_length=1, max_length=40)
     exchange: str = Field(default="NSE", max_length=20)
@@ -621,6 +626,7 @@ def build_default_tool_registry(
     platform_dashboard = PlatformDashboardService(active_config)
     personas = PersonaService(db_path)
     instruments = InstrumentDiscoveryService(active_config)
+    from ..services.deep_research_loop_service import DeepResearchLoopService
     from ..services.memory_service import MemoryService
     from ..services.research_agent_service import ResearchAgentService
     from ..services.strategy_optimizer_service import StrategyOptimizerService
@@ -629,6 +635,7 @@ def build_default_tool_registry(
     research_agent = ResearchAgentService(
         fundamentals, news, instruments, _screener(db_path), memory=memory
     )
+    deep_research_loop = DeepResearchLoopService(research_agent, knowledge)
     optimizer = StrategyOptimizerService(backtests)
 
     def _resolve_dataset_for_symbol(
@@ -1088,6 +1095,36 @@ def build_default_tool_registry(
                 side_effects=(
                     "read-only: parallel quote/fundamentals/technicals/news "
                     "lookups"
+                ),
+                retry_safe=True,
+                capabilities=ToolCapabilityMetadata(
+                    actions=("research", "analyze", "retrieve"),
+                    asset_classes=("equity",),
+                    execution_modes=("research",),
+                    risk_level="low",
+                ),
+            ),
+            ToolDefinition(
+                name="deep_research_report",
+                description=(
+                    "Run an iterative, self-critiquing research loop on a stock: "
+                    "plan → gather (parallel specialists) → assess its own "
+                    "coverage → one targeted deepening pass that fetches and "
+                    "cites a public document when data is thin → a cited report. "
+                    "Read-only; bounded; never trades; every claim traces to a "
+                    "real source. Use for 'deep dive / full research report / "
+                    "in-depth research on SYMBOL'."
+                ),
+                input_model=DeepResearchReportInput,
+                handler=lambda value: deep_research_loop.run(
+                    DeepResearchReportInput.model_validate(value.model_dump()).symbol,
+                    DeepResearchReportInput.model_validate(
+                        value.model_dump()
+                    ).exchange,
+                ),
+                side_effects=(
+                    "read-only research; may fetch and index one public web "
+                    "document for citations"
                 ),
                 retry_safe=True,
                 capabilities=ToolCapabilityMetadata(

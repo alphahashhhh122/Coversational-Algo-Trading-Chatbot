@@ -1100,6 +1100,29 @@ class OfflineOrchestrator:
         # research agent. Runs after the fundamentals and document routes so
         # "analyse X fundamentally" and "analyse the X report" keep their
         # dedicated handlers.
+        # A "deep dive / full research report" gets the iterative, self-critiquing
+        # loop (plan → gather → critique → refine → cited report). Checked before
+        # the one-shot deep_research fan-out below so the deeper phrasings win.
+        if (
+            "deep_research_report" in tool_names
+            and re.search(
+                r"\b(?:deep[\s-]*dive|in[\s-]*depth|full\s+research"
+                r"|research\s+report|detailed\s+research|thorough\s+research"
+                r"|comprehensive\s+research|deep\s+research)\b",
+                text,
+            )
+            and not re.search(r"\bfundamental", text)
+            and not _is_strategy_creation_request(text)
+        ):
+            report_symbol = _symbol_from_text(message)
+            if report_symbol:
+                return OrchestrationDecision(
+                    "deep_research_report",
+                    {
+                        "symbol": report_symbol,
+                        "exchange": _exchange_from_text(message, default="NSE"),
+                    },
+                )
         if (
             "deep_research" in tool_names
             and re.search(
@@ -3251,6 +3274,57 @@ def _render_research_briefing(result: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _render_research_report(result: dict[str, Any]) -> str:
+    """Deterministic cited report from the iterative deep-research loop.
+
+    Reuses the briefing for the core findings, then shows the agent's own
+    coverage self-critique, any deepening reading it pulled, and a sources list
+    so every claim is traceable. LLM composition (when configured) works from
+    the same structured bundle; nothing here is fabricated.
+    """
+    findings = result.get("findings", {})
+    briefing = _render_research_briefing(
+        {
+            "symbol": result.get("symbol"),
+            "company_name": result.get("company_name"),
+            **findings,
+            "gaps": result.get("gaps", []),
+        }
+    )
+    # Retitle from "briefing" to "research report".
+    briefing = briefing.replace("— research briefing", "— research report", 1)
+    lines = [briefing, ""]
+
+    critique = result.get("self_critique", [])
+    if critique:
+        lines.append(
+            f"**How I researched this** ({result.get('iterations', 1)} pass"
+            f"{'es' if result.get('iterations', 1) != 1 else ''}):"
+        )
+        for note in critique:
+            lines.append(f"- {note}")
+        lines.append("")
+
+    web = result.get("web_research", [])
+    if web:
+        lines.append("**Further reading pulled in:**")
+        for doc in web:
+            title = doc.get("title") or "web document"
+            url = doc.get("url")
+            lines.append(f"- {title}" + (f" — {url}" if url else ""))
+        lines.append("")
+
+    citations = result.get("citations", [])
+    if citations:
+        lines.append("**Sources:**")
+        for cite in citations:
+            ref = cite.get("ref")
+            url = cite.get("url")
+            tail = url or ref
+            lines.append(f"- {cite.get('source')}" + (f" ({tail})" if tail else ""))
+    return "\n".join(lines).rstrip()
+
+
 def _render_account_snapshot(result: dict[str, Any]) -> str:
     snapshot_type = result.get("snapshot_type", "account")
     data = result.get("data")
@@ -3577,6 +3651,8 @@ def _grounded_fallback_response(
         return _render_optimization_result(result)
     if tool_name == "deep_research":
         return _render_research_briefing(result)
+    if tool_name == "deep_research_report":
+        return _render_research_report(result)
     if tool_name == "remember":
         return _render_remember_result(result)
     if tool_name == "recall_memory":

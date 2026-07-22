@@ -1387,6 +1387,19 @@ class OrchestrationContractsTest(unittest.TestCase):
         self.assertEqual(decision.tool_name, "deep_research")
         self.assertEqual(decision.arguments["symbol"], "RELIANCE")
 
+    def test_offline_router_deep_dive_routes_to_loop(self) -> None:
+        registry = build_default_tool_registry(Path("unused.duckdb"))
+        loop = OfflineOrchestrator().select_tool(
+            "deep dive on RELIANCE", [], registry,
+        )
+        self.assertEqual(loop.tool_name, "deep_research_report")
+        self.assertEqual(loop.arguments["symbol"], "RELIANCE")
+        # A plain "research X" still gets the fast one-shot fan-out.
+        quick = OfflineOrchestrator().select_tool(
+            "research INFY", [], registry,
+        )
+        self.assertEqual(quick.tool_name, "deep_research")
+
     def test_offline_router_remember_stores_a_note(self) -> None:
         registry = build_default_tool_registry(Path("unused.duckdb"))
         decision = OfflineOrchestrator().select_tool(

@@ -61,16 +61,37 @@ what was stored, with timestamps — never a fabrication. The **watchlist is not
 duplicated here**; it stays in `watchlist_symbols` (`ScreenerService`) and memory
 complements it.
 
+### Iterative deep-research loop (`deep_research_report`)
+`DeepResearchLoopService` (`services/deep_research_loop_service.py`) is the
+first **LangGraph** agent — a genuine loop, not a fan-out. Its `StateGraph`:
+
+    plan → gather → self-critique → (refine → self-critique)* → cited report
+
+- **gather** reuses the parallel `ResearchAgentService` for the first pass.
+- **self-critique** is a deterministic coverage analysis (which of the four core
+  questions are answered, whether news is thin) — an honest self-assessment, not
+  a hallucinated one — and decides whether another pass is worthwhile.
+- **refine** does one bounded deepening pass: when data is thin it fetches and
+  **cites** a public document via `KnowledgeService.search_and_fetch`
+  (SSRF-guarded; fetched text is untrusted data, never instructions).
+- the result carries an explicit **citation list** so every claim traces to a
+  real source; unavailable data is still reported, never invented.
+
+Bounded (`max_refines`, default 1), read-only, no order path. Routed from "deep
+dive / full research report / in-depth research on SYMBOL"; a plain
+"research/analyse SYMBOL" still gets the faster one-shot `deep_research`.
+LangGraph earns its place here (loop control + conditional continuation) and is
+reserved for the remaining iterative/durable phases below.
+
 ## Roadmap
 
-Later, iterative/durable agents are added behind a **LangGraph** runtime (chosen
-for loop control, checkpoint/resume, `interrupt()` for human approval, and
-streaming). LangGraph is introduced only when these are needed — not for the
-parallel fan-out above.
+Remaining iterative/durable agents will use the same **LangGraph** runtime,
+leaning on the parts the deep-research loop doesn't yet exercise —
+checkpoint/resume for durability, `interrupt()` for human approval, and
+streaming.
 
-1. **Deep-research loop** — plan → gather → self-critique → refine → cited report.
-2. **Walk-forward validation** — extend the optimizer's best config with
+1. **Walk-forward validation** — extend the optimizer's best config with
    out-of-sample robustness checks (`RobustnessService`), checkpointed.
-4. **Plan-and-execute** — decompose a task, run read-only sub-agents, and surface
+2. **Plan-and-execute** — decompose a task, run read-only sub-agents, and surface
    any prepared order through the existing in-chat approval card (`interrupt()`).
-5. **Watch/monitor agent** — scheduled, proactive, approval-gated.
+3. **Watch/monitor agent** — scheduled, proactive, approval-gated.
