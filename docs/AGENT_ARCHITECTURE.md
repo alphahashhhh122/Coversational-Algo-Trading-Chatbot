@@ -83,6 +83,16 @@ dive / full research report / in-depth research on SYMBOL"; a plain
 LangGraph earns its place here (loop control + conditional continuation) and is
 reserved for the remaining iterative/durable phases below.
 
+### Walk-forward validation (`validate_strategy_walk_forward`)
+`StrategyOptimizerService.walk_forward` guards against overfitting: it splits the
+stored history into an older *train* window and a newer *test* window, optimises
+the grid on train, then evaluates that **same** config on the untouched test
+window. The gap is the honest signal — a config that wins in-sample but loses
+out-of-sample is reported as **overfit**, not celebrated. It reuses the fast
+in-memory `simulate_only` (no persistence) so it stays chat-snappy; the Backtests
+UI keeps the heavier, persisted `RobustnessService` for deeper experiments.
+Routed from "walk-forward / out-of-sample / is that strategy robust for SYMBOL".
+
 ## Roadmap
 
 Remaining iterative/durable agents will use the same **LangGraph** runtime,
@@ -90,8 +100,6 @@ leaning on the parts the deep-research loop doesn't yet exercise —
 checkpoint/resume for durability, `interrupt()` for human approval, and
 streaming.
 
-1. **Walk-forward validation** — extend the optimizer's best config with
-   out-of-sample robustness checks (`RobustnessService`), checkpointed.
-2. **Plan-and-execute** — decompose a task, run read-only sub-agents, and surface
+1. **Plan-and-execute** — decompose a task, run read-only sub-agents, and surface
    any prepared order through the existing in-chat approval card (`interrupt()`).
-3. **Watch/monitor agent** — scheduled, proactive, approval-gated.
+2. **Watch/monitor agent** — scheduled, proactive, approval-gated.

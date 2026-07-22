@@ -634,6 +634,32 @@ class OfflineOrchestrator:
                 "get_execution_readiness",
                 _readiness_arguments(message),
             )
+        # "walk-forward / out-of-sample / is that strategy robust for SYMBOL" →
+        # the validation agent. Checked before the optimiser route so the more
+        # specific validation phrasing wins.
+        if (
+            "validate_strategy_walk_forward" in tool_names
+            and re.search(
+                r"\b(?:walk[\s-]*forward|out[\s-]*of[\s-]*sample|overfit"
+                r"|robust(?:ness)?|hold[\s-]*up|validate)\b",
+                text,
+            )
+            and re.search(r"\bstrateg|\bema\b|\bsma\b", text)
+        ):
+            wf_symbol = _symbol_from_text(message)
+            if wf_symbol:
+                wf_strategy = (
+                    "sma_crossover" if re.search(r"\bsma\b", text)
+                    else "ema_crossover"
+                )
+                return OrchestrationDecision(
+                    "validate_strategy_walk_forward",
+                    {
+                        "symbol": wf_symbol,
+                        "exchange": _exchange_from_text(message, default="NSE"),
+                        "strategy_name": wf_strategy,
+                    },
+                )
         # "find/optimise/tune/best strategy for SYMBOL" → the optimizer agent
         # (searches a parameter grid). Runs before the compile route so it wins
         # over "create a strategy". Needs a concrete symbol.
@@ -2879,6 +2905,10 @@ def _symbol_from_text(text: str) -> str | None:
         "ANALYZE", "ANALYSE", "ANALYSIS", "RESEARCH", "STUDY", "REVIEW",
         "SUMMARIZE", "SUMMARISE", "EXPLAIN", "TELL", "SHOW", "DEEP", "DIVE",
         "FULL", "OVERVIEW", "BRIEFING", "LOOK", "INTO", "STORY",
+        # Validation / walk-forward words, e.g. "CHECK the RELIANCE strategy".
+        "CHECK", "VALIDATE", "ROBUST", "ROBUSTNESS", "FORWARD", "SAMPLE",
+        "OVERFIT", "HOLD", "HOLDS", "WALK", "OPTIMIZE", "OPTIMISE", "TUNE",
+        "DISCOVER", "FIND", "BEST", "PROFITABLE", "WINNING",
         "ABOUT",
         "AND",
         "ANY",
@@ -3129,6 +3159,52 @@ def _name_suffix(symbol: Any, row: dict[str, Any]) -> str:
         row.get("exchange") or "NSE",
     )
     return f" ({name})" if name else ""
+
+
+_WALK_FORWARD_LABELS = {
+    "holds_up": "✅ Holds up — it kept most of its edge on unseen data.",
+    "weaker_but_positive": "🟡 Weaker but still positive out-of-sample.",
+    "overfit": "❌ Overfit — profitable in-sample, but lost money on unseen data.",
+    "poor": "❌ Poor — it lost money on the unseen test window.",
+    "inconclusive": "⚠️ Inconclusive — too few out-of-sample trades to judge.",
+}
+
+
+def _render_walk_forward_result(result: dict[str, Any]) -> str:
+    """Deterministic in-sample vs out-of-sample report."""
+    strategy = str(result.get("strategy", "")).replace("_", " ")
+    if result.get("status") != "ok":
+        return (
+            f"I couldn't run a walk-forward check on the {strategy} strategy — "
+            "there wasn't a usable configuration over the stored history."
+        )
+    params = ", ".join(
+        f"{k}={v}" for k, v in result.get("parameters", {}).items()
+    )
+    verdict = _WALK_FORWARD_LABELS.get(
+        result.get("verdict", ""), result.get("verdict", "")
+    )
+    return "\n".join(
+        [
+            f"**Walk-forward check — {strategy}**",
+            "",
+            f"I picked the best config on the older {result.get('train_bars')} "
+            f"bars, then tested it on the newer {result.get('test_bars')} bars "
+            "it had never seen.",
+            "",
+            f"- Config: {params}",
+            f"- In-sample (train): **{result.get('in_sample_return_pct')}%** "
+            f"over {result.get('in_sample_trades')} trades",
+            f"- Out-of-sample (test): **{result.get('out_of_sample_return_pct')}%** "
+            f"over {result.get('out_of_sample_trades')} trades "
+            f"(drawdown ₹{result.get('out_of_sample_drawdown')})",
+            "",
+            f"**Verdict:** {verdict}",
+            "",
+            "_Historical validation only — not a prediction of future returns or "
+            "investment advice._",
+        ]
+    )
 
 
 def _render_optimization_result(result: dict[str, Any]) -> str:
@@ -3676,6 +3752,8 @@ def _grounded_fallback_response(
         )
     if tool_name == "run_strategy_optimization":
         return _render_optimization_result(result)
+    if tool_name == "validate_strategy_walk_forward":
+        return _render_walk_forward_result(result)
     if tool_name == "deep_research":
         return _render_research_briefing(result)
     if tool_name == "deep_research_report":

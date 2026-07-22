@@ -1439,6 +1439,24 @@ class OrchestrationContractsTest(unittest.TestCase):
         )
         self.assertEqual(trades.tool_name, "get_openalgo_snapshot")
 
+    def test_offline_router_walk_forward_validation(self) -> None:
+        registry = _shared_registry()
+        for phrase in (
+            "walk-forward validate the EMA strategy for RELIANCE",
+            "is that EMA strategy robust for RELIANCE",
+            "check the RELIANCE strategy out-of-sample",
+        ):
+            decision = OfflineOrchestrator().select_tool(phrase, [], registry)
+            self.assertEqual(
+                decision.tool_name, "validate_strategy_walk_forward", phrase
+            )
+            self.assertEqual(decision.arguments["symbol"], "RELIANCE", phrase)
+        # A plain "find a good strategy" still goes to the optimizer.
+        opt = OfflineOrchestrator().select_tool(
+            "find a good EMA strategy for RELIANCE", [], registry,
+        )
+        self.assertEqual(opt.tool_name, "run_strategy_optimization")
+
     def test_offline_router_deep_dive_routes_to_loop(self) -> None:
         registry = _shared_registry()
         loop = OfflineOrchestrator().select_tool(

@@ -33,6 +33,25 @@ _GRIDS: dict[str, list[dict[str, Any]]] = {
 }
 
 
+def _walk_forward_verdict(
+    in_ret: float | None,
+    out_ret: float | None,
+    out_trades: int,
+    min_trades: int,
+) -> str:
+    """A plain, honest label for how the config held up out-of-sample."""
+
+    if out_ret is None or out_trades < min_trades:
+        return "inconclusive"  # too few out-of-sample trades to judge
+    if in_ret is not None and in_ret > 0 and out_ret <= 0:
+        return "overfit"  # profitable in-sample, lost money out-of-sample
+    if in_ret is not None and in_ret > 0 and out_ret >= in_ret * 0.5:
+        return "holds_up"  # kept most of its edge out-of-sample
+    if out_ret > 0:
+        return "weaker_but_positive"
+    return "poor"
+
+
 class StrategyOptimizerService:
     def __init__(self, backtest_service: BacktestService) -> None:
         self.backtest_service = backtest_service
@@ -103,5 +122,100 @@ class StrategyOptimizerService:
             + [r for r in results if "return_pct" not in r],
             "best": best,
             "used_unreliable_best": bool(best) and not best.get("reliable"),
+            "no_synthetic_fallback": True,
+        }
+
+    def walk_forward(
+        self,
+        *,
+        dataset_id: str,
+        strategy_name: str = "ema_crossover",
+        instrument: dict[str, Any] | None = None,
+        split_ratio: float = 0.7,
+        min_trades: int = 3,
+    ) -> dict[str, Any]:
+        """Out-of-sample check: optimise on older data, then test on newer data.
+
+        Splits the stored history into an in-sample (train) and an out-of-sample
+        (test) window, picks the best grid config on the train window, then
+        evaluates that *same* config on the untouched test window. The gap
+        between the two is the honest signal: a config that wins in-sample but
+        loses out-of-sample is overfit, and this reports exactly that rather than
+        celebrating the in-sample number.
+        """
+
+        grid = _GRIDS.get(strategy_name)
+        if grid is None:
+            raise ValueError(
+                f"I can only validate {sorted(_GRIDS)} right now, not "
+                f"{strategy_name!r}."
+            )
+        if not 0.5 <= split_ratio <= 0.85:
+            raise ValueError("split_ratio must be between 0.5 and 0.85")
+        _dataset, candles = self.backtest_service.load_dataset_candles(
+            dataset_id, instrument=instrument
+        )
+        if len(candles) < 60:
+            raise ValueError(
+                "I need more history for a reliable train/test split "
+                "(at least 60 bars)."
+            )
+        split = int(len(candles) * split_ratio)
+        train, test = candles[:split], candles[split:]
+
+        # Optimise on the train window only.
+        train_scored: list[dict[str, Any]] = []
+        for parameters in grid:
+            try:
+                run = self.backtest_service.simulate_only(
+                    strategy_name=strategy_name, candles=train, parameters=parameters
+                )
+            except Exception:  # noqa: BLE001 - a bad candidate is skipped, not fatal
+                continue
+            train_scored.append(
+                {
+                    "parameters": parameters,
+                    "return_pct": run.get("return_pct"),
+                    "total_trades": int(run.get("total_trades") or 0),
+                }
+            )
+        in_sample_pool = [
+            r for r in train_scored if r["total_trades"] >= min_trades
+        ] or train_scored
+        best = (
+            max(in_sample_pool, key=lambda r: r["return_pct"])
+            if in_sample_pool
+            else None
+        )
+        if best is None:
+            return {
+                "strategy": strategy_name,
+                "dataset_id": dataset_id,
+                "status": "no_candidate",
+                "no_synthetic_fallback": True,
+            }
+
+        # Evaluate the winner on the untouched test window.
+        test_run = self.backtest_service.simulate_only(
+            strategy_name=strategy_name, candles=test, parameters=best["parameters"]
+        )
+        in_ret = best["return_pct"]
+        out_ret = test_run.get("return_pct")
+        out_trades = int(test_run.get("total_trades") or 0)
+        verdict = _walk_forward_verdict(in_ret, out_ret, out_trades, min_trades)
+        return {
+            "strategy": strategy_name,
+            "dataset_id": dataset_id,
+            "status": "ok",
+            "split_ratio": split_ratio,
+            "train_bars": len(train),
+            "test_bars": len(test),
+            "parameters": best["parameters"],
+            "in_sample_return_pct": in_ret,
+            "in_sample_trades": best["total_trades"],
+            "out_of_sample_return_pct": out_ret,
+            "out_of_sample_trades": out_trades,
+            "out_of_sample_drawdown": test_run.get("max_drawdown"),
+            "verdict": verdict,
             "no_synthetic_fallback": True,
         }

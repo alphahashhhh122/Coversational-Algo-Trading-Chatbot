@@ -70,5 +70,62 @@ class StrategyOptimizerTest(unittest.TestCase):
             )
 
 
+class _WalkForwardBacktest:
+    """Returns train vs test returns by window length (train=70, test=30)."""
+
+    def __init__(self, train_ret: float, test_ret: float, trades: int = 10) -> None:
+        self.train_ret = train_ret
+        self.test_ret = test_ret
+        self.trades = trades
+
+    def load_dataset_candles(self, dataset_id, instrument=None):
+        return {"symbol": "X"}, list(range(100))
+
+    def simulate_only(self, *, strategy_name, candles, parameters):
+        ret = self.train_ret if len(candles) >= 70 else self.test_ret
+        return {
+            "total_trades": self.trades,
+            "net_pnl": 1000,
+            "max_drawdown": -100,
+            "return_pct": ret,
+        }
+
+
+class WalkForwardTest(unittest.TestCase):
+    def test_config_that_holds_up_is_reported(self) -> None:
+        svc = StrategyOptimizerService(_WalkForwardBacktest(10.0, 8.0))
+        result = svc.walk_forward(dataset_id="ds1")
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["verdict"], "holds_up")
+        self.assertEqual(result["in_sample_return_pct"], 10.0)
+        self.assertEqual(result["out_of_sample_return_pct"], 8.0)
+        answer = grounded_tool_response("validate_strategy_walk_forward", result)
+        self.assertIn("Holds up", answer)
+        self.assertIn("Out-of-sample", answer)
+
+    def test_overfit_config_is_flagged_honestly(self) -> None:
+        svc = StrategyOptimizerService(_WalkForwardBacktest(12.0, -4.0))
+        result = svc.walk_forward(dataset_id="ds1")
+        self.assertEqual(result["verdict"], "overfit")
+        answer = grounded_tool_response("validate_strategy_walk_forward", result)
+        self.assertIn("Overfit", answer)
+
+    def test_too_few_out_of_sample_trades_is_inconclusive(self) -> None:
+        svc = StrategyOptimizerService(_WalkForwardBacktest(10.0, 5.0, trades=1))
+        result = svc.walk_forward(dataset_id="ds1", min_trades=3)
+        self.assertEqual(result["verdict"], "inconclusive")
+
+    def test_short_history_rejected(self) -> None:
+        class Short:
+            def load_dataset_candles(self, dataset_id, instrument=None):
+                return {"symbol": "X"}, list(range(40))
+
+            def simulate_only(self, **kwargs):
+                raise AssertionError("should not be called")
+
+        with self.assertRaises(ValueError):
+            StrategyOptimizerService(Short()).walk_forward(dataset_id="ds1")
+
+
 if __name__ == "__main__":
     unittest.main()

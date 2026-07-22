@@ -285,6 +285,14 @@ class StrategyOptimizationInput(ToolInput):
     strategy_name: Literal["ema_crossover", "sma_crossover"] = "ema_crossover"
 
 
+class WalkForwardValidationInput(ToolInput):
+    symbol: str = Field(min_length=1, max_length=40)
+    exchange: str = Field(default="NSE", max_length=20)
+    asset_class: str = Field(default="equity", max_length=20)
+    interval: str = Field(default="5m", max_length=8)
+    strategy_name: Literal["ema_crossover", "sma_crossover"] = "ema_crossover"
+
+
 class RememberInput(ToolInput):
     note: str = Field(min_length=1, max_length=500)
 
@@ -1071,6 +1079,45 @@ def build_default_tool_registry(
                 retry_safe=True,
                 capabilities=ToolCapabilityMetadata(
                     actions=("backtest", "optimize", "research"),
+                    execution_modes=("research",),
+                    risk_level="low",
+                ),
+            ),
+            ToolDefinition(
+                name="validate_strategy_walk_forward",
+                description=(
+                    "Out-of-sample check for a symbol's best strategy config: "
+                    "optimises a template grid on older data, then tests the "
+                    "winner on newer, untouched data and reports whether it holds "
+                    "up or is overfit. Research backtests only; never trades; "
+                    "reports the real in-sample vs out-of-sample gap without "
+                    "fabrication. Use for 'walk-forward / out-of-sample / is that "
+                    "strategy robust for SYMBOL'."
+                ),
+                input_model=WalkForwardValidationInput,
+                handler=lambda value: optimizer.walk_forward(
+                    dataset_id=_resolve_dataset_for_symbol(
+                        WalkForwardValidationInput.model_validate(
+                            value.model_dump()
+                        ).symbol,
+                        WalkForwardValidationInput.model_validate(
+                            value.model_dump()
+                        ).exchange,
+                        WalkForwardValidationInput.model_validate(
+                            value.model_dump()
+                        ).asset_class,
+                        WalkForwardValidationInput.model_validate(
+                            value.model_dump()
+                        ).interval,
+                    ),
+                    strategy_name=WalkForwardValidationInput.model_validate(
+                        value.model_dump()
+                    ).strategy_name,
+                ),
+                side_effects="runs research backtests on train/test splits",
+                retry_safe=True,
+                capabilities=ToolCapabilityMetadata(
+                    actions=("backtest", "validate", "research"),
                     execution_modes=("research",),
                     risk_level="low",
                 ),

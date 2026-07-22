@@ -107,6 +107,7 @@ class ChatService:
         "run_technical_screen",
         "list_pending_approvals",
         "run_strategy_optimization",
+        "validate_strategy_walk_forward",
         "remember",
         "recall_memory",
     }
