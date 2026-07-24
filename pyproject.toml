@@ -22,7 +22,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = []
+dev = [
+    # Test-only: fastapi.testclient imports httpx (not a fastapi dependency).
+    "httpx>=0.27,<1",
+    "pytest>=8,<10",
+]
 
 [tool.pytest.ini_options]
 markers = [
