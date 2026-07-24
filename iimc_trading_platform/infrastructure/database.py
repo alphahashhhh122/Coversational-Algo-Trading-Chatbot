@@ -888,6 +888,70 @@ def initialize_database(db_path: Path) -> None:
             )
             """
         )
+        # --- ATL agent platform (see docs/ATL_TRANSITION.md) -----------------
+        con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS agents (
+                agent_id VARCHAR PRIMARY KEY,
+                name VARCHAR NOT NULL,
+                version VARCHAR NOT NULL,
+                category VARCHAR NOT NULL,
+                description VARCHAR NOT NULL,
+                capabilities_json VARCHAR NOT NULL,
+                config_json VARCHAR NOT NULL,
+                author VARCHAR NOT NULL,
+                status VARCHAR NOT NULL,
+                created_at TIMESTAMP NOT NULL,
+                UNIQUE(name, version)
+            )
+            """
+        )
+        con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS agent_runs (
+                run_id VARCHAR PRIMARY KEY,
+                agent_id VARCHAR NOT NULL,
+                version VARCHAR NOT NULL,
+                task_json VARCHAR NOT NULL,
+                status VARCHAR NOT NULL,
+                findings_json VARCHAR,
+                evidence_json VARCHAR,
+                gaps_json VARCHAR,
+                cost_json VARCHAR,
+                started_at TIMESTAMP NOT NULL,
+                finished_at TIMESTAMP
+            )
+            """
+        )
+        con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS agent_scores (
+                score_id VARCHAR PRIMARY KEY,
+                agent_id VARCHAR NOT NULL,
+                version VARCHAR NOT NULL,
+                run_id VARCHAR NOT NULL,
+                eval_dataset_id VARCHAR,
+                metrics_json VARCHAR NOT NULL,
+                composite DOUBLE,
+                scored_at TIMESTAMP NOT NULL
+            )
+            """
+        )
+        con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS eval_datasets (
+                eval_dataset_id VARCHAR PRIMARY KEY,
+                symbol VARCHAR NOT NULL,
+                exchange VARCHAR NOT NULL,
+                bar_interval VARCHAR NOT NULL,
+                start_date DATE NOT NULL,
+                end_date DATE NOT NULL,
+                row_count INTEGER NOT NULL,
+                content_hash VARCHAR NOT NULL,
+                frozen_at TIMESTAMP NOT NULL
+            )
+            """
+        )
         con.execute(
             """
             CREATE TABLE IF NOT EXISTS agent_memory (
