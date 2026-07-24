@@ -17,6 +17,66 @@ def _default_root() -> Path:
     return Path.home() / "openalgo"
 
 
+# Static fallback for the NIFTY 50 constituents (matching the screener
+# universe), used only when the OpenAlgo master contract isn't installed —
+# fresh clones and CI still resolve the major names. The master contract
+# always takes precedence when present.
+_BUILTIN_NSE_NAMES: dict[str, str] = {
+    "ADANIENT": "Adani Enterprises",
+    "ADANIPORTS": "Adani Ports & SEZ",
+    "APOLLOHOSP": "Apollo Hospitals",
+    "ASIANPAINT": "Asian Paints",
+    "AXISBANK": "Axis Bank",
+    "BAJAJ-AUTO": "Bajaj Auto",
+    "BAJAJFINSV": "Bajaj Finserv",
+    "BAJFINANCE": "Bajaj Finance",
+    "BEL": "Bharat Electronics",
+    "BHARTIARTL": "Bharti Airtel",
+    "BPCL": "Bharat Petroleum",
+    "BRITANNIA": "Britannia Industries",
+    "CIPLA": "Cipla",
+    "COALINDIA": "Coal India",
+    "DIVISLAB": "Divi's Laboratories",
+    "DRREDDY": "Dr. Reddy's Laboratories",
+    "EICHERMOT": "Eicher Motors",
+    "GRASIM": "Grasim Industries",
+    "HCLTECH": "HCL Technologies",
+    "HDFCBANK": "HDFC Bank",
+    "HDFCLIFE": "HDFC Life Insurance",
+    "HEROMOTOCO": "Hero MotoCorp",
+    "HINDALCO": "Hindalco Industries",
+    "HINDUNILVR": "Hindustan Unilever",
+    "ICICIBANK": "ICICI Bank",
+    "INDUSINDBK": "IndusInd Bank",
+    "INFY": "Infosys",
+    "ITC": "ITC",
+    "JSWSTEEL": "JSW Steel",
+    "KOTAKBANK": "Kotak Mahindra Bank",
+    "LT": "Larsen & Toubro",
+    "LTIM": "LTIMindtree",
+    "M&M": "Mahindra & Mahindra",
+    "MARUTI": "Maruti Suzuki",
+    "NESTLEIND": "Nestle India",
+    "NTPC": "NTPC",
+    "ONGC": "Oil & Natural Gas Corporation",
+    "POWERGRID": "Power Grid Corporation",
+    "RELIANCE": "Reliance Industries",
+    "SBILIFE": "SBI Life Insurance",
+    "SBIN": "State Bank of India",
+    "SHRIRAMFIN": "Shriram Finance",
+    "SUNPHARMA": "Sun Pharmaceutical",
+    "TATACONSUM": "Tata Consumer Products",
+    "TATAMOTORS": "Tata Motors",
+    "TATASTEEL": "Tata Steel",
+    "TCS": "Tata Consultancy Services",
+    "TECHM": "Tech Mahindra",
+    "TITAN": "Titan Company",
+    "TRENT": "Trent",
+    "ULTRACEMCO": "UltraTech Cement",
+    "WIPRO": "Wipro",
+}
+
+
 def _pretty(raw: str) -> str:
     """'RELIANCE INDUSTRIES LTD' -> 'Reliance Industries'."""
     name = " ".join(raw.strip().split()).title()
@@ -60,6 +120,11 @@ def company_name(
     if not symbol:
         return None
     root = openalgo_root or _default_root()
-    return _name_map(str(root), (exchange or "NSE").upper()).get(
-        str(symbol).upper()
-    )
+    upper_exchange = (exchange or "NSE").upper()
+    upper_symbol = str(symbol).upper()
+    name = _name_map(str(root), upper_exchange).get(upper_symbol)
+    if name:
+        return name
+    if upper_exchange == "NSE":
+        return _BUILTIN_NSE_NAMES.get(upper_symbol)
+    return None
