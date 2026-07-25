@@ -23,6 +23,7 @@ from .api_models import (
     ArenaSeasonRequest,
     AuthoredAgentRequest,
     CommitteeRequest,
+    ContestRequest,
     BatchSubmitRequest,
     ChatRequest,
     DirectOrderRequest,
@@ -274,6 +275,17 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         ).findings
 
     committee = CommitteeService(_committee_member_runner)
+
+    from .services.contest_service import ContestService
+
+    contest_service = ContestService(
+        active_config.database_path,
+        _ArenaBacktests(
+            active_config.database_path,
+            strategy_plugin_dir=active_config.strategy_plugin_dir,
+            allow_live_trading=False,
+        ),
+    )
 
     def _arena_dataset_for(season_id: str) -> str | None:
         """The stored dataset a season's symbol resolves to, or None.
@@ -1205,6 +1217,50 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.get("/contests")
+    def list_contests_endpoint(
+        principal: Principal = Depends(viewer),
+    ) -> dict[str, Any]:
+        return contest_service.list()
+
+    @app.post("/contests")
+    def create_contest_endpoint(
+        request: ContestRequest,
+        principal: Principal = Depends(researcher),
+    ) -> dict[str, Any]:
+        dataset_id = _resolve_dataset(
+            active_config.database_path,
+            symbol=request.symbol,
+            exchange=request.exchange,
+            raise_on_missing=False,
+        )
+        return contest_service.create(
+            name=request.name,
+            symbol=request.symbol,
+            exchange=request.exchange,
+            dataset_id=dataset_id,
+            open_for_days=request.open_for_days,
+        )
+
+    @app.get("/contests/{contest_id}/results")
+    def contest_results_endpoint(
+        contest_id: str,
+        principal: Principal = Depends(viewer),
+    ) -> dict[str, Any]:
+        return contest_service.results(contest_id)
+
+    @app.post("/contests/{contest_id}/close")
+    def close_contest_endpoint(
+        contest_id: str,
+        principal: Principal = Depends(researcher),
+    ) -> dict[str, Any]:
+        try:
+            return contest_service.close(
+                contest_id, agent_evaluation.leaderboard(category="strategy")
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     @app.get("/arena/seasons")
     def list_arena_seasons_endpoint(

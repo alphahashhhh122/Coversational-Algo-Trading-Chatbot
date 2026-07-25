@@ -954,6 +954,36 @@ def initialize_database(db_path: Path) -> None:
         )
         con.execute(
             """
+            CREATE TABLE IF NOT EXISTS contests (
+                contest_id VARCHAR PRIMARY KEY,
+                name VARCHAR NOT NULL,
+                symbol VARCHAR NOT NULL,
+                exchange VARCHAR NOT NULL,
+                eval_dataset_id VARCHAR,
+                dataset_hash VARCHAR,
+                closes_at TIMESTAMP NOT NULL,
+                status VARCHAR NOT NULL,
+                created_at TIMESTAMP NOT NULL
+            )
+            """
+        )
+        con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS contest_results (
+                result_id VARCHAR PRIMARY KEY,
+                contest_id VARCHAR NOT NULL,
+                agent_id VARCHAR NOT NULL,
+                version VARCHAR NOT NULL,
+                run_id VARCHAR,
+                metrics_json VARCHAR NOT NULL,
+                composite DOUBLE,
+                rank INTEGER,
+                snapshot_at TIMESTAMP NOT NULL
+            )
+            """
+        )
+        con.execute(
+            """
             CREATE TABLE IF NOT EXISTS arena_seasons (
                 season_id VARCHAR PRIMARY KEY,
                 name VARCHAR NOT NULL,

@@ -47,6 +47,12 @@ every order requires your explicit approval.
 - **Watch conditions** — `"watch RELIANCE for RSI below 30"`, then
   `"check my watches"`. Technical-condition monitors that only ever notify —
   they never trade.
+- **Trading** — `"buy 10 RELIANCE at market"` prepares an order and shows an
+  inline **Approve / Cancel** card in chat. Paper mode by default; live only
+  when explicitly enabled. `"square off everything"` / `"cancel all orders"`
+  work too.
+- **Account** — funds, positions, orders, trades, and P&L, synced from the
+  broker and shown on the landing page and the Account tab.
 
 ### The Agents tab
 
@@ -65,12 +71,28 @@ race (see `docs/ATL_TRANSITION.md` for the roadmap):
   internal simulated ledger. They never place real orders; there is no broker
   code path in the arena at all. Days without market data are marked missing,
   never filled in.
-- **Trading** — `"buy 10 RELIANCE at market"` prepares an order and shows an
-  inline **Approve / Cancel** card in chat. Paper mode by default; live only
-  when explicitly enabled. `"square off everything"` / `"cancel all orders"`
-  work too.
-- **Account** — funds, positions, orders, trades, and P&L, synced from the
-  broker and shown on the landing page and the Account tab.
+
+### Use it from code or another AI client
+
+```python
+from iimc_trading_platform.sdk import ATLClient
+
+atl = ATLClient("http://127.0.0.1:8000")
+atl.run_agent("market_researcher", symbol="RELIANCE")
+atl.leaderboard()["ranked"]
+```
+
+The SDK is dependency-free (standard library only) and has **no order or
+approval method** — the API it wraps doesn't expose one. The platform also
+speaks **MCP**, so Claude Desktop or Claude Code can browse and run the agents
+(`docs/YOUR_TASKS.md` has the two-minute setup).
+
+**Contests** freeze the evaluation dataset with a content hash, enforce a
+deadline, and snapshot the final standings — so a published result can't drift
+when data or scoring code later changes.
+
+See `docs/DEMO.md` for a guided walkthrough and `docs/AGENT_ARCHITECTURE.md`
+for the design.
 
 ## Architecture
 

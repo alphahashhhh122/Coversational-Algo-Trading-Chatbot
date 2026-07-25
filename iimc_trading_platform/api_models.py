@@ -18,6 +18,13 @@ class McpCallRequest(BaseModel):
     arguments: dict[str, Any] = Field(default_factory=dict)
 
 
+class ContestRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    symbol: str = Field(min_length=1, max_length=40)
+    exchange: str = Field(default="NSE", max_length=20)
+    open_for_days: int = Field(default=7, ge=1, le=90)
+
+
 class AuthoredAgentRequest(BaseModel):
     spec_id: str = Field(min_length=1, max_length=80)
 
