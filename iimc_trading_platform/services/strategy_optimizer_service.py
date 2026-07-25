@@ -125,6 +125,61 @@ class StrategyOptimizerService:
             "no_synthetic_fallback": True,
         }
 
+    def walk_forward_spec(
+        self,
+        *,
+        dataset_id: str,
+        spec: dict[str, Any],
+        split_ratio: float = 0.7,
+        min_trades: int = 3,
+    ) -> dict[str, Any]:
+        """Walk-forward a *fixed* rule spec (an authored strategy).
+
+        Unlike :meth:`walk_forward` there is no grid to fit — the spec is given.
+        The train window therefore measures how the author's rules did on older
+        data and the test window is still untouched, so a hand-tuned spec that
+        only worked on the data its author eyeballed is still caught. The result
+        deliberately matches :meth:`walk_forward`'s shape so authored agents are
+        scored by exactly the same rules as built-in ones.
+        """
+
+        if not 0.5 <= split_ratio <= 0.85:
+            raise ValueError("split_ratio must be between 0.5 and 0.85")
+        _dataset, candles = self.backtest_service.load_dataset_candles(dataset_id)
+        if len(candles) < 60:
+            raise ValueError(
+                "I need more history for a reliable train/test split "
+                "(at least 60 bars)."
+            )
+        split = int(len(candles) * split_ratio)
+        train, test = candles[:split], candles[split:]
+        parameters = {"spec": spec}
+        train_run = self.backtest_service.simulate_only(
+            strategy_name="rule_spec", candles=train, parameters=parameters
+        )
+        test_run = self.backtest_service.simulate_only(
+            strategy_name="rule_spec", candles=test, parameters=parameters
+        )
+        in_ret = train_run.get("return_pct")
+        out_ret = test_run.get("return_pct")
+        out_trades = int(test_run.get("total_trades") or 0)
+        return {
+            "strategy": "rule_spec",
+            "dataset_id": dataset_id,
+            "status": "ok",
+            "split_ratio": split_ratio,
+            "train_bars": len(train),
+            "test_bars": len(test),
+            "parameters": {"authored": True},
+            "in_sample_return_pct": in_ret,
+            "in_sample_trades": int(train_run.get("total_trades") or 0),
+            "out_of_sample_return_pct": out_ret,
+            "out_of_sample_trades": out_trades,
+            "out_of_sample_drawdown": test_run.get("max_drawdown"),
+            "verdict": _walk_forward_verdict(in_ret, out_ret, out_trades, min_trades),
+            "no_synthetic_fallback": True,
+        }
+
     def walk_forward(
         self,
         *,

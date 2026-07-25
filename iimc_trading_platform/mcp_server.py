@@ -56,7 +56,107 @@ def _tool_definitions(registry: ToolRegistry) -> list[dict[str, Any]]:
             "inputSchema": tool["input_schema"],
         }
         for tool in registry.list_tools()
-    ]
+    ] + _AGENT_TOOL_DEFINITIONS
+
+
+# The agent platform is exposed alongside the chat tools so an MCP client can
+# browse the roster, run an agent, and read the evidence-linked leaderboard.
+# All of these are read-only or research-only — there is no approval or
+# order-submission surface here, by design.
+_AGENT_TOOL_DEFINITIONS: list[dict[str, Any]] = [
+    {
+        "name": "list_agents",
+        "description": (
+            "List the registered agents (research, strategy, monitor) with "
+            "their category, version, and run counts. Read-only."
+        ),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "run_agent",
+        "description": (
+            "Run a registered agent by name (e.g. market_researcher, "
+            "strategy_validator) and return its findings, evidence, and honest "
+            "gaps. Research-only; agents never place orders."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "agent": {"type": "string"},
+                "symbol": {"type": "string"},
+                "exchange": {"type": "string", "default": "NSE"},
+            },
+            "required": ["agent"],
+        },
+    },
+    {
+        "name": "get_leaderboard",
+        "description": (
+            "The agent leaderboard. Strategy agents are ranked on "
+            "out-of-sample results only; agents without enough evidence appear "
+            "as inconclusive rather than ranked. Read-only."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {"category": {"type": "string"}},
+        },
+    },
+]
+
+
+def _call_agent_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    """Dispatch the agent-platform MCP tools."""
+
+    from .agents.base import AgentTask
+    from .agents.roster import build_founding_roster
+    from .services.agent_evaluation_service import AgentEvaluationService
+    from .services.agent_registry_service import AgentRegistryService
+
+    config = load_config()
+    if name == "list_agents":
+        return AgentRegistryService(config.database_path).list()
+    if name == "get_leaderboard":
+        return AgentEvaluationService(config.database_path).leaderboard(
+            category=arguments.get("category")
+        )
+    if name == "run_agent":
+        registry = build_default_tool_registry(
+            config.database_path,
+            allow_live_trading=False,
+            openalgo_base_url=config.openalgo_base_url,
+            openalgo_api_key=config.openalgo_api_key,
+            artifacts_dir=config.artifacts_dir,
+            app_config=config,
+        )
+        roster = {a.name: a for a in build_founding_roster(registry)}
+        agent = roster.get(str(arguments.get("agent", "")))
+        if agent is None:
+            raise ValueError(
+                f"Unknown agent. Available: {', '.join(sorted(roster))}"
+            )
+        result = agent.run(
+            AgentTask(
+                task_type="mcp",
+                symbol=arguments.get("symbol"),
+                symbols=tuple(
+                    [arguments["symbol"]] if arguments.get("symbol") else []
+                ),
+                exchange=arguments.get("exchange", "NSE"),
+            )
+        )
+        record = AgentRegistryService(config.database_path).record_run(
+            agent,
+            AgentTask(task_type="mcp", symbol=arguments.get("symbol")),
+            result,
+        )
+        return {
+            "run_id": record,
+            "status": result.status,
+            "findings": result.findings,
+            "evidence": result.evidence,
+            "gaps": result.gaps,
+        }
+    raise ValueError(f"Unknown agent tool {name!r}")
 
 
 def handle_request(
@@ -82,7 +182,10 @@ def handle_request(
         name = params.get("name", "")
         arguments = params.get("arguments") or {}
         try:
-            payload = registry.call(name, arguments)
+            if name in {t["name"] for t in _AGENT_TOOL_DEFINITIONS}:
+                payload = _call_agent_tool(name, arguments)
+            else:
+                payload = registry.call(name, arguments)
         except Exception as exc:  # surface tool failures as MCP tool errors
             return _result(request_id, {
                 "content": [{"type": "text", "text": str(exc)}],

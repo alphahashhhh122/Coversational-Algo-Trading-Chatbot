@@ -21,6 +21,8 @@ from .api_models import (
     AiEvaluationRequest,
     ArenaEnrollRequest,
     ArenaSeasonRequest,
+    AuthoredAgentRequest,
+    CommitteeRequest,
     BatchSubmitRequest,
     ChatRequest,
     DirectOrderRequest,
@@ -228,6 +230,50 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             allow_live_trading=False,  # the arena never trades, by construction
         ),
     )
+
+    from .services.authored_agent_service import AuthoredAgentService
+    from .services.committee_service import CommitteeService
+    from .services.custom_strategy_service import (
+        CustomStrategyService as _AuthoringSpecs,
+    )
+    from .services.strategy_optimizer_service import (
+        StrategyOptimizerService as _AuthoringOptimizer,
+    )
+
+    def _authoring_dataset(symbol: str | None, exchange: str) -> str | None:
+        if not symbol:
+            return None
+        return _resolve_dataset(
+            active_config.database_path,
+            symbol=symbol,
+            exchange=exchange,
+            raise_on_missing=False,
+        )
+
+    authored_agents = AuthoredAgentService(
+        active_config.database_path,
+        _AuthoringSpecs(active_config.database_path),
+        _AuthoringOptimizer(
+            _ArenaBacktests(
+                active_config.database_path,
+                strategy_plugin_dir=active_config.strategy_plugin_dir,
+                allow_live_trading=False,
+            )
+        ),
+        _authoring_dataset,
+    )
+
+    def _committee_member_runner(
+        member: str, symbol: str, exchange: str
+    ) -> dict[str, Any]:
+        agent = _agents_by_key.get(member)
+        if agent is None:
+            raise ValueError(f"unknown committee member {member!r}")
+        return agent.run(
+            _AgentTask(task_type="committee", symbol=symbol, exchange=exchange)
+        ).findings
+
+    committee = CommitteeService(_committee_member_runner)
 
     def _arena_dataset_for(season_id: str) -> str | None:
         """The stored dataset a season's symbol resolves to, or None.
@@ -1131,6 +1177,34 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         principal: Principal = Depends(viewer),
     ) -> dict[str, Any]:
         return agent_evaluation.leaderboard(category=category)
+
+    @app.post("/agents/authored")
+    def register_authored_agent_endpoint(
+        request: AuthoredAgentRequest,
+        principal: Principal = Depends(researcher),
+    ) -> dict[str, Any]:
+        try:
+            return authored_agents.register_from_spec(spec_id=request.spec_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.get("/agents/authored/list")
+    def list_authored_agents_endpoint(
+        principal: Principal = Depends(viewer),
+    ) -> dict[str, Any]:
+        return authored_agents.list_authored()
+
+    @app.post("/committee")
+    def committee_endpoint(
+        request: CommitteeRequest,
+        principal: Principal = Depends(viewer),
+    ) -> dict[str, Any]:
+        try:
+            return committee.run(
+                request.symbol, request.exchange, tuple(request.members)
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.get("/arena/seasons")
     def list_arena_seasons_endpoint(

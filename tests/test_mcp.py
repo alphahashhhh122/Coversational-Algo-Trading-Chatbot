@@ -166,3 +166,39 @@ class McpStdioServerTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class McpAgentToolsTest(unittest.TestCase):
+    """The agent platform is reachable from any MCP client."""
+
+    def test_agent_tools_are_listed(self) -> None:
+        from iimc_trading_platform.mcp_server import _AGENT_TOOL_DEFINITIONS
+
+        names = {t["name"] for t in _AGENT_TOOL_DEFINITIONS}
+        self.assertEqual(names, {"list_agents", "run_agent", "get_leaderboard"})
+        for definition in _AGENT_TOOL_DEFINITIONS:
+            self.assertIn("description", definition)
+            self.assertEqual(definition["inputSchema"]["type"], "object")
+
+    def test_agent_tools_expose_no_order_surface(self) -> None:
+        """Safety: no callable on the MCP surface can approve or place orders.
+
+        Asserted on tool *names* (what a client can actually invoke) rather
+        than descriptions, so prose promising "agents never place orders"
+        doesn't trip the check.
+        """
+        from iimc_trading_platform.mcp_server import _AGENT_TOOL_DEFINITIONS
+
+        names = [t["name"].lower() for t in _AGENT_TOOL_DEFINITIONS]
+        for forbidden in ("approve", "order", "submit", "execute", "trade"):
+            self.assertFalse(
+                [n for n in names if forbidden in n],
+                f"MCP must not expose a callable containing {forbidden!r}",
+            )
+
+    def test_unknown_agent_is_rejected_with_guidance(self) -> None:
+        from iimc_trading_platform.mcp_server import _call_agent_tool
+
+        with self.assertRaises(ValueError) as ctx:
+            _call_agent_tool("run_agent", {"agent": "not_a_real_agent"})
+        self.assertIn("Available:", str(ctx.exception))

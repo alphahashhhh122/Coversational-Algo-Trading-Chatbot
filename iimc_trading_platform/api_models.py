@@ -18,6 +18,19 @@ class McpCallRequest(BaseModel):
     arguments: dict[str, Any] = Field(default_factory=dict)
 
 
+class AuthoredAgentRequest(BaseModel):
+    spec_id: str = Field(min_length=1, max_length=80)
+
+
+class CommitteeRequest(BaseModel):
+    symbol: str = Field(min_length=1, max_length=40)
+    exchange: str = Field(default="NSE", max_length=20)
+    members: list[str] = Field(
+        default_factory=lambda: ["market_researcher", "strategy_validator"],
+        max_length=4,
+    )
+
+
 class ArenaSeasonRequest(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     symbol: str = Field(min_length=1, max_length=40)
