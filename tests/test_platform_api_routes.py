@@ -35,6 +35,32 @@ class PlatformApiRoutesTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
 
+    def test_agents_registered_and_runnable_via_api(self) -> None:
+        listed = self.client.get("/agents").json()["agents"]
+        names = {a["name"] for a in listed}
+        self.assertIn("market_researcher", names)
+        self.assertIn("sentinel", names)
+        self.assertIn("conversational_assistant", names)
+        self.assertEqual(len(listed), 7)
+
+        # Run the sentinel (no external dependencies) and verify the record.
+        run = self.client.post("/agents/sentinel/run", json={})
+        self.assertEqual(run.status_code, 200)
+        payload = run.json()
+        self.assertIn(payload["status"], {"ok", "partial"})
+        self.assertTrue(payload["run_id"].startswith("arun_"))
+        runs = self.client.get("/agents/sentinel/runs").json()["runs"]
+        self.assertEqual(len(runs), 1)
+        self.assertEqual(runs[0]["run_id"], payload["run_id"])
+
+        # Unknown agents 404; detail endpoint resolves by name.
+        self.assertEqual(
+            self.client.post("/agents/nope/run", json={}).status_code, 404
+        )
+        detail = self.client.get("/agents/sentinel").json()
+        self.assertEqual(detail["category"], "monitor")
+        self.assertEqual(detail["run_count"], 1)
+
     def test_watches_endpoints_list_check_and_remove(self) -> None:
         from iimc_trading_platform.services.screener_service import ScreenerService
         from iimc_trading_platform.services.watch_service import WatchService

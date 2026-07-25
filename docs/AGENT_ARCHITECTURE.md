@@ -125,6 +125,71 @@ watching RELIANCE"; the existing watch*list* is untouched. Watches are also
 button and per-row remove — and `evaluate()` is registered as a `watch_evaluation`
 job handler so a scheduler can run it proactively.
 
+## The ATL agent platform (shipped: kernel + evaluation)
+
+The services above are now also exposed as **registered agents** with a uniform
+contract, so they can be listed, run, recorded, and ranked. See
+`docs/ATL_TRANSITION.md` for the full plan.
+
+### Agent kernel (`agents/`)
+`Agent` / `AgentTask` / `AgentResult` (`agents/base.py`) define the contract:
+every run returns a status, structured findings, the **evidence** needed to
+score it, and an honest list of **gaps**. `ServiceAgent` adapts an existing
+*tool* (not a raw service) so an agent run gets the same validation, dataset
+resolution, and auto-fetch as a chat request. The wrapper adds timing, budget
+enforcement (`AgentBudget` — an overrun downgrades to `partial`, it does not
+silently truncate), and converts exceptions into `status="failed"` with the
+reason recorded rather than raising.
+
+The founding roster (`agents/roster.py`): `market_researcher`,
+`deep_researcher`, `strategy_discoverer`, `strategy_validator`, `comparator`,
+`sentinel`, and `conversational_assistant` — the chat assistant is registered
+agent #7, not a special case.
+
+`AgentRegistryService` persists the roster (`agents`) and every execution
+(`agent_runs`) with its findings, evidence, and gaps.
+
+### Evaluation & leaderboard (`agent_evaluation_service.py`)
+Scores are computed **from recorded runs**, so every leaderboard cell traces
+back to an `agent_runs` row:
+
+- **strategy** — out-of-sample only. In-sample returns never reach a ranking;
+  the OOS return is weighted by the walk-forward verdict, so an `overfit`
+  config is penalised (0.25×) versus one that `holds_up` (1.0×). Fewer than
+  three OOS trades is `inconclusive` — unranked, never a flattering zero.
+- **research** — coverage of the four core questions plus resolvable
+  citations (bounded bonus, so link-spam can't win). Eloquence isn't measured.
+- **monitor** — precision of fired conditions weighted by data coverage;
+  unavailable data lowers coverage, it is not counted as a false fire.
+
+`GET /leaderboard` returns `ranked` plus a separate `unranked` list with the
+reason each agent is inconclusive. The **Agents** tab renders both, with each
+row showing the run id (and dataset id) it traces to.
+
+### The Arena (`arena_service.py`)
+Season-based competition on **real market data** through an internal simulated
+ledger (`BacktestService.simulate_only` — the same fill/fee/slippage machinery
+as research backtests). There is **no broker code path in the arena at all,
+not even a sandbox one** — that is what lets agents compete autonomously
+without weakening the human-approval guarantee. A test asserts this against
+the parsed AST: no broker client import, no order-placement call.
+
+Enrolled agents each start from the same bankroll; a tick recomputes every
+entry on the season's dataset and snapshots equity/return/drawdown/trades.
+When data is unavailable the day is recorded as `data_missing` for that entry
+— never interpolated — and such entries appear under `unavailable` in the
+standings rather than as a zero that looks like a real result. Re-ticking the
+same day overwrites rather than duplicating.
+
+`arena_daily_tick` is registered as a job handler (alongside
+`watch_evaluation`), so seasons can advance on a schedule through the existing
+serialized job system.
+
+API: `GET /agents`, `GET /agents/{id}`, `GET /agents/{id}/runs`,
+`POST /agents/{id}/run`, `GET /leaderboard`, `GET|POST /arena/seasons`,
+`POST /arena/seasons/{id}/enroll`, `POST /arena/seasons/{id}/tick`,
+`GET /arena/seasons/{id}/standings`.
+
 ## Roadmap
 
 The read-only agentic layer is in place. The remaining, deliberately-deferred

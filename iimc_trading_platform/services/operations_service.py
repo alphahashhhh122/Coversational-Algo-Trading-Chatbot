@@ -188,6 +188,34 @@ def build_job_service(config: AppConfig) -> JobService:
             return watch_service.evaluate()
 
         handlers["watch_evaluation"] = watch_evaluation
+
+    # The arena needs no broker credentials — it runs on stored data through a
+    # simulated ledger — so its tick is always available.
+    from .arena_service import ArenaService
+    from .backtest_service import BacktestService as _ArenaBacktests
+    from ..tools.registry import _dataset_for_request as _resolve_dataset
+
+    arena = ArenaService(
+        config.database_path,
+        _ArenaBacktests(config.database_path, allow_live_trading=False),
+    )
+
+    def arena_daily_tick(payload: dict[str, Any]) -> dict[str, Any]:
+        """Tick every open season; days without data are recorded as missing."""
+        results = []
+        for season in arena.list_seasons()["seasons"]:
+            if season["status"] != "open":
+                continue
+            dataset_id = _resolve_dataset(
+                config.database_path,
+                symbol=season["symbol"],
+                exchange=season["exchange"],
+                raise_on_missing=False,
+            )
+            results.append(arena.tick(season["season_id"], dataset_id=dataset_id))
+        return {"seasons_ticked": len(results), "results": results}
+
+    handlers["arena_daily_tick"] = arena_daily_tick
     if config.market_news_provider and config.market_news_api_url:
         news = MarketNewsService(config)
 

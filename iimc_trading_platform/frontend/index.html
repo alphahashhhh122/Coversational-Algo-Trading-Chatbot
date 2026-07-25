@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>IIMC Trading Research Workspace</title>
-  <link rel="stylesheet" href="/static/styles.css?v=20260722a">
+  <link rel="stylesheet" href="/static/styles.css?v=20260725c">
 </head>
 <body>
   <div class="app-shell">
@@ -25,6 +25,9 @@
         </button>
         <button class="nav-item" data-view="strategies">
           <span aria-hidden="true">ƒ</span> Strategies
+        </button>
+        <button class="nav-item" data-view="agents">
+          <span aria-hidden="true">✦</span> Agents
         </button>
         <button class="nav-item" data-view="data">
           <span aria-hidden="true">◫</span> Data
@@ -449,6 +452,52 @@
         </section>
       </section>
 
+      <!-- ============================ AGENTS ============================ -->
+      <section class="view" id="view-agents">
+        <div class="section-heading">
+          <div>
+            <h2>Agents</h2>
+            <p>Registered research and strategy agents. Run one and see its findings — every run is recorded with its evidence and honest gaps. Agents never place orders.</p>
+          </div>
+          <div class="section-actions">
+            <button class="secondary-button" id="refresh-agents">Refresh</button>
+          </div>
+        </div>
+        <div class="agents-controls">
+          <label>Symbol <input id="agent-symbol" value="RELIANCE" maxlength="20"></label>
+          <label>Compare with <input id="agent-symbol2" value="TCS" maxlength="20"></label>
+        </div>
+        <div id="agents-list">Loading agents…</div>
+        <div id="agent-run-result"></div>
+
+        <section class="leaderboard-panel">
+          <div class="section-heading">
+            <div>
+              <h2>Leaderboard</h2>
+              <p>Ranked on evidence from recorded runs. Strategy agents are scored <strong>out-of-sample only</strong> — an overfit configuration is penalised, never celebrated. Agents without enough evidence are listed as inconclusive rather than ranked.</p>
+            </div>
+            <div class="section-actions">
+              <button class="secondary-button" id="refresh-leaderboard">Refresh</button>
+            </div>
+          </div>
+          <div id="leaderboard-list">Run an agent to populate the leaderboard.</div>
+        </section>
+
+        <section class="arena-panel">
+          <div class="section-heading">
+            <div>
+              <h2>Arena</h2>
+              <p>Agents competing on real market data through a simulated ledger — they never place real orders. Days without data are marked missing, never filled in.</p>
+            </div>
+            <div class="section-actions">
+              <select id="arena-season-select"><option value="">Loading seasons…</option></select>
+              <button class="secondary-button" id="arena-tick">Advance day</button>
+            </div>
+          </div>
+          <div id="arena-standings">Select a season to see standings.</div>
+        </section>
+      </section>
+
       <!-- ============================ SETTINGS ============================ -->
       <section class="view" id="view-settings">
         <div class="section-heading">
@@ -553,6 +602,6 @@
     </form>
   </div>
   <div class="toast" id="toast" role="status"></div>
-  <script src="/static/app.js?v=20260722a" defer></script>
+  <script src="/static/app.js?v=20260725c" defer></script>
 </body>
 </html>

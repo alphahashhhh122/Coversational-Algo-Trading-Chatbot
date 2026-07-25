@@ -17,7 +17,10 @@ from pydantic import ValidationError
 from .api_models import (
     ApprovalDecisionRequest,
     AlertAcknowledgementRequest,
+    AgentRunRequest,
     AiEvaluationRequest,
+    ArenaEnrollRequest,
+    ArenaSeasonRequest,
     BatchSubmitRequest,
     ChatRequest,
     DirectOrderRequest,
@@ -147,6 +150,15 @@ def _annotate_company_names(data: Any, openalgo_root: Path) -> None:
             row["company_name"] = name
 
 
+def _evidence_dataset_id(evidence: list[dict[str, Any]]) -> str | None:
+    """The dataset a scored run was measured on, when it names one."""
+    for item in evidence:
+        dataset_id = item.get("dataset_id")
+        if dataset_id:
+            return str(dataset_id)
+    return None
+
+
 def create_app(config: AppConfig | None = None) -> FastAPI:
     active_config = config or load_config()
     configure_logging(active_config.log_level)
@@ -194,6 +206,56 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         conversation_service,
         ResponseEvaluator(),
     )
+    # --- ATL agent kernel: founding roster + registry --------------------
+    from .agents.roster import build_founding_roster
+    from .agents.base import AgentTask as _AgentTask
+    from .services.agent_registry_service import AgentRegistryService
+
+    from .services.agent_evaluation_service import AgentEvaluationService
+
+    agent_registry = AgentRegistryService(active_config.database_path)
+    agent_evaluation = AgentEvaluationService(active_config.database_path)
+
+    from .services.arena_service import ArenaService
+    from .services.backtest_service import BacktestService as _ArenaBacktests
+    from .tools.registry import _dataset_for_request as _resolve_dataset
+
+    arena_service = ArenaService(
+        active_config.database_path,
+        _ArenaBacktests(
+            active_config.database_path,
+            strategy_plugin_dir=active_config.strategy_plugin_dir,
+            allow_live_trading=False,  # the arena never trades, by construction
+        ),
+    )
+
+    def _arena_dataset_for(season_id: str) -> str | None:
+        """The stored dataset a season's symbol resolves to, or None.
+
+        None is passed straight through to the tick, which records the day as
+        ``data_missing`` rather than inventing an equity curve.
+        """
+        seasons = arena_service.list_seasons()["seasons"]
+        season = next((s for s in seasons if s["season_id"] == season_id), None)
+        if season is None:
+            return None
+        return _resolve_dataset(
+            active_config.database_path,
+            symbol=season["symbol"],
+            exchange=season["exchange"],
+            raise_on_missing=False,
+        )
+    _agent_roster = build_founding_roster(
+        tool_registry,
+        chat_runner=lambda message: {
+            "answer": chat_service.answer(message).answer,
+        },
+    )
+    agent_registry.sync_roster(_agent_roster)
+    _agents_by_key: dict[str, Any] = {}
+    for _agent in _agent_roster:
+        _agents_by_key[_agent.agent_id] = _agent
+        _agents_by_key[_agent.name] = _agent
     openalgo_readiness_service = OpenAlgoReadinessService(active_config)
     sandbox_service = SandboxExecutionService(
         active_config.database_path,
@@ -992,6 +1054,130 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         principal: Principal = Depends(approver),
     ) -> dict[str, Any]:
         return watch_service.remove_by_id(watch_id)
+
+    @app.get("/agents")
+    def list_agents_endpoint(
+        category: str | None = None,
+        principal: Principal = Depends(viewer),
+    ) -> dict[str, Any]:
+        return agent_registry.list(category=category)
+
+    @app.get("/agents/{agent_id}")
+    def get_agent_endpoint(
+        agent_id: str,
+        principal: Principal = Depends(viewer),
+    ) -> dict[str, Any]:
+        record = agent_registry.get(agent_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail="Unknown agent")
+        return record
+
+    @app.get("/agents/{agent_id}/runs")
+    def list_agent_runs_endpoint(
+        agent_id: str,
+        principal: Principal = Depends(viewer),
+    ) -> dict[str, Any]:
+        return agent_registry.list_runs(agent_id)
+
+    @app.post("/agents/{agent_id}/run")
+    def run_agent_endpoint(
+        agent_id: str,
+        request: AgentRunRequest,
+        principal: Principal = Depends(viewer),
+    ) -> dict[str, Any]:
+        agent = _agents_by_key.get(agent_id)
+        if agent is None:
+            raise HTTPException(status_code=404, detail="Unknown agent")
+        task = _AgentTask(
+            task_type=request.task_type,
+            symbol=request.symbol,
+            symbols=tuple(request.symbols),
+            exchange=request.exchange,
+            params=request.params,
+        )
+        result = agent.run(task)  # kernel captures failures as status=failed
+        run_id = agent_registry.record_run(agent, task, result)
+        # Score straight from the recorded run so the leaderboard always
+        # points at reproducible evidence.
+        scorecard = agent_evaluation.score_run(
+            {
+                "status": result.status,
+                "findings": result.findings,
+                "evidence": result.evidence,
+            },
+            agent.category,
+        )
+        agent_evaluation.record_score(
+            agent_id=agent.agent_id,
+            version=agent.version,
+            run_id=run_id,
+            scorecard=scorecard,
+            eval_dataset_id=_evidence_dataset_id(result.evidence),
+        )
+        return {
+            "run_id": run_id,
+            "agent_id": agent.agent_id,
+            "status": result.status,
+            "findings": result.findings,
+            "evidence": result.evidence,
+            "gaps": result.gaps,
+            "cost": result.cost,
+            "scorecard": scorecard,
+        }
+
+    @app.get("/leaderboard")
+    def leaderboard_endpoint(
+        category: str | None = None,
+        principal: Principal = Depends(viewer),
+    ) -> dict[str, Any]:
+        return agent_evaluation.leaderboard(category=category)
+
+    @app.get("/arena/seasons")
+    def list_arena_seasons_endpoint(
+        principal: Principal = Depends(viewer),
+    ) -> dict[str, Any]:
+        return arena_service.list_seasons()
+
+    @app.post("/arena/seasons")
+    def create_arena_season_endpoint(
+        request: ArenaSeasonRequest,
+        principal: Principal = Depends(researcher),
+    ) -> dict[str, Any]:
+        return arena_service.create_season(
+            name=request.name, symbol=request.symbol, exchange=request.exchange
+        )
+
+    @app.post("/arena/seasons/{season_id}/enroll")
+    def enroll_arena_entry_endpoint(
+        season_id: str,
+        request: ArenaEnrollRequest,
+        principal: Principal = Depends(researcher),
+    ) -> dict[str, Any]:
+        return arena_service.enroll(
+            season_id=season_id,
+            agent_id=request.agent_id,
+            strategy_name=request.strategy_name,
+            parameters=request.parameters,
+        )
+
+    @app.get("/arena/seasons/{season_id}/standings")
+    def arena_standings_endpoint(
+        season_id: str,
+        principal: Principal = Depends(viewer),
+    ) -> dict[str, Any]:
+        return arena_service.standings(season_id)
+
+    @app.post("/arena/seasons/{season_id}/tick")
+    def arena_tick_endpoint(
+        season_id: str,
+        principal: Principal = Depends(researcher),
+    ) -> dict[str, Any]:
+        try:
+            return arena_service.tick(
+                season_id, dataset_id=_arena_dataset_for(season_id)
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     @app.get("/platform/instruments/search")
     def platform_instrument_search(

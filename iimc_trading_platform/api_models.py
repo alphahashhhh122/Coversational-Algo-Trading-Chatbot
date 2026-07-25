@@ -18,6 +18,26 @@ class McpCallRequest(BaseModel):
     arguments: dict[str, Any] = Field(default_factory=dict)
 
 
+class ArenaSeasonRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    symbol: str = Field(min_length=1, max_length=40)
+    exchange: str = Field(default="NSE", max_length=20)
+
+
+class ArenaEnrollRequest(BaseModel):
+    agent_id: str = Field(min_length=1, max_length=80)
+    strategy_name: Literal["ema_crossover", "sma_crossover"] = "ema_crossover"
+    parameters: dict[str, Any] = Field(default_factory=dict)
+
+
+class AgentRunRequest(BaseModel):
+    task_type: str = Field(default="default", max_length=40)
+    symbol: str | None = Field(default=None, max_length=40)
+    symbols: list[str] = Field(default_factory=list, max_length=3)
+    exchange: str = Field(default="NSE", max_length=20)
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
 class BatchSubmitRequest(BaseModel):
     intent_ids: list[str] = Field(min_length=1, max_length=20)
 

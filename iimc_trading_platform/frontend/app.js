@@ -219,6 +219,7 @@ function setView(view) {
     strategies: ["Strategies", "Create and save strategies in plain English."],
     data: ["Data", "Market data, documents, and financials."],
     monitor: ["Account", "Your live broker account: funds, positions, orders, trades."],
+    agents: ["Agents", "Registered agents you can run — every run is recorded with evidence."],
     settings: ["Settings", "Configuration and overview."],
   };
   document.querySelectorAll(".view").forEach((node) => node.classList.remove("active"));
@@ -808,6 +809,195 @@ async function removeWatch(watchId) {
     await loadWatches();
   } catch (error) {
     toast(error.message);
+  }
+}
+
+// --- Agents tab (ATL kernel) ---
+const _agentPretty = (name) => name.replaceAll("_", " ").replace(/\b\w/g, (c) => c.toUpperCase());
+
+function renderAgents(agents) {
+  const box = $("#agents-list");
+  if (!box) return;
+  if (!agents.length) {
+    box.innerHTML = `<div class="empty-state">No agents registered yet.</div>`;
+    return;
+  }
+  const rows = agents.map((a) => {
+    const runnable = a.category !== "assistant";
+    const action = runnable
+      ? `<button class="secondary-button agent-run" data-agent-id="${escapeHtml(a.agent_id)}" data-agent-name="${escapeHtml(a.name)}">Run</button>`
+      : `<span class="agent-chat-hint">Use the Chat tab</span>`;
+    const last = a.last_run_at ? ` · last run ${escapeHtml(String(a.last_run_at).slice(0, 16).replace("T", " "))}` : "";
+    return `<tr>
+      <td><strong>${escapeHtml(_agentPretty(a.name))}</strong><br><small class="row-subname">v${escapeHtml(a.version)} · ${escapeHtml(a.category)}</small></td>
+      <td>${escapeHtml(a.description)}<br><small class="row-subname">${a.run_count} run(s)${last}</small></td>
+      <td>${action}</td>
+    </tr>`;
+  }).join("");
+  box.innerHTML = `<div class="table-wrap"><table><thead><tr><th>Agent</th><th>What it does</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+async function loadAgents() {
+  const box = $("#agents-list");
+  if (!box) return;
+  try {
+    const payload = await api("/agents");
+    renderAgents(payload.agents || []);
+  } catch (error) {
+    box.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
+  }
+}
+
+function renderLeaderboard(board) {
+  const box = $("#leaderboard-list");
+  if (!box) return;
+  const ranked = board.ranked || [];
+  const unranked = board.unranked || [];
+  if (!ranked.length && !unranked.length) {
+    box.innerHTML = `<div class="empty-state">No scores yet — run an agent above.</div>`;
+    return;
+  }
+  const metricText = (m) => {
+    if (m.out_of_sample_return_pct !== undefined) {
+      return `OOS ${m.out_of_sample_return_pct}% over ${m.out_of_sample_trades} trades · ${m.verdict}`;
+    }
+    if (m.coverage !== undefined) {
+      return `coverage ${Math.round(m.coverage * 100)}% · ${m.citations} citation(s)`;
+    }
+    if (m.precision !== undefined) {
+      return `precision ${Math.round(m.precision * 100)}% · data ${Math.round(m.data_coverage * 100)}%`;
+    }
+    return "";
+  };
+  let html = "";
+  if (ranked.length) {
+    const rows = ranked.map((e) => `<tr>
+        <td>${e.rank}</td>
+        <td><strong>${escapeHtml(_agentPretty(e.name))}</strong><br><small class="row-subname">${escapeHtml(e.category)}</small></td>
+        <td><strong>${escapeHtml(String(e.composite))}</strong></td>
+        <td>${escapeHtml(metricText(e.metrics || {}))}</td>
+        <td><small class="row-subname">run ${escapeHtml(e.run_id)}${e.eval_dataset_id ? `<br>${escapeHtml(e.eval_dataset_id)}` : ""}</small></td>
+      </tr>`).join("");
+    html += `<div class="table-wrap"><table><thead><tr><th>#</th><th>Agent</th><th>Score</th><th>Evidence</th><th>Traces to</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+  if (unranked.length) {
+    const items = unranked.map((e) => `<li><strong>${escapeHtml(_agentPretty(e.name))}</strong> — ${escapeHtml(e.reason || "inconclusive")}</li>`).join("");
+    html += `<p class="leaderboard-unranked-head">Inconclusive (not ranked):</p><ul>${items}</ul>`;
+  }
+  box.innerHTML = html;
+}
+
+async function loadLeaderboard() {
+  const box = $("#leaderboard-list");
+  if (!box) return;
+  try {
+    renderLeaderboard(await api("/leaderboard"));
+  } catch (error) {
+    box.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
+  }
+}
+
+// --- Arena ---
+async function loadArenaSeasons() {
+  const select = $("#arena-season-select");
+  if (!select) return;
+  try {
+    const { seasons } = await api("/arena/seasons");
+    if (!seasons.length) {
+      select.innerHTML = `<option value="">No seasons yet</option>`;
+      $("#arena-standings").innerHTML = `<div class="empty-state">No season running. Seasons are created via the API or a scheduled job.</div>`;
+      return;
+    }
+    const current = select.value;
+    select.innerHTML = seasons.map((s) =>
+      `<option value="${escapeHtml(s.season_id)}">${escapeHtml(s.name)} · ${escapeHtml(s.symbol)} · ${s.entries} entrant(s)</option>`
+    ).join("");
+    if (current && seasons.some((s) => s.season_id === current)) select.value = current;
+    await loadArenaStandings();
+  } catch (error) {
+    select.innerHTML = `<option value="">${escapeHtml(error.message)}</option>`;
+  }
+}
+
+async function loadArenaStandings() {
+  const box = $("#arena-standings");
+  const seasonId = $("#arena-season-select")?.value;
+  if (!box || !seasonId) return;
+  try {
+    const board = await api(`/arena/seasons/${encodeURIComponent(seasonId)}/standings`);
+    const ranked = board.standings || [];
+    const missing = board.unavailable || [];
+    let html = "";
+    if (ranked.length) {
+      const rows = ranked.map((s) => `<tr>
+          <td>${s.rank}</td>
+          <td><strong>${escapeHtml(_agentPretty(s.agent_id.split("@")[0]))}</strong><br><small class="row-subname">${escapeHtml(s.strategy_name)}</small></td>
+          <td class="${s.return_pct >= 0 ? "pnl-up" : "pnl-down"}">${escapeHtml(String(s.return_pct))}%</td>
+          <td>₹${Number(s.equity).toLocaleString("en-IN", { maximumFractionDigits: 0 })}</td>
+          <td>${s.trades ?? "—"}</td>
+          <td><small class="row-subname">${escapeHtml(String(s.as_of))}</small></td>
+        </tr>`).join("");
+      html += `<div class="table-wrap"><table><thead><tr><th>#</th><th>Agent</th><th>Return</th><th>Equity</th><th>Trades</th><th>As of</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    } else {
+      html += `<div class="empty-state">No standings yet — advance a day to run the season.</div>`;
+    }
+    if (missing.length) {
+      html += `<p class="leaderboard-unranked-head">Data missing (not scored): ${missing.map((m) => escapeHtml(m.agent_id)).join(", ")}</p>`;
+    }
+    box.innerHTML = html;
+  } catch (error) {
+    box.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
+  }
+}
+
+async function tickArena() {
+  const seasonId = $("#arena-season-select")?.value;
+  const button = $("#arena-tick");
+  if (!seasonId) { toast("No season selected"); return; }
+  if (button) button.disabled = true;
+  try {
+    const result = await api(`/arena/seasons/${encodeURIComponent(seasonId)}/tick`, { method: "POST" });
+    const missing = (result.entries || []).filter((e) => e.data_status !== "ok").length;
+    toast(missing ? `Day advanced; ${missing} entry(ies) had no data` : "Day advanced");
+    await loadArenaStandings();
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function runAgent(agentId, agentName, button) {
+  const result = $("#agent-run-result");
+  const symbol = ($("#agent-symbol")?.value || "RELIANCE").trim().toUpperCase();
+  const symbol2 = ($("#agent-symbol2")?.value || "").trim().toUpperCase();
+  const body = agentName === "comparator"
+    ? { symbols: [symbol, symbol2].filter(Boolean) }
+    : { symbol };
+  if (button) button.disabled = true;
+  result.innerHTML = `<div class="empty-state">Running ${escapeHtml(_agentPretty(agentName))}…</div>`;
+  try {
+    const payload = await api(`/agents/${encodeURIComponent(agentId)}/run`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    const gaps = (payload.gaps || []).map((g) => `<li>${escapeHtml(g)}</li>`).join("");
+    result.innerHTML = `
+      <div class="agent-result">
+        <p><strong>${escapeHtml(_agentPretty(agentName))}</strong> finished:
+          <span class="watch-status watch-${payload.status === "ok" ? "active" : "triggered"}">${escapeHtml(payload.status)}</span>
+          · ${(payload.evidence || []).length} evidence item(s)
+          · took ${escapeHtml(String(payload.cost?.seconds ?? "?"))}s
+          · recorded as ${escapeHtml(payload.run_id)}</p>
+        ${gaps ? `<p>Honest gaps:</p><ul>${gaps}</ul>` : ""}
+        <details><summary>Full findings</summary><pre>${escapeHtml(JSON.stringify(payload.findings, null, 2))}</pre></details>
+      </div>`;
+    await loadAgents();
+    await loadLeaderboard();
+  } catch (error) {
+    result.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
+  } finally {
+    if (button) button.disabled = false;
   }
 }
 
@@ -2560,7 +2750,14 @@ async function loadSettings() {
 
 function wireEvents() {
   document.querySelectorAll(".nav-item").forEach((button) => {
-    button.addEventListener("click", () => setView(button.dataset.view));
+    button.addEventListener("click", () => {
+      setView(button.dataset.view);
+      if (button.dataset.view === "agents") {
+        loadAgents().catch(() => {});
+        loadLeaderboard().catch(() => {});
+        loadArenaSeasons().catch(() => {});
+      }
+    });
   });
   $("#chat-form").addEventListener("submit", submitChat);
   document.querySelectorAll("[data-prompt]").forEach((button) => {
@@ -2606,6 +2803,14 @@ function wireEvents() {
   $("#watches-list")?.addEventListener("click", (event) => {
     const button = event.target.closest(".watch-remove");
     if (button) removeWatch(button.dataset.watchId);
+  });
+  $("#refresh-agents")?.addEventListener("click", () => loadAgents().catch(() => {}));
+  $("#refresh-leaderboard")?.addEventListener("click", () => loadLeaderboard().catch(() => {}));
+  $("#arena-season-select")?.addEventListener("change", () => loadArenaStandings().catch(() => {}));
+  $("#arena-tick")?.addEventListener("click", tickArena);
+  $("#agents-list")?.addEventListener("click", (event) => {
+    const button = event.target.closest(".agent-run");
+    if (button) runAgent(button.dataset.agentId, button.dataset.agentName, button);
   });
   document.querySelectorAll(".emergency-button").forEach((button) => {
     button.addEventListener("click", async () => {

@@ -47,6 +47,24 @@ every order requires your explicit approval.
 - **Watch conditions** — `"watch RELIANCE for RSI below 30"`, then
   `"check my watches"`. Technical-condition monitors that only ever notify —
   they never trade.
+
+### The Agents tab
+
+Those capabilities are also registered as **agents** you can run, score, and
+race (see `docs/ATL_TRANSITION.md` for the roadmap):
+
+- **Agents** — seven registered agents (research, strategy, monitor, and the
+  chat assistant itself). Run one and see its findings, its evidence, and an
+  honest list of what it could *not* determine. Every run is recorded.
+- **Leaderboard** — agents ranked on evidence from those runs. Strategy agents
+  are scored **out-of-sample only**, so a configuration that looks great on the
+  data it was fitted to and fails on unseen data is penalised, not celebrated.
+  Agents without enough evidence are listed as *inconclusive* rather than
+  ranked at zero. Every row links to the run and dataset it came from.
+- **Arena** — a season where agents compete on real market data through an
+  internal simulated ledger. They never place real orders; there is no broker
+  code path in the arena at all. Days without market data are marked missing,
+  never filled in.
 - **Trading** — `"buy 10 RELIANCE at market"` prepares an order and shows an
   inline **Approve / Cancel** card in chat. Paper mode by default; live only
   when explicitly enabled. `"square off everything"` / `"cancel all orders"`

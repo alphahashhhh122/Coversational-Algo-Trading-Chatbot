@@ -954,6 +954,50 @@ def initialize_database(db_path: Path) -> None:
         )
         con.execute(
             """
+            CREATE TABLE IF NOT EXISTS arena_seasons (
+                season_id VARCHAR PRIMARY KEY,
+                name VARCHAR NOT NULL,
+                symbol VARCHAR NOT NULL,
+                exchange VARCHAR NOT NULL,
+                starting_equity DOUBLE NOT NULL,
+                status VARCHAR NOT NULL,
+                started_at TIMESTAMP NOT NULL,
+                ended_at TIMESTAMP
+            )
+            """
+        )
+        con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS arena_entries (
+                entry_id VARCHAR PRIMARY KEY,
+                season_id VARCHAR NOT NULL,
+                agent_id VARCHAR NOT NULL,
+                parameters_json VARCHAR NOT NULL,
+                strategy_name VARCHAR NOT NULL,
+                enrolled_at TIMESTAMP NOT NULL,
+                UNIQUE(season_id, agent_id)
+            )
+            """
+        )
+        con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS arena_equity_daily (
+                snapshot_id VARCHAR PRIMARY KEY,
+                season_id VARCHAR NOT NULL,
+                entry_id VARCHAR NOT NULL,
+                as_of DATE NOT NULL,
+                equity DOUBLE,
+                return_pct DOUBLE,
+                trades INTEGER,
+                max_drawdown DOUBLE,
+                data_status VARCHAR NOT NULL,
+                recorded_at TIMESTAMP NOT NULL,
+                UNIQUE(entry_id, as_of)
+            )
+            """
+        )
+        con.execute(
+            """
             CREATE TABLE IF NOT EXISTS agent_memory (
                 memory_id VARCHAR PRIMARY KEY,
                 kind VARCHAR NOT NULL,

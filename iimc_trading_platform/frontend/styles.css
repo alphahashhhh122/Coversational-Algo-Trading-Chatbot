@@ -960,6 +960,18 @@ tbody tr:hover { background: var(--row-hover); }
 .account-funds span { display: block; color: var(--muted); font-size: 12px; }
 .account-funds strong { display: block; margin-top: 4px; font-size: 18px; }
 .account-total { margin-top: 10px; text-align: right; font-size: 14px; }
+.arena-panel { margin-top: 28px; }
+.arena-panel .section-heading p { max-width: 720px; }
+.arena-panel .section-actions select { min-height: 34px; padding: 0 10px; }
+.leaderboard-panel { margin-top: 28px; }
+.leaderboard-panel .section-heading p { max-width: 720px; }
+.leaderboard-unranked-head { margin: 14px 0 4px; color: var(--muted); font-size: 13px; }
+.agents-controls { display: flex; gap: 16px; margin: 0 0 14px; }
+.agents-controls label { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+.agents-controls input { width: 130px; }
+.agent-result { margin-top: 18px; padding: 14px 16px; border: 1px solid var(--border, #ddd); border-radius: 8px; }
+.agent-result pre { max-height: 320px; overflow: auto; font-size: 12px; }
+.agent-chat-hint { font-size: 12px; color: var(--muted); }
 .watches-panel { margin-top: 24px; }
 .watches-panel .section-heading p { max-width: 640px; }
 .watch-status { text-transform: capitalize; font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border, #ddd); }
