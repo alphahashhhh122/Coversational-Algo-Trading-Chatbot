@@ -150,6 +150,19 @@ def _interpret_screen(payload: dict[str, Any]) -> _Interp:
     return payload, evidence, list(errors)
 
 
+def _interpret_portfolio(payload: dict[str, Any]) -> _Interp:
+    evidence = [
+        {
+            "kind": "correlation",
+            "ref": "/".join(row["pair"]),
+            "value": row["correlation"],
+            "observations": row["observations"],
+        }
+        for row in payload.get("correlations", [])
+    ]
+    return payload, evidence, list(payload.get("gaps", []))
+
+
 def _interpret_committee(payload: dict[str, Any]) -> _Interp:
     """A committee's evidence is its members' attributed positions."""
     evidence = [
@@ -348,6 +361,30 @@ def build_founding_roster(
             interpret=_interpret_watch_check,
         ),
     ]
+    if "analyse_portfolio" in registry._tools:
+        roster.append(
+            ServiceAgent(
+                agent_id="portfolio_architect@1.0",
+                name="portfolio_architect",
+                version="1.0",
+                category="research",
+                description=(
+                    "Looks at how a basket behaves rather than each name "
+                    "alone: correlation on aligned returns, concentration, "
+                    "and proposed weights. Proposes; never places."
+                ),
+                capabilities=("research", "portfolio", "risk"),
+                runner=_tool_runner(
+                    registry, "analyse_portfolio",
+                    lambda t: {
+                        "symbols": list(t.symbols)
+                        or ([t.symbol] if t.symbol else []),
+                        "exchange": t.exchange,
+                    },
+                ),
+                interpret=_interpret_portfolio,
+            )
+        )
     if "get_data_health" in registry._tools:
         roster.append(
             ServiceAgent(

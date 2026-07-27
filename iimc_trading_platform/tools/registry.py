@@ -293,6 +293,14 @@ class WalkForwardValidationInput(ToolInput):
     strategy_name: Literal["ema_crossover", "sma_crossover"] = "ema_crossover"
 
 
+class PortfolioAnalysisInput(ToolInput):
+    symbols: list[str] = Field(min_length=2, max_length=5)
+    exchange: str = Field(default="NSE", max_length=20)
+    scheme: Literal["inverse_volatility", "equal_weight"] = (
+        "inverse_volatility"
+    )
+
+
 class CompareInvestmentsInput(ToolInput):
     symbols: list[str] = Field(min_length=2, max_length=3)
     exchange: str = Field(default="NSE", max_length=20)
@@ -660,6 +668,19 @@ def build_default_tool_registry(
     from ..services.strategy_optimizer_service import StrategyOptimizerService
 
     from ..services.data_health_service import DataHealthService
+    from ..services.portfolio_agent_service import PortfolioAgentService
+
+    def _portfolio_agent() -> PortfolioAgentService:
+        return PortfolioAgentService(
+            db_path,
+            backtests,
+            lambda symbol, exchange: _dataset_for_request(
+                db_path,
+                symbol=symbol,
+                exchange=exchange,
+                raise_on_missing=False,
+            ),
+        )
 
     def _data_health(path: Path) -> DataHealthService:
         return DataHealthService(path)
@@ -1319,6 +1340,38 @@ def build_default_tool_registry(
                 retry_safe=True,
                 capabilities=ToolCapabilityMetadata(
                     actions=("research", "analyze", "compare"),
+                    asset_classes=("equity",),
+                    execution_modes=("research",),
+                    risk_level="low",
+                ),
+            ),
+            ToolDefinition(
+                name="analyse_portfolio",
+                description=(
+                    "Portfolio-level research over two or three symbols: "
+                    "correlation between them on aligned returns, "
+                    "concentration, and proposed weights (equal or "
+                    "inverse-volatility). Research output only - it "
+                    "proposes weights and places nothing. Use for "
+                    "'build a portfolio from A and B' or 'how correlated "
+                    "are A and B'."
+                ),
+                input_model=PortfolioAnalysisInput,
+                handler=lambda value: _portfolio_agent().analyse(
+                    PortfolioAnalysisInput.model_validate(
+                        value.model_dump()
+                    ).symbols,
+                    exchange=PortfolioAnalysisInput.model_validate(
+                        value.model_dump()
+                    ).exchange,
+                    scheme=PortfolioAnalysisInput.model_validate(
+                        value.model_dump()
+                    ).scheme,
+                ),
+                side_effects="read-only: reads stored candles",
+                retry_safe=True,
+                capabilities=ToolCapabilityMetadata(
+                    actions=("research", "analyze"),
                     asset_classes=("equity",),
                     execution_modes=("research",),
                     risk_level="low",

@@ -89,7 +89,7 @@ class FoundingRosterTest(unittest.TestCase):
                 "market_researcher", "deep_researcher", "strategy_discoverer",
                 "strategy_validator", "comparator", "sentinel",
                 "fundamental_analyst", "news_analyst", "document_analyst",
-                "data_health",
+                "data_health", "portfolio_architect",
             },
         )
         # Every agent declares a valid category and non-empty description.

@@ -1019,9 +1019,17 @@ def initialize_database(db_path: Path) -> None:
                 starting_equity DOUBLE NOT NULL,
                 status VARCHAR NOT NULL,
                 started_at TIMESTAMP NOT NULL,
-                ended_at TIMESTAMP
+                ended_at TIMESTAMP,
+                symbols_json VARCHAR
             )
             """
+        )
+        # Existing databases predate basket seasons; add the column in place.
+        _add_column_if_missing(
+            con,
+            table_name="arena_seasons",
+            column_name="symbols_json",
+            column_definition="symbols_json VARCHAR",
         )
         con.execute(
             """

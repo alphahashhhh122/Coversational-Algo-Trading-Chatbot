@@ -53,7 +53,8 @@ class CommitteeRequest(BaseModel):
 
 class ArenaSeasonRequest(BaseModel):
     name: str = Field(min_length=1, max_length=80)
-    symbol: str = Field(min_length=1, max_length=40)
+    symbol: str | None = Field(default=None, max_length=40)
+    symbols: list[str] = Field(default_factory=list, max_length=10)
     exchange: str = Field(default="NSE", max_length=20)
 
 

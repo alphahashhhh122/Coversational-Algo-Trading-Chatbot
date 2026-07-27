@@ -38,22 +38,39 @@ class ArenaService:
         self,
         *,
         name: str,
-        symbol: str,
+        symbol: str | None = None,
+        symbols: list[str] | None = None,
         exchange: str = "NSE",
         starting_equity: float = _STARTING_EQUITY,
     ) -> dict[str, Any]:
+        """Create a season over one symbol or a basket.
+
+        A basket season runs every entry across all of its symbols and reports
+        per-symbol attribution, so you can see which leg carried the result
+        rather than only the blended number.
+        """
+
+        import json
+
+        basket = [s.upper().strip() for s in (symbols or []) if s and s.strip()]
+        if not basket:
+            if not symbol:
+                raise ValueError("a season needs a symbol or a list of symbols")
+            basket = [symbol.upper().strip()]
         season_id = f"season_{uuid.uuid4().hex[:10]}"
         con = connect(self.db_path)
         try:
             con.execute(
-                "INSERT INTO arena_seasons VALUES (?, ?, ?, ?, ?, 'open', ?, NULL)",
+                "INSERT INTO arena_seasons VALUES "
+                "(?, ?, ?, ?, ?, 'open', ?, NULL, ?)",
                 [
                     season_id,
                     name,
-                    symbol.upper().strip(),
+                    basket[0],  # kept for compatibility with single-symbol reads
                     exchange.upper().strip(),
                     float(starting_equity),
                     _utc_now(),
+                    json.dumps(basket),
                 ],
             )
         finally:
@@ -61,7 +78,9 @@ class ArenaService:
         return {
             "season_id": season_id,
             "name": name,
-            "symbol": symbol.upper().strip(),
+            "symbol": basket[0],
+            "symbols": basket,
+            "is_basket": len(basket) > 1,
             "status": "open",
             "starting_equity": float(starting_equity),
         }
@@ -74,7 +93,8 @@ class ArenaService:
                 SELECT s.season_id, s.name, s.symbol, s.exchange,
                        s.starting_equity, s.status, s.started_at,
                        (SELECT COUNT(*) FROM arena_entries e
-                         WHERE e.season_id = s.season_id)
+                         WHERE e.season_id = s.season_id),
+                       s.symbols_json
                 FROM arena_seasons s ORDER BY s.started_at DESC
                 """
             ).fetchall()
@@ -91,6 +111,7 @@ class ArenaService:
                     "status": r[5],
                     "started_at": _iso(r[6]),
                     "entries": int(r[7] or 0),
+                    "symbols": _basket(r[8], r[2]),
                 }
                 for r in rows
             ]
@@ -135,12 +156,20 @@ class ArenaService:
 
     # -- daily tick -----------------------------------------------------------
 
-    def tick(self, season_id: str, *, dataset_id: str | None = None) -> dict[str, Any]:
+    def tick(
+        self,
+        season_id: str,
+        *,
+        dataset_id: str | None = None,
+        datasets: dict[str, str | None] | None = None,
+    ) -> dict[str, Any]:
         """Recompute each entry's standing on real data and snapshot it.
 
-        Returns per-entry results; entries whose data is unavailable are
-        recorded as ``data_missing`` rather than being given a fabricated
-        equity.
+        For a basket season every entry runs on each symbol and the result
+        is the equal-weighted mean of the legs, with each leg reported
+        separately so you can see which one carried it. Legs without data
+        are recorded as missing rather than treated as zero, and an entry
+        with no usable leg is ``data_missing`` - never a fabricated equity.
         """
 
         import json
@@ -148,8 +177,8 @@ class ArenaService:
         con = connect(self.db_path)
         try:
             season = con.execute(
-                "SELECT symbol, exchange, starting_equity FROM arena_seasons "
-                "WHERE season_id = ?",
+                "SELECT symbol, exchange, starting_equity, symbols_json "
+                "FROM arena_seasons WHERE season_id = ?",
                 [season_id],
             ).fetchone()
             if season is None:
@@ -163,6 +192,12 @@ class ArenaService:
             con.close()
 
         starting_equity = float(season[2])
+        basket = _basket(season[3], season[0])
+        # Single-symbol callers keep passing dataset_id; basket callers pass
+        # a per-symbol map. Both funnel into the same resolved lookup.
+        resolved: dict[str, str | None] = dict(datasets or {})
+        if not resolved:
+            resolved = {basket[0]: dataset_id}
         results: list[dict[str, Any]] = []
         as_of = date.today()
         for entry_id, agent_id, strategy_name, parameters_json in entries:
@@ -172,41 +207,76 @@ class ArenaService:
                 "agent_id": agent_id,
                 "strategy_name": strategy_name,
             }
-            try:
-                if dataset_id is None:
-                    raise ValueError("no dataset available for this season yet")
-                _ds, candles = self.backtest_service.load_dataset_candles(dataset_id)
-                run = self.backtest_service.simulate_only(
-                    strategy_name=strategy_name,
-                    candles=candles,
-                    parameters=parameters,
-                    starting_equity=starting_equity,
+            legs: list[dict[str, Any]] = []
+            for leg_symbol in basket:
+                leg_dataset = resolved.get(leg_symbol)
+                try:
+                    if leg_dataset is None:
+                        raise ValueError(
+                            f"no dataset available for {leg_symbol}"
+                        )
+                    _ds, candles = self.backtest_service.load_dataset_candles(
+                        leg_dataset
+                    )
+                    run = self.backtest_service.simulate_only(
+                        strategy_name=strategy_name,
+                        candles=candles,
+                        parameters=parameters,
+                        starting_equity=starting_equity,
+                    )
+                except Exception as exc:  # noqa: BLE001 - recorded honestly
+                    legs.append(
+                        {
+                            "symbol": leg_symbol,
+                            "data_status": "data_missing",
+                            "reason": str(exc)[:160],
+                            "return_pct": None,
+                        }
+                    )
+                    continue
+                legs.append(
+                    {
+                        "symbol": leg_symbol,
+                        "data_status": "ok",
+                        "return_pct": run.get("return_pct"),
+                        "trades": run.get("total_trades"),
+                        "max_drawdown": run.get("max_drawdown"),
+                    }
                 )
-            except Exception as exc:  # noqa: BLE001 - recorded honestly
+            scored_legs = [x for x in legs if x.get("return_pct") is not None]
+            if not scored_legs:
                 record.update(
                     {
                         "data_status": "data_missing",
-                        "reason": str(exc)[:200],
+                        "reason": legs[0].get("reason") if legs else "no data",
                         "equity": None,
                         "return_pct": None,
+                        "legs": legs,
                     }
                 )
                 self._snapshot(entry_id, season_id, as_of, record)
                 results.append(record)
                 continue
-            return_pct = run.get("return_pct")
-            equity = (
-                starting_equity * (1 + float(return_pct) / 100)
-                if return_pct is not None
-                else None
+            # Equal-weighted across the legs that actually have data.
+            return_pct = round(
+                sum(x["return_pct"] for x in scored_legs) / len(scored_legs), 6
             )
+            equity = starting_equity * (1 + return_pct / 100)
             record.update(
                 {
                     "data_status": "ok",
-                    "equity": round(equity, 2) if equity is not None else None,
+                    "equity": round(equity, 2),
                     "return_pct": return_pct,
-                    "trades": run.get("total_trades"),
-                    "max_drawdown": run.get("max_drawdown"),
+                    "trades": sum(int(x.get("trades") or 0) for x in scored_legs),
+                    "max_drawdown": min(
+                        (
+                            x.get("max_drawdown")
+                            for x in scored_legs
+                            if x.get("max_drawdown") is not None
+                        ),
+                        default=None,
+                    ),
+                    "legs": legs,  # per-symbol attribution
                 }
             )
             self._snapshot(entry_id, season_id, as_of, record)
@@ -291,6 +361,20 @@ class ArenaService:
             "standings": ranked,
             "unavailable": [e for e in entries if e["return_pct"] is None],
         }
+
+
+def _basket(symbols_json: Any, fallback_symbol: str) -> list[str]:
+    """The season's symbols, tolerating rows written before basket support."""
+    import json
+
+    if symbols_json:
+        try:
+            parsed = json.loads(symbols_json)
+            if isinstance(parsed, list) and parsed:
+                return [str(x) for x in parsed]
+        except (TypeError, ValueError):
+            pass
+    return [fallback_symbol]
 
 
 def _iso(value: Any) -> str | None:

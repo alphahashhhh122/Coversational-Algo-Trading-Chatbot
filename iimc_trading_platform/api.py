@@ -321,6 +321,28 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         ),
     )
 
+    def _arena_datasets_for(season_id: str) -> dict[str, str | None]:
+        """One dataset per season symbol; None where nothing is stored.
+
+        A None is passed through so the tick records that leg as missing
+        rather than inventing an equity curve for it.
+        """
+        seasons = arena_service.list_seasons()["seasons"]
+        season = next(
+            (s for s in seasons if s["season_id"] == season_id), None
+        )
+        if season is None:
+            return {}
+        return {
+            symbol: _resolve_dataset(
+                active_config.database_path,
+                symbol=symbol,
+                exchange=season["exchange"],
+                raise_on_missing=False,
+            )
+            for symbol in season.get("symbols") or [season["symbol"]]
+        }
+
     def _arena_dataset_for(season_id: str) -> str | None:
         """The stored dataset a season's symbol resolves to, or None.
 
@@ -1376,9 +1398,15 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         request: ArenaSeasonRequest,
         principal: Principal = Depends(researcher),
     ) -> dict[str, Any]:
-        return arena_service.create_season(
-            name=request.name, symbol=request.symbol, exchange=request.exchange
-        )
+        try:
+            return arena_service.create_season(
+                name=request.name,
+                symbol=request.symbol,
+                symbols=request.symbols,
+                exchange=request.exchange,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.post("/arena/seasons/{season_id}/enroll")
     def enroll_arena_entry_endpoint(
@@ -1407,7 +1435,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     ) -> dict[str, Any]:
         try:
             return arena_service.tick(
-                season_id, dataset_id=_arena_dataset_for(season_id)
+                season_id, datasets=_arena_datasets_for(season_id)
             )
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
