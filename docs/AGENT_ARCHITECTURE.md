@@ -229,6 +229,30 @@ API: `GET /agents`, `GET /agents/{id}`, `GET /agents/{id}/runs`,
 `POST /arena/seasons/{id}/enroll`, `POST /arena/seasons/{id}/tick`,
 `GET /arena/seasons/{id}/standings`.
 
+### Autonomy: the supervisor (`supervisor_service.py`)
+The platform watches its own agents. On a schedule (`agent_supervisor_sweep`,
+every 6h) it re-runs key agents — so the leaderboard reflects current data
+rather than whenever someone last clicked — then compares each new score
+against that agent's own history and raises a finding when something moved
+materially (>25%; smaller wobbles are noise, and a supervisor that cries wolf
+gets ignored).
+
+**It flags; it never acts.** No retiring, no reconfiguring, and certainly no
+trading. An autonomous system that acts on its own conclusions needs a far
+stronger correctness guarantee than "the metric moved"; one that surfaces
+*"this agent's out-of-sample edge has halved since last week"* is useful **and**
+safe, because a human still decides. A test asserts the service exposes no
+retire/disable/trade/order/approve surface at all.
+
+Findings persist (`supervisor_findings`), are de-duplicated per agent+kind so a
+repeating condition doesn't spam, and can be acknowledged. `becoming
+unscorable` is itself a finding — an agent that could be scored before and
+can't now usually means its data went away.
+
+Budgets (`AgentBudget` + `BudgetLedger`) cap seconds, steps, and LLM calls.
+Exceeding a cap yields `partial` plus a gap naming the cap, so a scheduled run
+that hit a wall is distinguishable from one that genuinely finished.
+
 ## Roadmap
 
 The read-only agentic layer is in place. The remaining, deliberately-deferred

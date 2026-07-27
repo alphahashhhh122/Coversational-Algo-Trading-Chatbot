@@ -954,6 +954,20 @@ def initialize_database(db_path: Path) -> None:
         )
         con.execute(
             """
+            CREATE TABLE IF NOT EXISTS supervisor_findings (
+                finding_id VARCHAR PRIMARY KEY,
+                kind VARCHAR NOT NULL,
+                severity VARCHAR NOT NULL,
+                agent_id VARCHAR,
+                summary VARCHAR NOT NULL,
+                detail_json VARCHAR NOT NULL,
+                acknowledged BOOLEAN NOT NULL,
+                detected_at TIMESTAMP NOT NULL
+            )
+            """
+        )
+        con.execute(
+            """
             CREATE TABLE IF NOT EXISTS contests (
                 contest_id VARCHAR PRIMARY KEY,
                 name VARCHAR NOT NULL,

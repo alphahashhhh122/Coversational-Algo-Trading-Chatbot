@@ -21,11 +21,50 @@ _CATEGORIES = ("research", "strategy", "monitor", "assistant")
 
 @dataclass(frozen=True)
 class AgentBudget:
-    """Caps for a single run. Exceeding a cap yields a 'partial' result."""
+    """Caps for a single run. Exceeding a cap yields a 'partial' result.
+
+    Budgets exist so an autonomous, scheduled agent cannot run away with time
+    or LLM spend. Exceeding a cap is reported honestly (``partial`` + a gap
+    naming the cap) rather than silently truncating the work, so a scheduled
+    run that hit a wall is distinguishable from one that genuinely finished.
+    """
 
     max_seconds: float = 120.0
     max_steps: int = 25
     max_llm_calls: int = 10
+
+
+class BudgetLedger:
+    """Tracks consumption against a budget during a run."""
+
+    def __init__(self, budget: AgentBudget) -> None:
+        self.budget = budget
+        self.steps = 0
+        self.llm_calls = 0
+
+    def step(self, count: int = 1) -> None:
+        self.steps += count
+
+    def llm_call(self, count: int = 1) -> None:
+        self.llm_calls += count
+
+    def exceeded(self, elapsed: float) -> list[str]:
+        """Every cap this run blew through, named plainly."""
+        breaches: list[str] = []
+        if elapsed > self.budget.max_seconds:
+            breaches.append(
+                f"budget: took {elapsed}s (cap {self.budget.max_seconds}s)"
+            )
+        if self.steps > self.budget.max_steps:
+            breaches.append(
+                f"budget: {self.steps} steps (cap {self.budget.max_steps})"
+            )
+        if self.llm_calls > self.budget.max_llm_calls:
+            breaches.append(
+                f"budget: {self.llm_calls} LLM calls "
+                f"(cap {self.budget.max_llm_calls})"
+            )
+        return breaches
 
 
 @dataclass(frozen=True)
@@ -88,6 +127,8 @@ class ServiceAgent:
 
     def run(self, task: AgentTask) -> AgentResult:
         started = time.monotonic()
+        ledger = BudgetLedger(task.budget)
+        ledger.step()  # the tool invocation itself
         try:
             payload = self.runner(task)
         except Exception as exc:  # noqa: BLE001 - captured honestly, not raised
@@ -95,18 +136,20 @@ class ServiceAgent:
             return AgentResult(
                 status="failed",
                 gaps=[str(exc)[:300]],
-                cost={"seconds": elapsed},
+                cost={"seconds": elapsed, "steps": ledger.steps},
             )
         elapsed = round(time.monotonic() - started, 3)
         findings, evidence, gaps = self.interpret(payload)
-        status = "ok" if not gaps else "partial"
-        if elapsed > task.budget.max_seconds:
-            status = "partial"
-            gaps = [*gaps, f"budget: run took {elapsed}s (cap {task.budget.max_seconds}s)"]
+        breaches = ledger.exceeded(elapsed)
+        status = "ok" if not gaps and not breaches else "partial"
         return AgentResult(
             status=status,
             findings=findings,
             evidence=evidence,
-            gaps=gaps,
-            cost={"seconds": elapsed},
+            gaps=[*gaps, *breaches],
+            cost={
+                "seconds": elapsed,
+                "steps": ledger.steps,
+                "llm_calls": ledger.llm_calls,
+            },
         )

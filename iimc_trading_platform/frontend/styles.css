@@ -960,6 +960,11 @@ tbody tr:hover { background: var(--row-hover); }
 .account-funds span { display: block; color: var(--muted); font-size: 12px; }
 .account-funds strong { display: block; margin-top: 4px; font-size: 18px; }
 .account-total { margin-top: 10px; text-align: right; font-size: 14px; }
+.supervisor-panel { margin: 0 0 24px; }
+.supervisor-panel .section-heading p { max-width: 720px; }
+.supervisor-finding { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 14px; margin-bottom: 8px; border: 1px solid var(--line); border-left-width: 4px; border-radius: 6px; }
+.supervisor-finding.warning { border-left-color: var(--amber); background: var(--amber-soft); }
+.supervisor-finding.info { border-left-color: var(--blue); background: var(--blue-soft); }
 .contest-panel { margin-top: 28px; }
 .contest-panel .section-heading p { max-width: 720px; }
 .arena-panel { margin-top: 28px; }

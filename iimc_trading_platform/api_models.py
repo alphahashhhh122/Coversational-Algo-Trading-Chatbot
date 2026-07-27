@@ -18,6 +18,11 @@ class McpCallRequest(BaseModel):
     arguments: dict[str, Any] = Field(default_factory=dict)
 
 
+class SupervisorSweepRequest(BaseModel):
+    agents: list[str] = Field(default_factory=list, max_length=10)
+    symbol: str = Field(default="RELIANCE", max_length=40)
+
+
 class ContestRequest(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     symbol: str = Field(min_length=1, max_length=40)

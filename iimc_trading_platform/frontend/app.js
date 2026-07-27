@@ -967,6 +967,54 @@ async function tickArena() {
   }
 }
 
+// --- Supervisor (autonomous drift watch) ---
+async function loadSupervisorFindings() {
+  const box = $("#supervisor-findings");
+  if (!box) return;
+  try {
+    const { findings } = await api("/supervisor/findings");
+    if (!findings.length) {
+      box.innerHTML = `<div class="empty-state">Nothing flagged. The supervisor reports only material changes — silence means the agents are steady.</div>`;
+      return;
+    }
+    box.innerHTML = findings.map((f) => `
+      <div class="supervisor-finding ${escapeHtml(f.severity)}">
+        <div>
+          <strong>${escapeHtml(f.summary)}</strong>
+          <br><small class="row-subname">${escapeHtml(f.kind.replaceAll("_", " "))} · ${escapeHtml(String(f.detected_at || "").slice(0, 16).replace("T", " "))}${f.detail?.run_id ? " · run " + escapeHtml(f.detail.run_id) : ""}</small>
+        </div>
+        <button class="secondary-button finding-ack" data-finding-id="${escapeHtml(f.finding_id)}">Acknowledge</button>
+      </div>`).join("");
+  } catch (error) {
+    box.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
+  }
+}
+
+async function runSupervisorSweep() {
+  const button = $("#supervisor-sweep");
+  if (button) button.disabled = true;
+  try {
+    const result = await api("/supervisor/sweep", { method: "POST", body: JSON.stringify({}) });
+    const n = (result.findings || []).length;
+    toast(n ? `Sweep done — ${n} finding(s)` : `Sweep done — ${(result.ran || []).length} agent(s) re-run, nothing flagged`);
+    await loadSupervisorFindings();
+    await loadLeaderboard();
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function acknowledgeFinding(findingId) {
+  try {
+    await api(`/supervisor/findings/${encodeURIComponent(findingId)}/acknowledge`, { method: "POST", body: JSON.stringify({}) });
+    await loadSupervisorFindings();
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
 // --- Contests ---
 async function loadContests() {
   const box = $("#contests-list");
@@ -2803,6 +2851,7 @@ function wireEvents() {
         loadLeaderboard().catch(() => {});
         loadArenaSeasons().catch(() => {});
         loadContests().catch(() => {});
+        loadSupervisorFindings().catch(() => {});
       }
     });
   });
@@ -2855,6 +2904,11 @@ function wireEvents() {
   $("#refresh-leaderboard")?.addEventListener("click", () => loadLeaderboard().catch(() => {}));
   $("#arena-season-select")?.addEventListener("change", () => loadArenaStandings().catch(() => {}));
   $("#arena-tick")?.addEventListener("click", tickArena);
+  $("#supervisor-sweep")?.addEventListener("click", runSupervisorSweep);
+  $("#supervisor-findings")?.addEventListener("click", (event) => {
+    const button = event.target.closest(".finding-ack");
+    if (button) acknowledgeFinding(button.dataset.findingId);
+  });
   $("#refresh-contests")?.addEventListener("click", () => loadContests().catch(() => {}));
   $("#contests-list")?.addEventListener("click", (event) => {
     const button = event.target.closest(".contest-results");

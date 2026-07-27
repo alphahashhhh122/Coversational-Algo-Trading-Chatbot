@@ -216,6 +216,59 @@ def build_job_service(config: AppConfig) -> JobService:
         return {"seasons_ticked": len(results), "results": results}
 
     handlers["arena_daily_tick"] = arena_daily_tick
+
+    # Autonomy: the supervisor re-runs agents on a timer and reports drift.
+    # It only ever flags - it retires nothing and trades nothing.
+    from .supervisor_service import SupervisorService
+
+    def agent_supervisor_sweep(payload: dict[str, Any]) -> dict[str, Any]:
+        from ..agents.base import AgentTask
+        from ..agents.roster import build_founding_roster
+        from ..services.agent_evaluation_service import AgentEvaluationService
+        from ..services.agent_registry_service import AgentRegistryService
+        from ..tools.registry import build_default_tool_registry
+
+        registry = build_default_tool_registry(
+            config.database_path,
+            allow_live_trading=False,
+            openalgo_base_url=config.openalgo_base_url,
+            openalgo_api_key=config.openalgo_api_key,
+            artifacts_dir=config.artifacts_dir,
+            app_config=config,
+        )
+        roster = {a.name: a for a in build_founding_roster(registry)}
+        agent_registry = AgentRegistryService(config.database_path)
+        evaluation = AgentEvaluationService(config.database_path)
+
+        def _run(name: str, symbol: str) -> dict[str, Any]:
+            agent = roster[name]
+            task = AgentTask(task_type="scheduled", symbol=symbol)
+            result = agent.run(task)
+            run_id = agent_registry.record_run(agent, task, result)
+            card = evaluation.score_run(
+                {
+                    "status": result.status,
+                    "findings": result.findings,
+                    "evidence": result.evidence,
+                },
+                agent.category,
+            )
+            evaluation.record_score(
+                agent_id=agent.agent_id,
+                version=agent.version,
+                run_id=run_id,
+                scorecard=card,
+            )
+            return {"status": result.status, "run_id": run_id}
+
+        supervisor = SupervisorService(config.database_path, run_agent=_run)
+        agents = payload.get("agents") or [
+            name for name in ("strategy_validator", "market_researcher")
+            if name in roster
+        ]
+        return supervisor.sweep(agents, payload.get("symbol", "RELIANCE"))
+
+    handlers["agent_supervisor_sweep"] = agent_supervisor_sweep
     if config.market_news_provider and config.market_news_api_url:
         news = MarketNewsService(config)
 
@@ -290,6 +343,17 @@ def register_default_jobs(
             name="operational_alert_evaluation",
             job_type="alert_evaluation",
             schedule_seconds=60,
+        ),
+        # Autonomous agent sweep: re-run key agents and report drift.
+        service.register(
+            name="agent_supervisor_sweep",
+            job_type="agent_supervisor_sweep",
+            schedule_seconds=21600,  # every 6 hours
+        ),
+        service.register(
+            name="arena_daily_tick",
+            job_type="arena_daily_tick",
+            schedule_seconds=86400,
         ),
     ]
     if include_openalgo:

@@ -24,6 +24,7 @@ from .api_models import (
     AuthoredAgentRequest,
     CommitteeRequest,
     ContestRequest,
+    SupervisorSweepRequest,
     BatchSubmitRequest,
     ChatRequest,
     DirectOrderRequest,
@@ -277,6 +278,34 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     committee = CommitteeService(_committee_member_runner)
 
     from .services.contest_service import ContestService
+    from .services.supervisor_service import SupervisorService
+
+    def _supervisor_run_agent(name: str, symbol: str) -> dict[str, Any]:
+        agent = _agents_by_key.get(name)
+        if agent is None:
+            raise ValueError(f"unknown agent {name!r}")
+        task = _AgentTask(task_type="scheduled", symbol=symbol)
+        result = agent.run(task)
+        run_id = agent_registry.record_run(agent, task, result)
+        card = agent_evaluation.score_run(
+            {
+                "status": result.status,
+                "findings": result.findings,
+                "evidence": result.evidence,
+            },
+            agent.category,
+        )
+        agent_evaluation.record_score(
+            agent_id=agent.agent_id,
+            version=agent.version,
+            run_id=run_id,
+            scorecard=card,
+        )
+        return {"status": result.status, "run_id": run_id}
+
+    supervisor_service = SupervisorService(
+        active_config.database_path, run_agent=_supervisor_run_agent
+    )
 
     contest_service = ContestService(
         active_config.database_path,
@@ -1224,6 +1253,34 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.get("/supervisor/findings")
+    def supervisor_findings_endpoint(
+        include_acknowledged: bool = False,
+        principal: Principal = Depends(viewer),
+    ) -> dict[str, Any]:
+        return supervisor_service.list_findings(
+            include_acknowledged=include_acknowledged
+        )
+
+    @app.post("/supervisor/sweep")
+    def supervisor_sweep_endpoint(
+        request: SupervisorSweepRequest,
+        principal: Principal = Depends(researcher),
+    ) -> dict[str, Any]:
+        agents = request.agents or [
+            name
+            for name in ("strategy_validator", "market_researcher")
+            if name in _agents_by_key
+        ]
+        return supervisor_service.sweep(agents, request.symbol)
+
+    @app.post("/supervisor/findings/{finding_id}/acknowledge")
+    def acknowledge_finding_endpoint(
+        finding_id: str,
+        principal: Principal = Depends(researcher),
+    ) -> dict[str, Any]:
+        return supervisor_service.acknowledge(finding_id)
 
     @app.get("/contests")
     def list_contests_endpoint(
