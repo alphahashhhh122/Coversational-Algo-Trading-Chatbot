@@ -30,6 +30,22 @@ _GRIDS: dict[str, list[dict[str, Any]]] = {
         {"fast_period": 10, "slow_period": 40, "stop_loss_pct": 0.03},
         {"fast_period": 15, "slow_period": 45, "stop_loss_pct": 0.02},
     ],
+    # Mean reversion: how stretched the move has to be before fading it.
+    "rsi_mean_reversion": [
+        {"period": 14, "oversold": 30.0, "overbought": 70.0},
+        {"period": 14, "oversold": 25.0, "overbought": 75.0},
+        {"period": 7, "oversold": 30.0, "overbought": 70.0},
+        {"period": 21, "oversold": 35.0, "overbought": 65.0},
+        {"period": 10, "oversold": 20.0, "overbought": 80.0},
+    ],
+    # Momentum: how much thrust is required to join a move.
+    "momentum_roc": [
+        {"period": 10, "entry_threshold": 0.01, "exit_threshold": 0.0},
+        {"period": 20, "entry_threshold": 0.02, "exit_threshold": 0.0},
+        {"period": 5, "entry_threshold": 0.005, "exit_threshold": 0.0},
+        {"period": 30, "entry_threshold": 0.03, "exit_threshold": 0.005},
+        {"period": 15, "entry_threshold": 0.015, "exit_threshold": -0.005},
+    ],
 }
 
 

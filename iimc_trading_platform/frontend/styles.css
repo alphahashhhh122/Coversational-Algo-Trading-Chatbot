@@ -960,6 +960,14 @@ tbody tr:hover { background: var(--row-hover); }
 .account-funds span { display: block; color: var(--muted); font-size: 12px; }
 .account-funds strong { display: block; margin-top: 4px; font-size: 18px; }
 .account-total { margin-top: 10px; text-align: right; font-size: 14px; }
+.coverage-panel { margin-bottom: 24px; }
+.coverage-panel .section-heading p { max-width: 720px; }
+.coverage-stats { display: flex; gap: 24px; margin-bottom: 12px; }
+.coverage-stats div { padding: 10px 16px; border: 1px solid var(--line); border-radius: 8px; }
+.coverage-stats span { display: block; font-size: 12px; color: var(--muted); }
+.coverage-stats strong { font-size: 18px; }
+.coverage-stats small { margin-left: 6px; color: var(--muted); }
+.coverage-gaps { margin: 0 0 14px; padding-left: 20px; color: var(--muted); font-size: 13px; }
 .supervisor-panel { margin: 0 0 24px; }
 .supervisor-panel .section-heading p { max-width: 720px; }
 .supervisor-finding { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 14px; margin-bottom: 8px; border: 1px solid var(--line); border-left-width: 4px; border-radius: 6px; }

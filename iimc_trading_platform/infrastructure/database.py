@@ -954,6 +954,19 @@ def initialize_database(db_path: Path) -> None:
         )
         con.execute(
             """
+            CREATE TABLE IF NOT EXISTS universe_backfill_status (
+                symbol VARCHAR NOT NULL,
+                interval VARCHAR NOT NULL,
+                status VARCHAR NOT NULL,
+                rows_imported INTEGER NOT NULL,
+                reason VARCHAR,
+                updated_at TIMESTAMP NOT NULL,
+                PRIMARY KEY (symbol, interval)
+            )
+            """
+        )
+        con.execute(
+            """
             CREATE TABLE IF NOT EXISTS supervisor_findings (
                 finding_id VARCHAR PRIMARY KEY,
                 kind VARCHAR NOT NULL,

@@ -659,6 +659,11 @@ def build_default_tool_registry(
     from ..services.research_agent_service import ResearchAgentService
     from ..services.strategy_optimizer_service import StrategyOptimizerService
 
+    from ..services.data_health_service import DataHealthService
+
+    def _data_health(path: Path) -> DataHealthService:
+        return DataHealthService(path)
+
     memory = MemoryService(db_path)
     research_agent = ResearchAgentService(
         fundamentals, news, instruments, _screener(db_path), memory=memory
@@ -1315,6 +1320,25 @@ def build_default_tool_registry(
                 capabilities=ToolCapabilityMetadata(
                     actions=("research", "analyze", "compare"),
                     asset_classes=("equity",),
+                    execution_modes=("research",),
+                    risk_level="low",
+                ),
+            ),
+            ToolDefinition(
+                name="get_data_health",
+                description=(
+                    "Report what market data the platform actually holds per "
+                    "symbol across a universe: price history, fundamentals, "
+                    "freshness, and which agents can therefore work on each "
+                    "symbol. Read-only; names gaps plainly instead of letting "
+                    "an agent discover them by failing."
+                ),
+                input_model=EmptyInput,
+                handler=lambda value: _data_health(db_path).coverage(),
+                side_effects="read-only: reads the data catalog",
+                retry_safe=True,
+                capabilities=ToolCapabilityMetadata(
+                    actions=("retrieve",),
                     execution_modes=("research",),
                     risk_level="low",
                 ),

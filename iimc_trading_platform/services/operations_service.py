@@ -189,6 +189,24 @@ def build_job_service(config: AppConfig) -> JobService:
 
         handlers["watch_evaluation"] = watch_evaluation
 
+        # Universe backfill takes small, resumable bites so a scheduled run
+        # never blocks for long and an expired token just means "retry later".
+        from .openalgo_history_import_service import OpenAlgoHistoryImportService
+        from .universe_backfill_service import UniverseBackfillService
+
+        backfill = UniverseBackfillService(
+            config.database_path, OpenAlgoHistoryImportService(config)
+        )
+
+        def universe_backfill(payload: dict[str, Any]) -> dict[str, Any]:
+            return backfill.run(
+                universe=payload.get("universe", "nifty50"),
+                interval=payload.get("interval", "D"),
+                max_symbols=int(payload.get("max_symbols", 3)),
+            )
+
+        handlers["universe_backfill"] = universe_backfill
+
     # The arena needs no broker credentials — it runs on stored data through a
     # simulated ledger — so its tick is always available.
     from .arena_service import ArenaService
@@ -357,6 +375,16 @@ def register_default_jobs(
         ),
     ]
     if include_openalgo:
+        # Backfill needs broker credentials, so it is scheduled only alongside
+        # the other broker-dependent jobs — registering it unconditionally
+        # would reference a handler that does not exist.
+        job_ids.append(
+            service.register(
+                name="universe_backfill",
+                job_type="universe_backfill",
+                schedule_seconds=3600,
+            )
+        )
         job_ids.append(
             service.register(
                 name="openalgo_account_snapshot",

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>IIMC Trading Research Workspace</title>
-  <link rel="stylesheet" href="/static/styles.css?v=20260727a">
+  <link rel="stylesheet" href="/static/styles.css?v=20260727b">
 </head>
 <body>
   <div class="app-shell">
@@ -347,6 +347,19 @@
           </div>
           <button class="secondary-button" id="refresh-data">Refresh</button>
         </div>
+        <section class="coverage-panel">
+          <div class="section-heading">
+            <div>
+              <h2>Coverage</h2>
+              <p>What the platform actually holds, per symbol. Agents can only research symbols with data — this shows the gaps up front instead of letting an agent discover them by failing.</p>
+            </div>
+            <div class="section-actions">
+              <button class="secondary-button" id="refresh-coverage">Refresh</button>
+              <button class="secondary-button" id="run-backfill">Fetch more history</button>
+            </div>
+          </div>
+          <div id="coverage-summary">Loading coverage…</div>
+        </section>
         <section class="rag-panel">
           <div class="section-heading">
             <div>
@@ -628,6 +641,6 @@
     </form>
   </div>
   <div class="toast" id="toast" role="status"></div>
-  <script src="/static/app.js?v=20260727a" defer></script>
+  <script src="/static/app.js?v=20260727b" defer></script>
 </body>
 </html>

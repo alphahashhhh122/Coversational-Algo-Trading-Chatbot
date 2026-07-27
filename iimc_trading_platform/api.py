@@ -24,6 +24,7 @@ from .api_models import (
     AuthoredAgentRequest,
     CommitteeRequest,
     ContestRequest,
+    BackfillRequest,
     SupervisorSweepRequest,
     BatchSubmitRequest,
     ChatRequest,
@@ -278,7 +279,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     committee = CommitteeService(_committee_member_runner)
 
     from .services.contest_service import ContestService
+    from .services.data_health_service import DataHealthService
     from .services.supervisor_service import SupervisorService
+    from .services.universe_backfill_service import UniverseBackfillService
+
+    data_health_service = DataHealthService(active_config.database_path)
 
     def _supervisor_run_agent(name: str, symbol: str) -> dict[str, Any]:
         agent = _agents_by_key.get(name)
@@ -427,6 +432,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     )
     openalgo_history_import_service = OpenAlgoHistoryImportService(
         active_config
+    )
+    # Backfill needs the history importer, so it is built after it.
+    universe_backfill = UniverseBackfillService(
+        active_config.database_path, openalgo_history_import_service
     )
     capability_coverage_service = CapabilityCoverageService(
         active_config.database_path,
@@ -1250,6 +1259,36 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         try:
             return committee.run(
                 request.symbol, request.exchange, tuple(request.members)
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.get("/data/health")
+    def data_health_endpoint(
+        universe: str = "nifty50",
+        principal: Principal = Depends(viewer),
+    ) -> dict[str, Any]:
+        return data_health_service.coverage(universe)
+
+    @app.get("/data/backfill/status")
+    def backfill_status_endpoint(
+        universe: str = "nifty50",
+        principal: Principal = Depends(viewer),
+    ) -> dict[str, Any]:
+        return universe_backfill.status(universe)
+
+    @app.post("/data/backfill/run")
+    def backfill_run_endpoint(
+        request: BackfillRequest,
+        principal: Principal = Depends(researcher),
+    ) -> dict[str, Any]:
+        try:
+            return universe_backfill.run(
+                universe=request.universe,
+                interval=request.interval,
+                exchange=request.exchange,
+                lookback_days=request.lookback_days,
+                max_symbols=request.max_symbols,
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc

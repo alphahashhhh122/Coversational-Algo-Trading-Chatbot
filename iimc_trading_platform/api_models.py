@@ -18,6 +18,14 @@ class McpCallRequest(BaseModel):
     arguments: dict[str, Any] = Field(default_factory=dict)
 
 
+class BackfillRequest(BaseModel):
+    universe: str = Field(default="nifty50", max_length=40)
+    interval: str = Field(default="D", max_length=8)
+    exchange: str = Field(default="NSE", max_length=20)
+    lookback_days: int = Field(default=365, ge=7, le=3650)
+    max_symbols: int = Field(default=5, ge=1, le=52)
+
+
 class SupervisorSweepRequest(BaseModel):
     agents: list[str] = Field(default_factory=list, max_length=10)
     symbol: str = Field(default="RELIANCE", max_length=40)

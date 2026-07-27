@@ -348,6 +348,27 @@ def build_founding_roster(
             interpret=_interpret_watch_check,
         ),
     ]
+    if "get_data_health" in registry._tools:
+        roster.append(
+            ServiceAgent(
+                agent_id="data_health@1.0",
+                name="data_health",
+                version="1.0",
+                category="monitor",
+                description=(
+                    "Reports what data the platform holds per symbol, so "
+                    "coverage gaps are visible up front rather than "
+                    "discovered when another agent fails."
+                ),
+                capabilities=("monitor", "retrieve"),
+                runner=_tool_runner(registry, "get_data_health", lambda t: {}),
+                interpret=lambda payload: (
+                    payload,
+                    [{"kind": "coverage", "ref": f"{payload.get('with_price_history')}/{payload.get('symbol_count')} symbols"}],
+                    list(payload.get("gaps", [])),
+                ),
+            )
+        )
     # The technical screener only exists when a broker is configured (it needs
     # live candles), so it joins the roster conditionally rather than being
     # registered as a permanently-broken agent.

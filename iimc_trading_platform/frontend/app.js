@@ -978,6 +978,51 @@ async function tickArena() {
   }
 }
 
+// --- Data coverage ---
+async function loadCoverage() {
+  const box = $("#coverage-summary");
+  if (!box) return;
+  try {
+    const c = await api("/data/health");
+    const covered = c.symbols.filter((s) => s.has_price_history);
+    const gaps = (c.gaps || []).map((g) => `<li>${escapeHtml(g)}</li>`).join("");
+    const rows = covered.map((s) => `<tr>
+        <td><strong>${escapeHtml(s.symbol)}</strong></td>
+        <td>${s.price_rows.toLocaleString("en-IN")} bars</td>
+        <td>${escapeHtml((s.intervals || []).join(", ") || "—")}</td>
+        <td>${escapeHtml(s.latest_bar || "—")}</td>
+        <td>${s.has_fundamentals ? `${s.statement_count} statement(s)` : "—"}</td>
+      </tr>`).join("");
+    box.innerHTML = `
+      <div class="coverage-stats">
+        <div><span>Price history</span><strong>${c.with_price_history} / ${c.symbol_count}</strong><small>${c.price_coverage_pct}%</small></div>
+        <div><span>Fundamentals</span><strong>${c.with_fundamentals} / ${c.symbol_count}</strong><small>${c.fundamentals_coverage_pct}%</small></div>
+      </div>
+      ${gaps ? `<ul class="coverage-gaps">${gaps}</ul>` : ""}
+      ${covered.length ? `<div class="table-wrap"><table><thead><tr><th>Symbol</th><th>Bars</th><th>Intervals</th><th>Latest</th><th>Fundamentals</th></tr></thead><tbody>${rows}</tbody></table></div>` : ""}`;
+  } catch (error) {
+    box.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
+  }
+}
+
+async function runBackfill() {
+  const button = $("#run-backfill");
+  if (button) button.disabled = true;
+  try {
+    const result = await api("/data/backfill/run", { method: "POST", body: JSON.stringify({ max_symbols: 5 }) });
+    const ok = (result.results || []).filter((r) => r.status === "ok").length;
+    const failed = (result.results || []).filter((r) => r.status === "failed");
+    toast(failed.length
+      ? `${ok} imported, ${failed.length} failed (${failed[0].reason || ""})`.slice(0, 140)
+      : `${ok} symbol(s) imported · ${result.remaining} remaining`);
+    await loadCoverage();
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
 // --- Supervisor (autonomous drift watch) ---
 async function loadSupervisorFindings() {
   const box = $("#supervisor-findings");
@@ -2857,6 +2902,7 @@ function wireEvents() {
   document.querySelectorAll(".nav-item").forEach((button) => {
     button.addEventListener("click", () => {
       setView(button.dataset.view);
+      if (button.dataset.view === "data") loadCoverage().catch(() => {});
       if (button.dataset.view === "agents") {
         loadAgents().catch(() => {});
         loadLeaderboard().catch(() => {});
@@ -2915,6 +2961,8 @@ function wireEvents() {
   $("#refresh-leaderboard")?.addEventListener("click", () => loadLeaderboard().catch(() => {}));
   $("#arena-season-select")?.addEventListener("change", () => loadArenaStandings().catch(() => {}));
   $("#arena-tick")?.addEventListener("click", tickArena);
+  $("#refresh-coverage")?.addEventListener("click", () => loadCoverage().catch(() => {}));
+  $("#run-backfill")?.addEventListener("click", runBackfill);
   $("#supervisor-sweep")?.addEventListener("click", runSupervisorSweep);
   $("#supervisor-findings")?.addEventListener("click", (event) => {
     const button = event.target.closest(".finding-ack");
