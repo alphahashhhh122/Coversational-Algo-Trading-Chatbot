@@ -88,13 +88,28 @@ class FoundingRosterTest(unittest.TestCase):
             {
                 "market_researcher", "deep_researcher", "strategy_discoverer",
                 "strategy_validator", "comparator", "sentinel",
+                "fundamental_analyst", "news_analyst", "document_analyst",
             },
         )
-        # With a chat runner the assistant joins the roster.
-        with_chat = build_founding_roster(
-            registry, chat_runner=lambda m: {"answer": "hi"}
+        # Every agent declares a valid category and non-empty description.
+        for agent in roster:
+            self.assertIn(
+                agent.category, {"research", "strategy", "monitor", "assistant"}
+            )
+            self.assertTrue(agent.description)
+
+    def test_injected_runners_add_their_agents(self) -> None:
+        registry = build_default_tool_registry(Path("unused.duckdb"))
+        full = build_founding_roster(
+            registry,
+            chat_runner=lambda m: {"answer": "hi"},
+            committee_runner=lambda s, e: {"opinions": {}},
         )
-        self.assertIn("conversational_assistant", {a.name for a in with_chat})
+        names = {a.name for a in full}
+        self.assertIn("conversational_assistant", names)
+        self.assertIn("research_committee", names)
+        # The plan's bar: at least ten registered agents.
+        self.assertGreaterEqual(len(full), 10)
 
     def test_symbol_requiring_agent_fails_honestly_without_symbol(self) -> None:
         registry = build_default_tool_registry(Path("unused.duckdb"))

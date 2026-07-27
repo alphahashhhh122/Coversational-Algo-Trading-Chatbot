@@ -88,12 +88,103 @@ def _interpret_watch_check(payload: dict[str, Any]) -> _Interp:
     ], list(payload.get("errors", []))
 
 
+def _interpret_fundamentals(payload: dict[str, Any]) -> _Interp:
+    ratios = {
+        item["name"]: item["value"]
+        for item in payload.get("ratios", [])
+        if isinstance(item, dict) and item.get("value") is not None
+    }
+    gaps = [] if ratios else ["no financial statements stored for this symbol"]
+    evidence = [
+        {"kind": "statement_period", "ref": payload.get("period")}
+    ] if payload.get("period") else []
+    # Present a research-shaped payload so the research scorer can read it.
+    return (
+        {**payload, "sections_available": ["fundamentals"] if ratios else []},
+        evidence,
+        gaps,
+    )
+
+
+def _interpret_news(payload: dict[str, Any]) -> _Interp:
+    articles = payload.get("articles", [])
+    evidence = [
+        {
+            "kind": "citation",
+            "source": a.get("source"),
+            "ref": a.get("title"),
+            "url": a.get("url"),
+        }
+        for a in articles[:10]
+    ]
+    gaps = [] if articles else [payload.get("message") or "no articles returned"]
+    return (
+        {**payload, "sections_available": ["news"] if articles else []},
+        evidence,
+        gaps,
+    )
+
+
+def _interpret_document(payload: dict[str, Any]) -> _Interp:
+    chunks = payload.get("chunks", [])
+    evidence = [
+        {
+            "kind": "citation",
+            "source": payload.get("title"),
+            "url": payload.get("source_url") or payload.get("source_uri"),
+        }
+    ] if chunks else []
+    gaps = [] if chunks else ["no readable document found for that query"]
+    return (
+        {**payload, "sections_available": ["document"] if chunks else []},
+        evidence,
+        gaps,
+    )
+
+
+def _interpret_screen(payload: dict[str, Any]) -> _Interp:
+    matches = payload.get("matches", []) or payload.get("results", [])
+    errors = payload.get("errors", []) or []
+    evidence = [{"kind": "screen_match", "ref": m.get("symbol")} for m in matches
+                if isinstance(m, dict)]
+    return payload, evidence, list(errors)
+
+
+def _interpret_committee(payload: dict[str, Any]) -> _Interp:
+    """A committee's evidence is its members' attributed positions."""
+    evidence = [
+        {"kind": "member_opinion", "source": member}
+        for member in (payload.get("opinions") or {})
+    ]
+    for disagreement in payload.get("disagreements", []):
+        for position in disagreement.get("positions", []):
+            evidence.append(
+                {
+                    "kind": "dissent",
+                    "source": position.get("member"),
+                    "ref": position.get("stance"),
+                }
+            )
+    covered = ["committee"] if payload.get("opinions") else []
+    return (
+        {**payload, "sections_available": covered},
+        evidence,
+        list(payload.get("gaps", [])),
+    )
+
+
 def build_founding_roster(
     registry: ToolRegistry,
     *,
     chat_runner: Callable[[str], dict[str, Any]] | None = None,
+    committee_runner: Callable[[str, str], dict[str, Any]] | None = None,
 ) -> list[ServiceAgent]:
-    """The agents shipped with the platform, adapting existing tools."""
+    """The agents shipped with the platform, adapting existing tools.
+
+    ``chat_runner`` and ``committee_runner`` are injected rather than imported
+    so this module stays free of API-layer dependencies (and so the roster can
+    be built in tests without standing up an app).
+    """
 
     roster = [
         ServiceAgent(
@@ -188,6 +279,62 @@ def build_founding_roster(
             interpret=_interpret_comparison,
         ),
         ServiceAgent(
+            agent_id="fundamental_analyst@1.0",
+            name="fundamental_analyst",
+            version="1.0",
+            category="research",
+            description=(
+                "Reads the imported financial statements and reports the "
+                "standard ratios — profitability, leverage, liquidity, growth."
+            ),
+            capabilities=("research", "fundamentals"),
+            runner=_tool_runner(
+                registry, "analyze_fundamentals",
+                lambda t: {"symbol": _require_symbol(t)},
+            ),
+            interpret=_interpret_fundamentals,
+        ),
+        ServiceAgent(
+            agent_id="news_analyst@1.0",
+            name="news_analyst",
+            version="1.0",
+            category="research",
+            description=(
+                "Gathers recent headlines for a symbol or the wider market and "
+                "reports them with their sources. Never summarises beyond what "
+                "the articles say."
+            ),
+            capabilities=("research", "news"),
+            runner=_tool_runner(
+                registry, "get_market_news",
+                lambda t: {
+                    "symbol": t.symbol,
+                    "query": t.params.get("query") or t.symbol or "Indian stock market",
+                },
+            ),
+            interpret=_interpret_news,
+        ),
+        ServiceAgent(
+            agent_id="document_analyst@1.0",
+            name="document_analyst",
+            version="1.0",
+            category="research",
+            description=(
+                "Finds and reads a company document — annual report, filing, "
+                "transcript — using stored copies or fetching a public source, "
+                "then answers from its excerpts with the source cited."
+            ),
+            capabilities=("research", "documents", "cite"),
+            runner=_tool_runner(
+                registry, "find_and_analyze_document",
+                lambda t: {
+                    "query": t.params.get("query")
+                    or f"{_require_symbol(t)} annual report",
+                },
+            ),
+            interpret=_interpret_document,
+        ),
+        ServiceAgent(
             agent_id="sentinel@1.0",
             name="sentinel",
             version="1.0",
@@ -201,6 +348,51 @@ def build_founding_roster(
             interpret=_interpret_watch_check,
         ),
     ]
+    # The technical screener only exists when a broker is configured (it needs
+    # live candles), so it joins the roster conditionally rather than being
+    # registered as a permanently-broken agent.
+    if "run_technical_screen" in registry._tools:
+        roster.append(
+            ServiceAgent(
+                agent_id="screener@1.0",
+                name="screener",
+                version="1.0",
+                category="monitor",
+                description=(
+                    "Scans a universe (default NIFTY 50) for a technical "
+                    "condition such as RSI below a level, using live candles."
+                ),
+                capabilities=("screen", "monitor"),
+                runner=_tool_runner(
+                    registry, "run_technical_screen",
+                    lambda t: {
+                        "condition": t.params.get("condition", "rsi_below"),
+                        "threshold": t.params.get("threshold", 30),
+                        "universe": t.params.get("universe", "nifty50"),
+                    },
+                ),
+                interpret=_interpret_screen,
+            )
+        )
+    if committee_runner is not None:
+        roster.append(
+            ServiceAgent(
+                agent_id="research_committee@1.0",
+                name="research_committee",
+                version="1.0",
+                category="research",
+                description=(
+                    "Convenes several agents on one symbol and reports their "
+                    "attributed positions — preserving disagreement rather "
+                    "than averaging it away."
+                ),
+                capabilities=("research", "synthesize", "multi_agent"),
+                runner=lambda t: committee_runner(
+                    _require_symbol(t), t.exchange
+                ),
+                interpret=_interpret_committee,
+            )
+        )
     if chat_runner is not None:
         roster.append(
             ServiceAgent(

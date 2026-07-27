@@ -303,11 +303,18 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             exchange=season["exchange"],
             raise_on_missing=False,
         )
+    def _committee_for_roster(symbol: str, exchange: str) -> dict[str, Any]:
+        # Late-bound: the committee is constructed below, and its members never
+        # include the committee itself, so registering it as an agent cannot
+        # recurse.
+        return committee.run(symbol, exchange)
+
     _agent_roster = build_founding_roster(
         tool_registry,
         chat_runner=lambda message: {
             "answer": chat_service.answer(message).answer,
         },
+        committee_runner=_committee_for_roster,
     )
     agent_registry.sync_roster(_agent_roster)
     _agents_by_key: dict[str, Any] = {}

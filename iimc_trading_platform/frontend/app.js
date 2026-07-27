@@ -967,6 +967,52 @@ async function tickArena() {
   }
 }
 
+// --- Contests ---
+async function loadContests() {
+  const box = $("#contests-list");
+  if (!box) return;
+  try {
+    const { contests } = await api("/contests");
+    if (!contests.length) {
+      box.innerHTML = `<div class="empty-state">No contests yet. Create one via <code>POST /contests</code> or the SDK.</div>`;
+      return;
+    }
+    const rows = contests.map((c) => `<tr>
+        <td><strong>${escapeHtml(c.name)}</strong><br><small class="row-subname">${escapeHtml(c.symbol)}</small></td>
+        <td><span class="watch-status watch-${c.status === "open" ? "active" : "triggered"}">${escapeHtml(c.status)}</span></td>
+        <td>${escapeHtml(String(c.closes_at || "").slice(0, 16).replace("T", " "))}</td>
+        <td><small class="row-subname">${c.dataset_hash ? escapeHtml(c.dataset_hash.slice(0, 12)) + "…" : "no data frozen"}</small></td>
+        <td><button class="secondary-button contest-results" data-contest-id="${escapeHtml(c.contest_id)}">Results</button></td>
+      </tr>`).join("");
+    box.innerHTML = `<div class="table-wrap"><table><thead><tr><th>Contest</th><th>Status</th><th>Closes</th><th>Dataset hash</th><th></th></tr></thead><tbody>${rows}</tbody></table></div><div id="contest-results-detail"></div>`;
+  } catch (error) {
+    box.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
+  }
+}
+
+async function showContestResults(contestId) {
+  const box = $("#contest-results-detail");
+  if (!box) return;
+  box.innerHTML = `<div class="empty-state">Loading results…</div>`;
+  try {
+    const payload = await api(`/contests/${encodeURIComponent(contestId)}/results`);
+    const results = payload.results || [];
+    if (!results.length) {
+      box.innerHTML = `<div class="empty-state">This contest has no snapshot yet — it is ${escapeHtml(payload.status)}.</div>`;
+      return;
+    }
+    const rows = results.map((r) => `<tr>
+        <td>${r.rank ?? "—"}</td>
+        <td>${escapeHtml(r.agent_id)}</td>
+        <td>${escapeHtml(String(r.composite))}</td>
+        <td><small class="row-subname">run ${escapeHtml(r.run_id || "—")}</small></td>
+      </tr>`).join("");
+    box.innerHTML = `<p class="leaderboard-unranked-head">Frozen standings (dataset ${escapeHtml((payload.dataset_hash || "n/a").slice(0, 12))}…):</p><div class="table-wrap"><table><thead><tr><th>#</th><th>Agent</th><th>Score</th><th>Traces to</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  } catch (error) {
+    box.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
+  }
+}
+
 async function runAgent(agentId, agentName, button) {
   const result = $("#agent-run-result");
   const symbol = ($("#agent-symbol")?.value || "RELIANCE").trim().toUpperCase();
@@ -2756,6 +2802,7 @@ function wireEvents() {
         loadAgents().catch(() => {});
         loadLeaderboard().catch(() => {});
         loadArenaSeasons().catch(() => {});
+        loadContests().catch(() => {});
       }
     });
   });
@@ -2808,6 +2855,11 @@ function wireEvents() {
   $("#refresh-leaderboard")?.addEventListener("click", () => loadLeaderboard().catch(() => {}));
   $("#arena-season-select")?.addEventListener("change", () => loadArenaStandings().catch(() => {}));
   $("#arena-tick")?.addEventListener("click", tickArena);
+  $("#refresh-contests")?.addEventListener("click", () => loadContests().catch(() => {}));
+  $("#contests-list")?.addEventListener("click", (event) => {
+    const button = event.target.closest(".contest-results");
+    if (button) showContestResults(button.dataset.contestId);
+  });
   $("#agents-list")?.addEventListener("click", (event) => {
     const button = event.target.closest(".agent-run");
     if (button) runAgent(button.dataset.agentId, button.dataset.agentName, button);

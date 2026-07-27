@@ -41,7 +41,9 @@ class PlatformApiRoutesTest(unittest.TestCase):
         self.assertIn("market_researcher", names)
         self.assertIn("sentinel", names)
         self.assertIn("conversational_assistant", names)
-        self.assertEqual(len(listed), 7)
+        self.assertIn("research_committee", names)
+        self.assertIn("fundamental_analyst", names)
+        self.assertGreaterEqual(len(listed), 10)
 
         # Run the sentinel (no external dependencies) and verify the record.
         run = self.client.post("/agents/sentinel/run", json={})

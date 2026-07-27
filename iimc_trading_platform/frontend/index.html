@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>IIMC Trading Research Workspace</title>
-  <link rel="stylesheet" href="/static/styles.css?v=20260725c">
+  <link rel="stylesheet" href="/static/styles.css?v=20260726a">
 </head>
 <body>
   <div class="app-shell">
@@ -496,6 +496,19 @@
           </div>
           <div id="arena-standings">Select a season to see standings.</div>
         </section>
+
+        <section class="contest-panel">
+          <div class="section-heading">
+            <div>
+              <h2>Contests</h2>
+              <p>A contest freezes its dataset with a content hash, sets a deadline, and snapshots the final standings — so a published result can't drift when data or scoring later changes.</p>
+            </div>
+            <div class="section-actions">
+              <button class="secondary-button" id="refresh-contests">Refresh</button>
+            </div>
+          </div>
+          <div id="contests-list">Loading contests…</div>
+        </section>
       </section>
 
       <!-- ============================ SETTINGS ============================ -->
@@ -602,6 +615,6 @@
     </form>
   </div>
   <div class="toast" id="toast" role="status"></div>
-  <script src="/static/app.js?v=20260725c" defer></script>
+  <script src="/static/app.js?v=20260726a" defer></script>
 </body>
 </html>

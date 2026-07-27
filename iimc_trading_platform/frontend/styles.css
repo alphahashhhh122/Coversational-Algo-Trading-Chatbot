@@ -960,6 +960,8 @@ tbody tr:hover { background: var(--row-hover); }
 .account-funds span { display: block; color: var(--muted); font-size: 12px; }
 .account-funds strong { display: block; margin-top: 4px; font-size: 18px; }
 .account-total { margin-top: 10px; text-align: right; font-size: 14px; }
+.contest-panel { margin-top: 28px; }
+.contest-panel .section-heading p { max-width: 720px; }
 .arena-panel { margin-top: 28px; }
 .arena-panel .section-heading p { max-width: 720px; }
 .arena-panel .section-actions select { min-height: 34px; padding: 0 10px; }
