@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>IIMC Trading Research Workspace</title>
-  <link rel="stylesheet" href="/static/styles.css?v=20260726b">
+  <link rel="stylesheet" href="/static/styles.css?v=20260727a">
 </head>
 <body>
   <div class="app-shell">
@@ -487,7 +487,7 @@
           <div class="section-heading">
             <div>
               <h2>Leaderboard</h2>
-              <p>Ranked on evidence from recorded runs. Strategy agents are scored <strong>out-of-sample only</strong> — an overfit configuration is penalised, never celebrated. Agents without enough evidence are listed as inconclusive rather than ranked.</p>
+              <p>Ranked on evidence from recorded runs. Strategy agents are scored <strong>out-of-sample only</strong>, on <strong>excess return over simply holding</strong>, with drawdown and negative Sharpe subtracted — an overfit configuration is penalised, never celebrated. Agents without enough evidence are listed as inconclusive rather than ranked.</p>
             </div>
             <div class="section-actions">
               <button class="secondary-button" id="refresh-leaderboard">Refresh</button>
@@ -628,6 +628,6 @@
     </form>
   </div>
   <div class="toast" id="toast" role="status"></div>
-  <script src="/static/app.js?v=20260726b" defer></script>
+  <script src="/static/app.js?v=20260727a" defer></script>
 </body>
 </html>

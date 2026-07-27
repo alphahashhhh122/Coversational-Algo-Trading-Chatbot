@@ -44,6 +44,14 @@ _VERDICT_WEIGHT = {
 
 _MIN_OOS_TRADES = 3
 
+# Bumped whenever the scoring rule changes, and stored with every score, so a
+# leaderboard never silently mixes numbers produced by different rules.
+SCORING_VERSION = 2
+
+# Risk penalties, applied additively (see _score_strategy).
+_DRAWDOWN_WEIGHT = 0.5
+_NEGATIVE_SHARPE_WEIGHT = 0.1
+
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
@@ -162,7 +170,21 @@ class AgentEvaluationService:
 
 
 def _score_strategy(findings: dict[str, Any]) -> dict[str, Any]:
-    """Out-of-sample only — in-sample numbers never reach a ranking."""
+    """Out-of-sample, benchmark-relative, and risk-adjusted.
+
+    Three deliberate choices:
+
+    1. **In-sample numbers never reach a ranking.** Only the untouched test
+       window counts.
+    2. **The benchmark is the bar.** A strategy is scored on *excess* return
+       over simply holding the instrument, because returning +2% while the
+       instrument returned +10% destroyed value. When no benchmark is
+       available we fall back to raw return and say so in ``reason``.
+    3. **Risk is subtracted, not ignored.** Drawdown and negative Sharpe are
+       applied as additive penalties so the ranking stays monotonic — more
+       drawdown always ranks lower, and a penalty can never flip a loss into
+       a better score the way a multiplier would.
+    """
 
     oos = findings.get("out_of_sample_return_pct")
     trades = int(findings.get("out_of_sample_trades") or 0)
@@ -174,12 +196,23 @@ def _score_strategy(findings: dict[str, Any]) -> dict[str, Any]:
             "metrics": {"walk_forward": False},
             "composite": None,
         }
+    excess = findings.get("out_of_sample_excess_return_pct")
+    sharpe = findings.get("out_of_sample_sharpe")
+    drawdown_pct = findings.get("out_of_sample_drawdown_pct")
     metrics = {
         "out_of_sample_return_pct": oos,
         "out_of_sample_trades": trades,
         "out_of_sample_drawdown": findings.get("out_of_sample_drawdown"),
+        "out_of_sample_drawdown_pct": drawdown_pct,
+        "out_of_sample_excess_return_pct": excess,
+        "out_of_sample_benchmark_pct": findings.get("out_of_sample_benchmark_pct"),
+        "out_of_sample_sharpe": sharpe,
+        "out_of_sample_win_rate_pct": findings.get("out_of_sample_win_rate_pct"),
         "verdict": verdict,
         "walk_forward": True,
+        "windows": findings.get("windows"),
+        "windows_held_up": findings.get("windows_held_up"),
+        "scoring_version": SCORING_VERSION,
     }
     if trades < _MIN_OOS_TRADES:
         return {
@@ -191,12 +224,37 @@ def _score_strategy(findings: dict[str, Any]) -> dict[str, Any]:
             "metrics": metrics,
             "composite": None,
         }
-    composite = round(float(oos) * _VERDICT_WEIGHT.get(verdict, 0.5), 6)
+
+    base_source = "excess return over buy-and-hold"
+    base = excess
+    if base is None:
+        base = oos
+        base_source = "raw return (no benchmark available)"
+    composite = float(base) * _VERDICT_WEIGHT.get(verdict, 0.5)
+
+    # Additive penalties keep the ordering monotonic.
+    penalty = 0.0
+    if drawdown_pct:
+        penalty += abs(float(drawdown_pct)) * _DRAWDOWN_WEIGHT
+    if sharpe is not None and float(sharpe) < 0:
+        penalty += abs(float(sharpe)) * _NEGATIVE_SHARPE_WEIGHT
+
+    # Consistency across walk-forward windows, when measured.
+    windows = findings.get("windows")
+    held = findings.get("windows_held_up")
+    consistency_note = ""
+    if windows and held is not None and windows > 1:
+        composite *= held / windows
+        consistency_note = f", scaled by {held}/{windows} windows holding up"
+
     return {
         "status": "scored",
-        "reason": f"out-of-sample return weighted by verdict '{verdict}'",
+        "reason": (
+            f"{base_source}, weighted by verdict '{verdict}', "
+            f"less risk penalties{consistency_note}"
+        ),
         "metrics": metrics,
-        "composite": composite,
+        "composite": round(composite - penalty, 6),
     }
 
 

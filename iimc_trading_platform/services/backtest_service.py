@@ -19,12 +19,42 @@ from .order_service import OrderService
 from .risk_service import RiskService
 from .simulation_service import (
     ResearchLedger,
+    daily_risk_statistics,
     max_drawdown,
+    trade_statistics,
 )
 
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _buy_and_hold_pct(
+    candles: list[Any], *, quantity: int, starting_equity: float
+) -> float | None:
+    """Benchmark return, expressed on the *same basis* as the strategy's.
+
+    This has to match how the strategy's ``return_pct`` is computed — P&L over
+    starting equity — or the comparison is meaningless. Holding ``quantity``
+    units gives a P&L of ``(last - first) * quantity``; dividing by the same
+    starting equity puts both figures in the same units, so "excess return"
+    genuinely means "better than just holding it".
+
+    Returns None when no comparison is possible rather than defaulting to
+    zero, which would flatter the strategy.
+    """
+
+    if not candles or len(candles) < 2 or not starting_equity:
+        return None
+    try:
+        first_close = float(candles[0]["close"])
+        last_close = float(candles[-1]["close"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if not first_close:
+        return None
+    hold_pnl = (last_close - first_close) * max(quantity, 1)
+    return round(hold_pnl / starting_equity * 100, 6)
 
 
 def _asset_class_from_dataset(data_type: Any) -> str:
@@ -256,7 +286,41 @@ class BacktestService:
             if starting_equity
             else 0.0
         )
+        # Risk-adjusted and benchmark-relative figures come from the same
+        # helpers the persisted backtest uses, so the fast path and the full
+        # run can never disagree about what "Sharpe" or "win rate" means.
+        stats = trade_statistics(
+            ledger.closed_trade_pnls,
+            starting_equity=starting_equity,
+            max_drawdown=drawdown,
+        )
+        risk = daily_risk_statistics(
+            ledger.closed_trade_records, starting_equity=starting_equity
+        )
+        benchmark_pct = _buy_and_hold_pct(
+            candles,
+            quantity=requested_quantity,
+            starting_equity=starting_equity,
+        )
         return {
+            "buy_and_hold_return_pct": benchmark_pct,
+            "excess_return_pct": (
+                round(return_pct - benchmark_pct, 6)
+                if benchmark_pct is not None
+                else None
+            ),
+            "win_rate_pct": stats["win_rate_pct"],
+            "profit_factor": stats["profit_factor"],
+            "expectancy": stats["expectancy"],
+            "sharpe_ratio": risk["sharpe_ratio"],
+            "sortino_ratio": risk["sortino_ratio"],
+            # Drawdown as a share of starting equity, so it is comparable with
+            # the return figures rather than being a raw currency amount.
+            "max_drawdown_pct": (
+                round(drawdown / starting_equity * 100, 6)
+                if starting_equity
+                else None
+            ),
             "total_trades": len(ledger.closed_trade_pnls),
             "net_pnl": round(ledger.cumulative_pnl, 2),
             "max_drawdown": round(drawdown, 2),

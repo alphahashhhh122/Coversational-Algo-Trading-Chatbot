@@ -12,28 +12,25 @@ from iimc_trading_platform.config import AppConfig
 from iimc_trading_platform.db import connect
 from iimc_trading_platform.infrastructure import initialize_database
 
+from _harness import AppHarness
+
 
 class PlatformApiRoutesTest(unittest.TestCase):
-    def setUp(self) -> None:
-        self.temp_dir = tempfile.TemporaryDirectory()
-        root = Path(self.temp_dir.name)
-        self.db_path = root / "test.duckdb"
-        self.artifacts_dir = root / "artifacts"
-        self.artifacts_dir.mkdir()
-        initialize_database(self.db_path)
-        self._insert_dataset()
-        self.client = TestClient(
-            create_app(
-                AppConfig(
-                    database_path=self.db_path,
-                    artifacts_dir=self.artifacts_dir,
-                    openalgo_root=root,
-                )
-            )
-        )
+    # App built once per class; database reset between tests. See _harness.py.
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.harness = AppHarness()
 
-    def tearDown(self) -> None:
-        self.temp_dir.cleanup()
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.harness.close()
+
+    def setUp(self) -> None:
+        self.db_path = self.harness.db_path
+        self.artifacts_dir = self.harness.artifacts_dir
+        self.temp_dir = self.harness.temp_dir
+        self.client = self.harness.client
+        self.harness.reset(seed=self._insert_dataset)
 
     def test_agents_registered_and_runnable_via_api(self) -> None:
         listed = self.client.get("/agents").json()["agents"]

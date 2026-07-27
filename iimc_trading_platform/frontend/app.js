@@ -857,9 +857,20 @@ function renderLeaderboard(board) {
     box.innerHTML = `<div class="empty-state">No scores yet — run an agent above.</div>`;
     return;
   }
+  const num = (v, digits = 3) => (v === null || v === undefined ? "—" : Number(v).toFixed(digits));
   const metricText = (m) => {
     if (m.out_of_sample_return_pct !== undefined) {
-      return `OOS ${m.out_of_sample_return_pct}% over ${m.out_of_sample_trades} trades · ${m.verdict}`;
+      // Out-of-sample only, and shown against the benchmark it had to beat.
+      const parts = [`OOS ${num(m.out_of_sample_return_pct, 4)}%`];
+      if (m.out_of_sample_excess_return_pct !== null && m.out_of_sample_excess_return_pct !== undefined) {
+        const excess = Number(m.out_of_sample_excess_return_pct);
+        parts.push(`${excess >= 0 ? "beat" : "trailed"} hold by ${num(Math.abs(excess), 4)}%`);
+      }
+      if (m.out_of_sample_sharpe !== null && m.out_of_sample_sharpe !== undefined) parts.push(`Sharpe ${num(m.out_of_sample_sharpe, 2)}`);
+      if (m.out_of_sample_drawdown_pct !== null && m.out_of_sample_drawdown_pct !== undefined) parts.push(`DD ${num(m.out_of_sample_drawdown_pct, 3)}%`);
+      if (m.windows && m.windows > 1) parts.push(`${m.windows_held_up}/${m.windows} windows`);
+      parts.push(`${m.out_of_sample_trades} trades · ${m.verdict}`);
+      return parts.join(" · ");
     }
     if (m.coverage !== undefined) {
       return `coverage ${Math.round(m.coverage * 100)}% · ${m.citations} citation(s)`;

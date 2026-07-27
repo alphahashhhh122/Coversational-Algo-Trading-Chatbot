@@ -16,29 +16,28 @@ from iimc_trading_platform.services.custom_strategy_service import (
     CustomStrategyService,
 )
 
+from _harness import AppHarness
+
 
 class ApiChatTest(unittest.TestCase):
+    # The app is built once per class (~4.2s) and the database is reset
+    # between tests, which is equivalent to a fresh database per test but
+    # ~40x cheaper. See tests/_harness.py.
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.harness = AppHarness()
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.harness.close()
+
     def setUp(self) -> None:
-        self.temp_dir = tempfile.TemporaryDirectory()
-        root = Path(self.temp_dir.name)
-        self.db_path = root / "test.duckdb"
-        self.artifacts_dir = root / "artifacts"
-        self.artifacts_dir.mkdir()
-        initialize_database(self.db_path)
-        self._insert_dataset()
-
-        self.client = TestClient(
-            create_app(
-                AppConfig(
-                    database_path=self.db_path,
-                    artifacts_dir=self.artifacts_dir,
-                    openalgo_root=root,
-                )
-            )
-        )
-
-    def tearDown(self) -> None:
-        self.temp_dir.cleanup()
+        self.db_path = self.harness.db_path
+        self.artifacts_dir = self.harness.artifacts_dir
+        # Some tests build a second app with their own config overrides.
+        self.temp_dir = self.harness.temp_dir
+        self.client = self.harness.client
+        self.harness.reset(seed=self._insert_dataset)
 
     def test_chat_dataset_question_calls_catalog_tool_and_returns_evidence(self) -> None:
         response = self.client.post(

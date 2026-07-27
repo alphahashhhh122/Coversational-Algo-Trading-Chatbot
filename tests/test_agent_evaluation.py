@@ -217,3 +217,71 @@ class LeaderboardTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RiskAdjustedScoringTest(unittest.TestCase):
+    """Phase A proofs: the ranking must respect benchmark and risk."""
+
+    def setUp(self) -> None:
+        self.svc = AgentEvaluationService(Path("unused.duckdb"))
+
+    def _score(self, **findings) -> dict:
+        base = {
+            "out_of_sample_return_pct": 5.0,
+            "out_of_sample_trades": 20,
+            "verdict": "holds_up",
+        }
+        base.update(findings)
+        return self.svc.score_run({"status": "ok", "findings": base}, "strategy")
+
+    def test_beating_the_benchmark_ranks_above_trailing_it(self) -> None:
+        # Same raw return; one beat buy-and-hold, the other trailed it badly.
+        beat = self._score(
+            out_of_sample_return_pct=5.0,
+            out_of_sample_excess_return_pct=3.0,
+            out_of_sample_benchmark_pct=2.0,
+        )
+        trailed = self._score(
+            out_of_sample_return_pct=5.0,
+            out_of_sample_excess_return_pct=-5.0,
+            out_of_sample_benchmark_pct=10.0,
+        )
+        self.assertGreater(beat["composite"], trailed["composite"])
+        # Trailing the benchmark by more than you returned is a negative score.
+        self.assertLess(trailed["composite"], 0)
+
+    def test_higher_drawdown_ranks_below_equal_return(self) -> None:
+        calm = self._score(
+            out_of_sample_excess_return_pct=5.0, out_of_sample_drawdown_pct=5.0
+        )
+        wild = self._score(
+            out_of_sample_excess_return_pct=5.0, out_of_sample_drawdown_pct=40.0
+        )
+        self.assertGreater(calm["composite"], wild["composite"])
+
+    def test_negative_sharpe_is_penalised(self) -> None:
+        good = self._score(
+            out_of_sample_excess_return_pct=5.0, out_of_sample_sharpe=1.5
+        )
+        bad = self._score(
+            out_of_sample_excess_return_pct=5.0, out_of_sample_sharpe=-3.0
+        )
+        self.assertGreater(good["composite"], bad["composite"])
+
+    def test_falls_back_to_raw_return_and_says_so(self) -> None:
+        card = self._score()  # no excess supplied
+        self.assertEqual(card["status"], "scored")
+        self.assertIn("no benchmark available", card["reason"])
+
+    def test_windows_consistency_scales_the_score(self) -> None:
+        lucky = self._score(
+            out_of_sample_excess_return_pct=8.0, windows=4, windows_held_up=1
+        )
+        consistent = self._score(
+            out_of_sample_excess_return_pct=8.0, windows=4, windows_held_up=4
+        )
+        self.assertGreater(consistent["composite"], lucky["composite"])
+
+    def test_scoring_version_is_recorded(self) -> None:
+        card = self._score(out_of_sample_excess_return_pct=1.0)
+        self.assertEqual(card["metrics"]["scoring_version"], 2)

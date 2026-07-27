@@ -12,25 +12,24 @@ from iimc_trading_platform.infrastructure import initialize_database
 from iimc_trading_platform.mcp_server import handle_request
 from iimc_trading_platform.tools.registry import build_default_tool_registry
 
+from _harness import AppHarness
+
 
 class McpHttpEndpointsTest(unittest.TestCase):
-    def setUp(self) -> None:
-        self.temp_dir = tempfile.TemporaryDirectory()
-        root = Path(self.temp_dir.name)
-        self.db_path = root / "test.duckdb"
-        initialize_database(self.db_path)
-        self.client = TestClient(
-            create_app(
-                AppConfig(
-                    database_path=self.db_path,
-                    artifacts_dir=root / "artifacts",
-                    openalgo_root=root,
-                )
-            )
-        )
+    # App built once per class; database reset between tests. See _harness.py.
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.harness = AppHarness()
 
-    def tearDown(self) -> None:
-        self.temp_dir.cleanup()
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.harness.close()
+
+    def setUp(self) -> None:
+        self.db_path = self.harness.db_path
+        self.temp_dir = self.harness.temp_dir
+        self.client = self.harness.client
+        self.harness.reset()
 
     def test_mcp_tools_lists_mcp_shaped_definitions(self) -> None:
         response = self.client.get("/mcp/tools")

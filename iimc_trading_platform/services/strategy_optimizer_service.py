@@ -176,6 +176,12 @@ class StrategyOptimizerService:
             "out_of_sample_return_pct": out_ret,
             "out_of_sample_trades": out_trades,
             "out_of_sample_drawdown": test_run.get("max_drawdown"),
+            # Risk and benchmark figures the scorer needs to rank honestly.
+            "out_of_sample_excess_return_pct": test_run.get("excess_return_pct"),
+            "out_of_sample_benchmark_pct": test_run.get("buy_and_hold_return_pct"),
+            "out_of_sample_sharpe": test_run.get("sharpe_ratio"),
+            "out_of_sample_drawdown_pct": test_run.get("max_drawdown_pct"),
+            "out_of_sample_win_rate_pct": test_run.get("win_rate_pct"),
             "verdict": _walk_forward_verdict(in_ret, out_ret, out_trades, min_trades),
             "no_synthetic_fallback": True,
         }
@@ -271,6 +277,12 @@ class StrategyOptimizerService:
             "out_of_sample_return_pct": out_ret,
             "out_of_sample_trades": out_trades,
             "out_of_sample_drawdown": test_run.get("max_drawdown"),
+            # Risk and benchmark figures the scorer needs to rank honestly.
+            "out_of_sample_excess_return_pct": test_run.get("excess_return_pct"),
+            "out_of_sample_benchmark_pct": test_run.get("buy_and_hold_return_pct"),
+            "out_of_sample_sharpe": test_run.get("sharpe_ratio"),
+            "out_of_sample_drawdown_pct": test_run.get("max_drawdown_pct"),
+            "out_of_sample_win_rate_pct": test_run.get("win_rate_pct"),
             "verdict": verdict,
             "no_synthetic_fallback": True,
         }
