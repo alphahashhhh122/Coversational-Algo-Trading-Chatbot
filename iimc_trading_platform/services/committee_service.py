@@ -113,8 +113,13 @@ class CommitteeService:
         disagreements: list[dict[str, Any]] = []
         distinct = set(stances.values())
         if len(distinct) == 1 and stances:
+            stance = distinct.pop()
+            # One member agreeing with itself is not a consensus, and saying so
+            # matters: it tells you how much weight the read actually carries.
             agreements.append(
-                f"All {len(stances)} members read this as {distinct.pop()}."
+                f"Only one member ({next(iter(stances))}) had a read: {stance}."
+                if len(stances) == 1
+                else f"All {len(stances)} members read this as {stance}."
             )
         elif len(distinct) > 1:
             # Preserved, not averaged.

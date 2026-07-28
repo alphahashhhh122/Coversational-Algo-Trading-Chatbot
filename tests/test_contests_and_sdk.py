@@ -137,7 +137,7 @@ class SdkTest(unittest.TestCase):
         def fake_request(self, method, path, body):
             calls.append((method, path, body))
             return {"agents": [], "ranked": [], "unranked": [], "runs": [],
-                    "seasons": [], "standings": []}
+                    "seasons": [], "standings": [], "findings": []}
 
         with patch.object(ATLClient, "_request", fake_request):
             client = ATLClient("http://example.test")
@@ -147,6 +147,9 @@ class SdkTest(unittest.TestCase):
             client.leaderboard("strategy")
             client.committee("TCS", members=["market_researcher"])
             client.tick("season_1")
+            client.findings()
+            client.digest()
+            client.generate_digest(symbol="RELIANCE")
 
         self.assertEqual(calls[0][:2], ("GET", "/agents"))
         self.assertEqual(calls[1][1], "/agents?category=strategy")
@@ -155,6 +158,10 @@ class SdkTest(unittest.TestCase):
         self.assertEqual(calls[3][1], "/leaderboard?category=strategy")
         self.assertEqual(calls[4][2]["members"], ["market_researcher"])
         self.assertEqual(calls[5][:2], ("POST", "/arena/seasons/season_1/tick"))
+        self.assertEqual(calls[6][:2], ("GET", "/supervisor/findings"))
+        self.assertEqual(calls[7][:2], ("GET", "/supervisor/digest"))
+        self.assertEqual(calls[8][:2], ("POST", "/supervisor/digest"))
+        self.assertEqual(calls[8][2]["symbol"], "RELIANCE")
 
     def test_no_order_or_approval_surface(self) -> None:
         """Safety: the SDK must expose no way to approve or place an order."""

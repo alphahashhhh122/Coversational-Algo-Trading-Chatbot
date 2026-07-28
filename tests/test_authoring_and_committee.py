@@ -148,6 +148,18 @@ class CommitteeTest(unittest.TestCase):
         self.assertTrue(result["agreements"])
         self.assertIn("constructive", result["agreements"][0])
 
+    def test_a_lone_read_is_not_called_a_consensus(self) -> None:
+        """One member agreeing with itself carries less weight — say so."""
+
+        def runner(member, symbol, exchange):
+            if member == "market_researcher":
+                return {"technicals": {"available": True, "trend": "uptrend"}}
+            return {"technicals": {"available": False}}
+
+        result = CommitteeService(runner).run("RELIANCE")
+        self.assertIn("Only one member", result["agreements"][0])
+        self.assertIn("constructive", result["agreements"][0])
+
     def test_disagreement_is_preserved_not_averaged(self) -> None:
         def runner(member, symbol, exchange):
             if member == "market_researcher":

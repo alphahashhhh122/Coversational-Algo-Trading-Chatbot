@@ -33,6 +33,10 @@ CURATED_DOCUMENTS = [
 
 def build_job_service(config: AppConfig) -> JobService:
     freshness = FreshnessService(config.database_path)
+    # Handlers are defined before the JobService exists, but only *run*
+    # afterwards, so the one handler that needs to enqueue work reads it
+    # from here at call time.
+    _built: dict[str, Any] = {}
     knowledge = KnowledgeService(config.database_path)
     backups = BackupService(
         config.database_path,
@@ -279,7 +283,29 @@ def build_job_service(config: AppConfig) -> JobService:
             )
             return {"status": result.status, "run_id": run_id}
 
-        supervisor = SupervisorService(config.database_path, run_agent=_run)
+        def _candles(symbol: str) -> list[dict[str, Any]]:
+            dataset_id = _resolve_dataset(
+                config.database_path, symbol=symbol, exchange="NSE",
+                raise_on_missing=False,
+            )
+            if not dataset_id:
+                return []
+            _ds, candles = _ArenaBacktests(
+                config.database_path, allow_live_trading=False
+            ).load_dataset_candles(dataset_id)
+            return candles
+
+        supervisor = SupervisorService(
+            config.database_path,
+            run_agent=_run,
+            freshness=freshness,
+            enqueue_refresh=lambda dataset_id: _built["jobs"].register(
+                name=f"refresh_{dataset_id}"[:80],
+                job_type="freshness_sweep",
+                schedule_seconds=3600,
+            ),
+            load_candles=_candles,
+        )
         agents = payload.get("agents") or [
             name for name in ("strategy_validator", "market_researcher")
             if name in roster
@@ -287,6 +313,31 @@ def build_job_service(config: AppConfig) -> JobService:
         return supervisor.sweep(agents, payload.get("symbol", "RELIANCE"))
 
     handlers["agent_supervisor_sweep"] = agent_supervisor_sweep
+
+    # The digest reads what the supervisor already found and composes one
+    # brief. It runs after the sweep on a longer cycle, so a day's findings
+    # arrive as a single readable summary rather than a stream of alerts.
+    from .daily_digest_service import DailyDigestService
+
+    def daily_digest(payload: dict[str, Any]) -> dict[str, Any]:
+        from .agent_evaluation_service import AgentEvaluationService
+        from .data_health_service import DataHealthService
+        from .supervisor_service import SupervisorService as _Supervisor
+
+        digest = DailyDigestService(
+            config.database_path,
+            evaluation=AgentEvaluationService(config.database_path),
+            supervisor=_Supervisor(config.database_path),
+            data_health=DataHealthService(config.database_path),
+        )
+        result = digest.generate(symbol=payload.get("symbol"))
+        return {
+            "digest_id": result["digest_id"],
+            "headline": result["headline"],
+            "sections": len(result["sections"]),
+        }
+
+    handlers["daily_digest"] = daily_digest
     if config.market_news_provider and config.market_news_api_url:
         news = MarketNewsService(config)
 
@@ -303,7 +354,8 @@ def build_job_service(config: AppConfig) -> JobService:
             }
 
         handlers["market_news_refresh"] = market_news_refresh
-    return JobService(config.database_path, handlers)
+    _built["jobs"] = JobService(config.database_path, handlers)
+    return _built["jobs"]
 
 
 def build_task_service(db_path: Path) -> TaskService:
@@ -371,6 +423,12 @@ def register_default_jobs(
         service.register(
             name="arena_daily_tick",
             job_type="arena_daily_tick",
+            schedule_seconds=86400,
+        ),
+        # One brief a day: what changed, what's stale, what degraded.
+        service.register(
+            name="daily_digest",
+            job_type="daily_digest",
             schedule_seconds=86400,
         ),
     ]

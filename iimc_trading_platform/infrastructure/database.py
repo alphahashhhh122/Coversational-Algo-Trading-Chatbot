@@ -981,6 +981,16 @@ def initialize_database(db_path: Path) -> None:
         )
         con.execute(
             """
+            CREATE TABLE IF NOT EXISTS daily_digests (
+                digest_id VARCHAR PRIMARY KEY,
+                headline VARCHAR NOT NULL,
+                sections_json VARCHAR NOT NULL,
+                generated_at TIMESTAMP NOT NULL
+            )
+            """
+        )
+        con.execute(
+            """
             CREATE TABLE IF NOT EXISTS contests (
                 contest_id VARCHAR PRIMARY KEY,
                 name VARCHAR NOT NULL,

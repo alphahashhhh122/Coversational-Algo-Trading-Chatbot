@@ -146,6 +146,21 @@ class ATLClient:
             payload["members"] = members
         return self._post("/committee", payload)
 
+    # -- supervisor & digest ---------------------------------------------------
+
+    def findings(self, *, include_acknowledged: bool = False) -> list[dict[str, Any]]:
+        """What the supervisor noticed. It flags; you decide."""
+        suffix = "?include_acknowledged=true" if include_acknowledged else ""
+        return self._get(f"/supervisor/findings{suffix}").get("findings", [])
+
+    def digest(self) -> dict[str, Any]:
+        """The latest brief: what changed, what's stale, what degraded."""
+        return self._get("/supervisor/digest")
+
+    def generate_digest(self, *, symbol: str | None = None) -> dict[str, Any]:
+        """Compose a fresh brief now. Pass a symbol to include a committee read."""
+        return self._post("/supervisor/digest", {"symbol": symbol} if symbol else {})
+
     # -- transport ------------------------------------------------------------
 
     def _get(self, path: str) -> dict[str, Any]:

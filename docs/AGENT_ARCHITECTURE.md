@@ -253,6 +253,49 @@ Budgets (`AgentBudget` + `BudgetLedger`) cap seconds, steps, and LLM calls.
 Exceeding a cap yields `partial` plus a gap naming the cap, so a scheduled run
 that hit a wall is distinguishable from one that genuinely finished.
 
+#### Watching the data, not just the scores
+An agent's score can only be as good as the data underneath it, so the sweep
+also checks the datasets agents depend on (`FreshnessService.assess`) and
+raises `data_stale` — or `data_unassessable`, when the dataset has no freshness
+policy, because "we could not check" is a different fact from "it is fine".
+
+This is where the **one exception** to flag-never-act lives: when a dataset is
+stale the supervisor may **enqueue a refresh job**. Fetching market data is the
+only corrective step with no financial consequence, so it needs no human in the
+loop. Everything else still only flags. The hook is injected at the call site
+(`enqueue_refresh=`) rather than built into the service, so the single action it
+can take is visible in `api.py` instead of buried. Without that hook the
+supervisor still reports the staleness and says no refresh path is configured.
+
+#### Regime awareness
+`check_regime` compares recent return volatility against the preceding stretch
+of the same series; a ratio outside 0.67–1.5× (over at least 40 observations)
+raises `regime_shift`. The ordering inside `sweep()` is deliberate: **regime is
+checked first, then agents are re-run, then drift is compared.** The re-run *is*
+the re-validation — those scores are earned under the new regime, and the drift
+check that follows compares them against scores earned under the old one, so an
+edge that was regime-specific surfaces as a degradation with the regime finding
+sitting beside it as the explanation. The finding records
+`revalidated_in_this_sweep` so it never implies work that didn't happen.
+
+### The daily digest (`daily_digest_service.py`)
+Findings arrive continuously; a platform that emits fifty notifications a day is
+one you stop reading. The `daily_digest` job (24h) composes them into **one
+attributed brief** answering three questions in order: *what changed* (material
+score moves + the current top of the leaderboard), *what's stale* (freshness
+findings + coverage gaps), and *what degraded* — pulled out separately so good
+news cannot bury bad news.
+
+Every line names its source: a supervisor finding id, or the run id behind a
+ranked number. Sections whose collaborator was unavailable say so as a gap
+rather than rendering empty, because a blank section reads as "nothing to
+report" when the truth is "we could not look". Pass a symbol and the brief adds
+a committee read, with any disagreement carried through unresolved.
+
+The digest is a **view**: it reads what the supervisor already found and takes
+no action of its own. `GET|POST /supervisor/digest`, `client.digest()` /
+`client.generate_digest()` in the SDK, and the `get_digest` MCP tool.
+
 ## Roadmap
 
 The read-only agentic layer is in place. The remaining, deliberately-deferred

@@ -31,6 +31,12 @@ class SupervisorSweepRequest(BaseModel):
     symbol: str = Field(default="RELIANCE", max_length=40)
 
 
+class DigestRequest(BaseModel):
+    # Optional: without a symbol the digest skips the committee read rather
+    # than guessing which instrument you meant.
+    symbol: str | None = Field(default=None, max_length=40)
+
+
 class ContestRequest(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     symbol: str = Field(min_length=1, max_length=40)

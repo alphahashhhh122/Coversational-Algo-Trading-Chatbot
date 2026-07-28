@@ -160,5 +160,208 @@ class SupervisorTest(unittest.TestCase):
             )
 
 
+
+class _Freshness:
+    """Reports the datasets named in ``stale`` as stale, others as fresh."""
+
+    def __init__(self, stale: set[str] | None = None, boom: set[str] | None = None):
+        self.stale = stale or set()
+        self.boom = boom or set()
+
+    def assess(self, dataset_id, purpose, *, reference_time=None):
+        if dataset_id in self.boom:
+            raise ValueError("no policy for this dataset")
+        return {
+            "status": "stale" if dataset_id in self.stale else "fresh",
+            "age_minutes": 999 if dataset_id in self.stale else 1,
+            "threshold_minutes": 60,
+        }
+
+
+class DataStalenessTest(SupervisorTest):
+    """Phase D: the supervisor watches data, and may refresh it - only that."""
+
+    def _dataset(self, dataset_id: str) -> None:
+        from datetime import datetime as _dt
+
+        con = connect(self.path)
+        try:
+            con.execute(
+                "INSERT INTO data_catalog VALUES (?, 'market_data', 'ohlcv', "
+                "'RELIANCE', 'NSE', 'D', ?, ?, 100, 'ohlcv', 'src', "
+                "'validated', NULL, ?)",
+                [dataset_id, _dt(2026, 1, 1), _dt(2026, 6, 1),
+                 datetime.now(timezone.utc).replace(tzinfo=None)],
+            )
+        finally:
+            con.close()
+
+    def test_stale_dataset_is_flagged_and_refresh_enqueued(self) -> None:
+        self._dataset("ds_stale")
+        queued: list[str] = []
+        svc = SupervisorService(
+            self.path,
+            freshness=_Freshness(stale={"ds_stale"}),
+            enqueue_refresh=queued.append,
+        )
+        findings, refreshed = svc.check_data_health()
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["kind"], "data_stale")
+        self.assertEqual(queued, ["ds_stale"])
+        self.assertEqual(refreshed, ["ds_stale"])
+        self.assertIn("refresh has been queued", findings[0]["summary"])
+
+    def test_fresh_dataset_produces_no_noise(self) -> None:
+        self._dataset("ds_fresh")
+        svc = SupervisorService(self.path, freshness=_Freshness())
+        findings, refreshed = svc.check_data_health()
+        self.assertEqual(findings, [])
+        self.assertEqual(refreshed, [])
+
+    def test_without_a_refresh_hook_it_only_flags(self) -> None:
+        self._dataset("ds_stale")
+        svc = SupervisorService(self.path, freshness=_Freshness(stale={"ds_stale"}))
+        findings, refreshed = svc.check_data_health()
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(refreshed, [])
+        self.assertIn("no refresh path", findings[0]["summary"])
+
+    def test_a_failing_refresh_still_reports_the_staleness(self) -> None:
+        self._dataset("ds_stale")
+
+        def boom(dataset_id):
+            raise RuntimeError("queue unavailable")
+
+        svc = SupervisorService(
+            self.path,
+            freshness=_Freshness(stale={"ds_stale"}),
+            enqueue_refresh=boom,
+        )
+        findings, refreshed = svc.check_data_health()
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(refreshed, [])
+
+    def test_unassessable_dataset_is_reported_not_swallowed(self) -> None:
+        self._dataset("ds_odd")
+        svc = SupervisorService(self.path, freshness=_Freshness(boom={"ds_odd"}))
+        findings, _ = svc.check_data_health()
+        self.assertEqual(findings[0]["kind"], "data_unassessable")
+
+    def test_no_freshness_service_means_no_data_findings(self) -> None:
+        self._dataset("ds_any")
+        findings, refreshed = SupervisorService(self.path).check_data_health()
+        self.assertEqual((findings, refreshed), ([], []))
+
+
+class RegimeDetectionTest(SupervisorTest):
+    def _candles(self, moves: list[float]) -> list[dict]:
+        price = 100.0
+        out = [{"close": price}]
+        for m in moves:
+            price *= 1 + m
+            out.append({"close": price})
+        return out
+
+    def test_volatility_spike_is_flagged(self) -> None:
+        calm = [0.001, -0.001] * 25
+        wild = [0.05, -0.05] * 25
+        svc = SupervisorService(self.path)
+        finding = svc.detect_regime_shift(
+            self._candles(calm + wild), dataset_id="ds_x"
+        )
+        self.assertIsNotNone(finding)
+        self.assertEqual(finding["kind"], "regime_shift")
+        self.assertIn("more volatile", finding["summary"])
+        self.assertGreater(finding["detail"]["ratio"], 1.5)
+
+    def test_calming_market_is_also_flagged(self) -> None:
+        wild = [0.05, -0.05] * 25
+        calm = [0.001, -0.001] * 25
+        finding = SupervisorService(self.path).detect_regime_shift(
+            self._candles(wild + calm), dataset_id="ds_x"
+        )
+        self.assertIsNotNone(finding)
+        self.assertIn("calmer", finding["summary"])
+
+    def test_steady_regime_is_not_flagged(self) -> None:
+        steady = [0.01, -0.01] * 50
+        self.assertIsNone(
+            SupervisorService(self.path).detect_regime_shift(
+                self._candles(steady), dataset_id="ds_x"
+            )
+        )
+
+    def test_too_little_history_returns_nothing(self) -> None:
+        self.assertIsNone(
+            SupervisorService(self.path).detect_regime_shift(
+                self._candles([0.01] * 5), dataset_id="ds_x"
+            )
+        )
+
+
+class SelfHealingBoundaryTest(unittest.TestCase):
+    def test_the_only_action_is_a_data_refresh(self) -> None:
+        """Safety: self-healing must not extend beyond fetching data.
+
+        The supervisor may enqueue a refresh because that cannot lose money.
+        It must still expose no way to retire, reconfigure, or trade.
+        """
+        public = [m for m in dir(SupervisorService) if not m.startswith("_")]
+        for forbidden in (
+            "retire", "disable", "delete", "trade", "order", "submit", "approve",
+        ):
+            self.assertFalse(
+                [m for m in public if forbidden in m.lower()],
+                f"supervisor must not expose {forbidden!r}",
+            )
+        # And the one action it does take is explicitly injected, not internal.
+        import inspect
+
+        params = inspect.signature(SupervisorService.__init__).parameters
+        self.assertIn("enqueue_refresh", params)
+
+
+class RegimeInSweepTest(SupervisorTest):
+    """D3: detection has to actually run, and re-validation has to follow it."""
+
+    def _shifting_candles(self) -> list[dict]:
+        price, out = 100.0, [{"close": 100.0}]
+        for move in [0.001, -0.001] * 25 + [0.05, -0.05] * 25:
+            price *= 1 + move
+            out.append({"close": price})
+        return out
+
+    def test_sweep_detects_the_shift_and_reports_revalidation(self) -> None:
+        candles = self._shifting_candles()
+        svc = SupervisorService(
+            self.path,
+            run_agent=lambda name, symbol: {"status": "ok", "run_id": "arun_1"},
+            load_candles=lambda symbol: candles,
+        )
+        result = svc.sweep(["alpha"], "RELIANCE")
+        self.assertEqual(result["regime_shifts"], 1)
+        regime = [f for f in result["findings"] if f["kind"] == "regime_shift"][0]
+        # The agents were re-run in this same sweep, so their next scores are
+        # earned under the new regime - the finding says so plainly.
+        self.assertTrue(regime["detail"]["revalidated_in_this_sweep"])
+
+    def test_without_a_runner_it_does_not_claim_revalidation(self) -> None:
+        candles = self._shifting_candles()
+        svc = SupervisorService(self.path, load_candles=lambda s: candles)
+        result = svc.sweep(["alpha"], "RELIANCE")
+        regime = [f for f in result["findings"] if f["kind"] == "regime_shift"][0]
+        self.assertFalse(regime["detail"]["revalidated_in_this_sweep"])
+
+    def test_missing_history_leaves_the_regime_check_silent(self) -> None:
+        def no_data(symbol):
+            raise ValueError("no stored history")
+
+        svc = SupervisorService(self.path, load_candles=no_data)
+        self.assertEqual(svc.sweep(["alpha"], "RELIANCE")["regime_shifts"], 0)
+
+    def test_no_candle_loader_means_no_regime_findings(self) -> None:
+        self.assertEqual(SupervisorService(self.path).check_regime("RELIANCE"), [])
+
+
 if __name__ == "__main__":
     unittest.main()

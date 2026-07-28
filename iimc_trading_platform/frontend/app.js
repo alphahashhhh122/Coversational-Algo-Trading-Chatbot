@@ -1071,6 +1071,72 @@ async function acknowledgeFinding(findingId) {
   }
 }
 
+// --- Daily digest (what changed, what's stale, what degraded) ---
+function renderDigestSection(section) {
+  const items = (section.items || []).map((item) => `
+    <li>${escapeHtml(item.text)}${item.attribution ? ` <small class="row-subname">— ${escapeHtml(item.attribution)}</small>` : ""}</li>`).join("");
+  const leaders = (section.leaderboard_top || []).map((entry) => `
+    <li>#${escapeHtml(String(entry.rank))} ${escapeHtml(entry.name)} · ${escapeHtml(String(entry.composite))} <small class="row-subname">— ${escapeHtml(entry.attribution || "")}</small></li>`).join("");
+  const coverage = section.coverage && section.coverage.price_coverage_pct !== undefined
+    ? `<p class="row-subname">Price coverage ${escapeHtml(String(section.coverage.price_coverage_pct))}% · fundamentals ${escapeHtml(String(section.coverage.fundamentals_coverage_pct))}%</p>`
+    : "";
+  // A section with nothing in it says so; it never renders as blank, because
+  // blank reads as "not checked" and that is a different claim.
+  const body = items || leaders
+    ? `<ul>${items}${leaders}</ul>`
+    : `<p class="row-subname">Nothing to report.</p>`;
+  const gaps = (section.gaps || []).map((gap) => `<li>${escapeHtml(gap)}</li>`).join("");
+  return `
+    <div class="digest-section">
+      <h3>${escapeHtml(section.title || section.section)}</h3>
+      <small class="row-subname">${escapeHtml(section.source || "")}</small>
+      ${body}
+      ${coverage}
+      ${gaps ? `<div class="empty-state"><strong>Gaps</strong><ul>${gaps}</ul></div>` : ""}
+    </div>`;
+}
+
+function renderDigest(digest) {
+  const box = $("#digest-body");
+  if (!box) return;
+  if (!digest || !digest.digest_id) {
+    box.innerHTML = `<div class="empty-state">No digest yet. Generate one to see what has changed since the agents last ran.</div>`;
+    return;
+  }
+  box.innerHTML = `
+    <p><strong>${escapeHtml(digest.headline || "")}</strong>
+      <br><small class="row-subname">${escapeHtml(String(digest.generated_at || "").slice(0, 16).replace("T", " "))}</small></p>
+    ${(digest.sections || []).map(renderDigestSection).join("")}`;
+}
+
+async function loadDigest() {
+  const box = $("#digest-body");
+  if (!box) return;
+  try {
+    renderDigest(await api("/supervisor/digest"));
+  } catch (error) {
+    box.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
+  }
+}
+
+async function generateDigest() {
+  const button = $("#digest-generate");
+  if (button) button.disabled = true;
+  try {
+    const symbol = ($("#agent-symbol")?.value || "").trim();
+    const digest = await api("/supervisor/digest", {
+      method: "POST",
+      body: JSON.stringify(symbol ? { symbol } : {}),
+    });
+    renderDigest(digest);
+    toast(digest.headline || "Digest generated");
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
 // --- Contests ---
 async function loadContests() {
   const box = $("#contests-list");
@@ -2909,6 +2975,7 @@ function wireEvents() {
         loadArenaSeasons().catch(() => {});
         loadContests().catch(() => {});
         loadSupervisorFindings().catch(() => {});
+        loadDigest().catch(() => {});
       }
     });
   });
@@ -2964,6 +3031,7 @@ function wireEvents() {
   $("#refresh-coverage")?.addEventListener("click", () => loadCoverage().catch(() => {}));
   $("#run-backfill")?.addEventListener("click", runBackfill);
   $("#supervisor-sweep")?.addEventListener("click", runSupervisorSweep);
+  $("#digest-generate")?.addEventListener("click", generateDigest);
   $("#supervisor-findings")?.addEventListener("click", (event) => {
     const button = event.target.closest(".finding-ack");
     if (button) acknowledgeFinding(button.dataset.findingId);

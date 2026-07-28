@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>IIMC Trading Research Workspace</title>
-  <link rel="stylesheet" href="/static/styles.css?v=20260727b">
+  <link rel="stylesheet" href="/static/styles.css?v=20260728b">
 </head>
 <body>
   <div class="app-shell">
@@ -493,6 +493,19 @@
           <div id="supervisor-findings">Loading…</div>
         </section>
 
+        <section class="supervisor-panel" id="digest-panel">
+          <div class="section-heading">
+            <div>
+              <h2>Daily digest</h2>
+              <p>One brief instead of fifty alerts: what changed, what data went stale, and what degraded. Every line names the run or finding it came from.</p>
+            </div>
+            <div class="section-actions">
+              <button class="secondary-button" id="digest-generate">Generate now</button>
+            </div>
+          </div>
+          <div id="digest-body">Loading…</div>
+        </section>
+
         <div id="agents-list">Loading agents…</div>
         <div id="agent-run-result"></div>
 
@@ -641,6 +654,6 @@
     </form>
   </div>
   <div class="toast" id="toast" role="status"></div>
-  <script src="/static/app.js?v=20260727b" defer></script>
+  <script src="/static/app.js?v=20260728a" defer></script>
 </body>
 </html>

@@ -24,6 +24,9 @@ _AGENT_MODULES = [
     "iimc_trading_platform/services/contest_service.py",
     "iimc_trading_platform/services/authored_agent_service.py",
     "iimc_trading_platform/services/committee_service.py",
+    "iimc_trading_platform/services/supervisor_service.py",
+    "iimc_trading_platform/services/daily_digest_service.py",
+    "iimc_trading_platform/services/portfolio_agent_service.py",
     "iimc_trading_platform/sdk.py",
 ]
 

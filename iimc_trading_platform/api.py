@@ -25,6 +25,7 @@ from .api_models import (
     CommitteeRequest,
     ContestRequest,
     BackfillRequest,
+    DigestRequest,
     SupervisorSweepRequest,
     BatchSubmitRequest,
     ChatRequest,
@@ -279,6 +280,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     committee = CommitteeService(_committee_member_runner)
 
     from .services.contest_service import ContestService
+    from .services.freshness_service import FreshnessService
     from .services.data_health_service import DataHealthService
     from .services.supervisor_service import SupervisorService
     from .services.universe_backfill_service import UniverseBackfillService
@@ -308,8 +310,54 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         )
         return {"status": result.status, "run_id": run_id}
 
+    def _enqueue_dataset_refresh(dataset_id: str) -> None:
+        """The supervisor's single permitted action.
+
+        Queues a data refresh through the existing job system. Fetching market
+        data is the one corrective step that carries no financial consequence,
+        so it needs no human in the loop; everything else stays a flag.
+        """
+        job_service.register(
+            name=f"refresh_{dataset_id}"[:80],
+            job_type="freshness_sweep",
+            schedule_seconds=3600,
+        )
+
+    def _supervisor_candles(symbol: str) -> list[dict[str, Any]]:
+        """Stored history for the swept symbol, or nothing.
+
+        Returning an empty list when there is no data keeps the regime check
+        silent rather than guessing at a regime it cannot observe.
+        """
+        dataset_id = _resolve_dataset(
+            active_config.database_path, symbol=symbol, exchange="NSE",
+            raise_on_missing=False,
+        )
+        if not dataset_id:
+            return []
+        _ds, candles = _ArenaBacktests(
+            active_config.database_path,
+            strategy_plugin_dir=active_config.strategy_plugin_dir,
+            allow_live_trading=False,
+        ).load_dataset_candles(dataset_id)
+        return candles
+
     supervisor_service = SupervisorService(
-        active_config.database_path, run_agent=_supervisor_run_agent
+        active_config.database_path,
+        run_agent=_supervisor_run_agent,
+        freshness=FreshnessService(active_config.database_path),
+        enqueue_refresh=_enqueue_dataset_refresh,
+        load_candles=_supervisor_candles,
+    )
+
+    from .services.daily_digest_service import DailyDigestService
+
+    digest_service = DailyDigestService(
+        active_config.database_path,
+        evaluation=agent_evaluation,
+        supervisor=supervisor_service,
+        data_health=data_health_service,
+        committee=lambda symbol: committee.run(symbol),
     )
 
     contest_service = ContestService(
@@ -1342,6 +1390,21 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         principal: Principal = Depends(researcher),
     ) -> dict[str, Any]:
         return supervisor_service.acknowledge(finding_id)
+
+    @app.get("/supervisor/digest")
+    def digest_latest_endpoint(
+        principal: Principal = Depends(viewer),
+    ) -> dict[str, Any]:
+        """The most recent brief, or an explicit "none yet"."""
+        latest = digest_service.latest()
+        return latest or {"digest_id": None, "sections": [], "generated_at": None}
+
+    @app.post("/supervisor/digest")
+    def digest_generate_endpoint(
+        request: DigestRequest,
+        principal: Principal = Depends(researcher),
+    ) -> dict[str, Any]:
+        return digest_service.generate(symbol=request.symbol)
 
     @app.get("/contests")
     def list_contests_endpoint(

@@ -973,6 +973,13 @@ tbody tr:hover { background: var(--row-hover); }
 .supervisor-finding { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 14px; margin-bottom: 8px; border: 1px solid var(--line); border-left-width: 4px; border-radius: 6px; }
 .supervisor-finding.warning { border-left-color: var(--amber); background: var(--amber-soft); }
 .supervisor-finding.info { border-left-color: var(--blue); background: var(--blue-soft); }
+.digest-section { padding: 10px 14px; margin-bottom: 8px; border: 1px solid var(--line); border-radius: 6px; }
+.digest-section h3 { margin: 0 0 2px; font-size: 0.95rem; }
+.digest-section ul { margin: 8px 0 4px; padding-left: 18px; }
+.digest-section li { margin-bottom: 4px; }
+/* Gaps are read line by line, so they stay left-aligned inside a digest
+   section rather than inheriting the centred empty-state treatment. */
+.digest-section .empty-state { text-align: left; margin-top: 8px; }
 .contest-panel { margin-top: 28px; }
 .contest-panel .section-heading p { max-width: 720px; }
 .arena-panel { margin-top: 28px; }

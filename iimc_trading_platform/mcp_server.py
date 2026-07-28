@@ -101,6 +101,15 @@ _AGENT_TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "properties": {"category": {"type": "string"}},
         },
     },
+    {
+        "name": "get_digest",
+        "description": (
+            "The latest supervisor digest: what changed, what data is stale, "
+            "and what degraded, with each item attributed to the run or "
+            "finding behind it. Read-only."
+        ),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
 ]
 
 
@@ -119,6 +128,17 @@ def _call_agent_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         return AgentEvaluationService(config.database_path).leaderboard(
             category=arguments.get("category")
         )
+    if name == "get_digest":
+        from .services.daily_digest_service import DailyDigestService
+
+        latest = DailyDigestService(config.database_path).latest()
+        # No digest yet is a fact, not an error - say so rather than
+        # composing one on the fly and calling it "the latest".
+        return latest or {
+            "digest_id": None,
+            "sections": [],
+            "note": "No digest has been generated yet.",
+        }
     if name == "run_agent":
         registry = build_default_tool_registry(
             config.database_path,

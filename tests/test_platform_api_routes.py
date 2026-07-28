@@ -60,6 +60,38 @@ class PlatformApiRoutesTest(unittest.TestCase):
         self.assertEqual(detail["category"], "monitor")
         self.assertEqual(detail["run_count"], 1)
 
+    def test_supervisor_digest_endpoints_round_trip(self) -> None:
+        """The digest is empty until generated, then readable and attributed."""
+        before = self.client.get("/supervisor/digest")
+        self.assertEqual(before.status_code, 200)
+        self.assertIsNone(before.json()["digest_id"])
+
+        created = self.client.post("/supervisor/digest", json={})
+        self.assertEqual(created.status_code, 200)
+        digest = created.json()
+        self.assertTrue(digest["digest_id"].startswith("digest_"))
+        sections = {s["section"] for s in digest["sections"]}
+        self.assertEqual(
+            sections, {"what_changed", "whats_stale", "what_degraded"}
+        )
+        # Every section names where it came from.
+        for section in digest["sections"]:
+            self.assertTrue(section["source"])
+
+        latest = self.client.get("/supervisor/digest").json()
+        self.assertEqual(latest["digest_id"], digest["digest_id"])
+
+    def test_supervisor_sweep_and_findings_are_reachable(self) -> None:
+        sweep = self.client.post(
+            "/supervisor/sweep", json={"agents": ["sentinel"], "symbol": "RELIANCE"}
+        )
+        self.assertEqual(sweep.status_code, 200)
+        body = sweep.json()
+        self.assertIn("refresh_enqueued", body)
+        self.assertEqual(
+            self.client.get("/supervisor/findings").status_code, 200
+        )
+
     def test_watches_endpoints_list_check_and_remove(self) -> None:
         from iimc_trading_platform.services.screener_service import ScreenerService
         from iimc_trading_platform.services.watch_service import WatchService

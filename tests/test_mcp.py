@@ -174,7 +174,10 @@ class McpAgentToolsTest(unittest.TestCase):
         from iimc_trading_platform.mcp_server import _AGENT_TOOL_DEFINITIONS
 
         names = {t["name"] for t in _AGENT_TOOL_DEFINITIONS}
-        self.assertEqual(names, {"list_agents", "run_agent", "get_leaderboard"})
+        self.assertEqual(
+            names,
+            {"list_agents", "run_agent", "get_leaderboard", "get_digest"},
+        )
         for definition in _AGENT_TOOL_DEFINITIONS:
             self.assertIn("description", definition)
             self.assertEqual(definition["inputSchema"]["type"], "object")
