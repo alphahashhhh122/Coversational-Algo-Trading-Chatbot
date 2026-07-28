@@ -127,7 +127,9 @@ Key modules under `iimc_trading_platform/`:
 | `services/strategy_optimizer_service.py` | Parameter-grid strategy discovery |
 | `services/memory_service.py` | Long-term notes + per-symbol research memory |
 | `infrastructure/` | DuckDB and OpenAlgo integration |
-| `frontend/` | Browser dashboard (no framework, no CDN) |
+| `frontend/` | Browser dashboard (no framework, no CDN, no build step) |
+| `frontend/modules/core.js` | Shared state, the fetch wrapper, DOM helpers |
+| `frontend/modules/agents.js` | Agents, supervisor, digest, leaderboard, arena |
 
 The agent layer and its guardrails are documented in
 [`docs/AGENT_ARCHITECTURE.md`](docs/AGENT_ARCHITECTURE.md).
