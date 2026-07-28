@@ -135,7 +135,12 @@ class RequestBodyLimitMiddleware:
         async def replay_receive() -> Message:
             if buffered:
                 return buffered.pop(0)
-            return {"type": "http.disconnect"}
+            # Once the buffered body is replayed, defer to the real transport.
+            # Synthesising a disconnect here looks harmless for an ordinary
+            # response, but a streaming response races its body against
+            # ``receive()`` and treats a disconnect as "client left" — so a
+            # fabricated one cancels the stream before it emits anything.
+            return await receive()
 
         await self.app(scope, replay_receive, send)
 

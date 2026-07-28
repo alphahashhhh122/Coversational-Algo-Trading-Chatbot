@@ -24,6 +24,7 @@ from typing import Any, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
+from ..progress import report
 from .research_agent_service import ResearchAgentService
 
 
@@ -105,6 +106,7 @@ class DeepResearchLoopService:
         return graph.compile()
 
     def _gather(self, state: _State) -> _State:
+        report("gather", f"Gathering everything stored on {state['symbol']}")
         findings = self.research_agent.run(state["symbol"], state["exchange"])
         covered = list(findings.get("sections_available", []))
         gaps = list(findings.get("gaps", []))
@@ -116,6 +118,7 @@ class DeepResearchLoopService:
         }
 
     def _critique(self, state: _State) -> _State:
+        report("critique", "Checking its own coverage for gaps")
         findings = state.get("findings", {})
         covered = state.get("covered", [])
         news = findings.get("news", {})
@@ -146,6 +149,7 @@ class DeepResearchLoopService:
 
         web = list(state.get("web_research", []))
         query = f"{state.get('company_name', state['symbol'])} annual report results"
+        report("refine", f"Coverage was thin - looking for: {query}")
         try:
             fetched = self.knowledge.search_and_fetch(query, fetched_by="agent")
             web.append(

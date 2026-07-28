@@ -2,15 +2,17 @@ from __future__ import annotations
 
 import json
 import logging
+import queue
 import re
+import threading
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Iterator
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 
@@ -66,6 +68,7 @@ from .infrastructure import (
     initialize_database,
 )
 from .observability import configure_logging
+from .progress import reporting_to
 from .telemetry import configure_telemetry
 from .middleware import (
     RateLimitMiddleware,
@@ -139,6 +142,9 @@ from .tools.registry import (
 
 _NAME_SYMBOL_KEYS = ("symbol", "tradingsymbol", "tsym")
 
+# How long a stream may stay silent before sending a keep-alive comment.
+_SSE_HEARTBEAT_SECONDS = 15.0
+
 
 def _annotate_company_names(data: Any, openalgo_root: Path) -> None:
     """Add a readable ``company_name`` to each broker row, in place."""
@@ -163,6 +169,66 @@ def _evidence_dataset_id(evidence: list[dict[str, Any]]) -> str | None:
         if dataset_id:
             return str(dataset_id)
     return None
+
+
+def _sse(event: str, data: dict[str, Any]) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, default=str)}\n\n"
+
+
+def _agent_run_events(
+    agent: Any,
+    task: Any,
+    run: Callable[[Any, Any], dict[str, Any]],
+    *,
+    heartbeat_seconds: float = _SSE_HEARTBEAT_SECONDS,
+) -> Iterator[str]:
+    """Narrate one agent run as Server-Sent Events.
+
+    The run happens on a worker thread while this generator drains its progress
+    queue, because the work is synchronous and would otherwise produce nothing
+    until it finished — which is the silence being fixed.
+
+    Chosen over WebSockets deliberately: progress is one-directional, SSE works
+    with the existing sync handlers, browsers reconnect on their own, and it
+    adds no dependency.
+    """
+
+    events: queue.Queue[dict[str, Any] | None] = queue.Queue()
+    outcome: dict[str, Any] = {}
+
+    def work() -> None:
+        # The sink is installed *inside* the worker, so this stream only ever
+        # sees progress from its own run.
+        try:
+            with reporting_to(events.put):
+                outcome["payload"] = run(agent, task)
+        except Exception as exc:  # noqa: BLE001 - reported to the client
+            outcome["error"] = str(exc)[:300]
+        finally:
+            events.put(None)  # sentinel: the work is over, one way or another
+
+    worker = threading.Thread(target=work, daemon=True, name="agent-run-stream")
+    worker.start()
+    yield _sse(
+        "started",
+        {"agent": getattr(agent, "name", None), "symbol": getattr(task, "symbol", None)},
+    )
+    while True:
+        try:
+            event = events.get(timeout=heartbeat_seconds)
+        except queue.Empty:
+            # An SSE comment. Keeps intermediaries from closing an idle
+            # connection during a long, quiet step.
+            yield ": keep-alive\n\n"
+            continue
+        if event is None:
+            break
+        yield _sse("progress", event)
+    worker.join(timeout=1.0)
+    if "error" in outcome:
+        yield _sse("failed", {"error": outcome["error"]})
+    else:
+        yield _sse("result", outcome.get("payload", {}))
 
 
 def create_app(config: AppConfig | None = None) -> FastAPI:
@@ -1252,22 +1318,13 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     ) -> dict[str, Any]:
         return agent_registry.list_runs(agent_id)
 
-    @app.post("/agents/{agent_id}/run")
-    def run_agent_endpoint(
-        agent_id: str,
-        request: AgentRunRequest,
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        agent = _agents_by_key.get(agent_id)
-        if agent is None:
-            raise HTTPException(status_code=404, detail="Unknown agent")
-        task = _AgentTask(
-            task_type=request.task_type,
-            symbol=request.symbol,
-            symbols=tuple(request.symbols),
-            exchange=request.exchange,
-            params=request.params,
-        )
+    def _run_record_and_score(agent: Any, task: Any) -> dict[str, Any]:
+        """Run an agent, persist the run, and score it from what was persisted.
+
+        Shared by the plain and streaming endpoints so a streamed run is the
+        same run — same record, same scorecard — and not a second code path
+        that could drift away from it.
+        """
         result = agent.run(task)  # kernel captures failures as status=failed
         run_id = agent_registry.record_run(agent, task, result)
         # Score straight from the recorded run so the leaderboard always
@@ -1297,6 +1354,57 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             "cost": result.cost,
             "scorecard": scorecard,
         }
+
+    @app.post("/agents/{agent_id}/run")
+    def run_agent_endpoint(
+        agent_id: str,
+        request: AgentRunRequest,
+        principal: Principal = Depends(viewer),
+    ) -> dict[str, Any]:
+        agent = _agents_by_key.get(agent_id)
+        if agent is None:
+            raise HTTPException(status_code=404, detail="Unknown agent")
+        return _run_record_and_score(
+            agent,
+            _AgentTask(
+                task_type=request.task_type,
+                symbol=request.symbol,
+                symbols=tuple(request.symbols),
+                exchange=request.exchange,
+                params=request.params,
+            ),
+        )
+
+    @app.get("/agents/{agent_id}/run/stream")
+    def stream_agent_run_endpoint(
+        agent_id: str,
+        symbol: str | None = None,
+        exchange: str = "NSE",
+        task_type: str = "default",
+        principal: Principal = Depends(viewer),
+    ) -> StreamingResponse:
+        """The same run as ``POST /run``, narrated while it happens.
+
+        A GET because that is all ``EventSource`` speaks. The run is otherwise
+        identical — it goes through the same helper, so streaming cannot
+        produce a different answer from not streaming.
+        """
+        agent = _agents_by_key.get(agent_id)
+        if agent is None:
+            raise HTTPException(status_code=404, detail="Unknown agent")
+        task = _AgentTask(
+            task_type=task_type, symbol=symbol, exchange=exchange
+        )
+        return StreamingResponse(
+            _agent_run_events(agent, task, _run_record_and_score),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                # Tell any reverse proxy not to buffer: a buffered stream that
+                # arrives all at once is the silence we were fixing.
+                "X-Accel-Buffering": "no",
+            },
+        )
 
     @app.get("/leaderboard")
     def leaderboard_endpoint(

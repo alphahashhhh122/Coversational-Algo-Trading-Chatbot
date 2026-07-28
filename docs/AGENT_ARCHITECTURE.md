@@ -278,6 +278,34 @@ edge that was regime-specific surfaces as a degradation with the regime finding
 sitting beside it as the explanation. The finding records
 `revalidated_in_this_sweep` so it never implies work that didn't happen.
 
+### Streaming progress (`progress.py`, `GET /agents/{id}/run/stream`)
+A deep-research loop takes ten seconds or more, and an unnarrated wait is
+indistinguishable from a hang. `GET /agents/{id}/run/stream` returns Server-Sent
+Events: `started`, then a `progress` frame per step, then `result` (or `failed`).
+Quiet stretches emit a `:` keep-alive comment so an idle connection is not
+mistaken for a dropped one.
+
+SSE rather than WebSockets: progress is one-directional, it works with the
+existing sync handlers, and it adds no dependency. The run happens on a worker
+thread while the generator drains its progress queue — the work is synchronous
+and would otherwise emit nothing until it finished, which is the silence being
+fixed. Both endpoints go through one `_run_record_and_score` helper, so a
+streamed run is the *same* run: recorded once, scored identically.
+
+Progress is published through a **context variable** (`progress.report`) rather
+than a callback threaded through every layer. The code that knows about
+progress — a LangGraph node, a committee member returning — sits below the agent
+kernel, the tool registry, and a Pydantic-validated handler; a parameter would
+mean changing every tool handler signature for pure observability. With no sink
+installed `report` is a no-op, and a failing sink is swallowed, because
+observability must never change behaviour. Context variables deliberately do not
+cross into new threads: the worker installs the sink itself, so a stream only
+ever sees its own run.
+
+The browser reads the stream over `fetch` rather than `EventSource` — the latter
+cannot send an `Authorization` header, and a token has no business in a query
+string.
+
 ### The daily digest (`daily_digest_service.py`)
 Findings arrive continuously; a platform that emits fifty notifications a day is
 one you stop reading. The `daily_digest` job (24h) composes them into **one

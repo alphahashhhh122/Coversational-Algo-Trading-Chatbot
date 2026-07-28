@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>IIMC Trading Research Workspace</title>
-  <link rel="stylesheet" href="/static/styles.css?v=20260728b">
+  <link rel="stylesheet" href="/static/styles.css?v=20260728c">
 </head>
 <body>
   <div class="app-shell">
@@ -28,6 +28,12 @@
         </button>
         <button class="nav-item" data-view="agents">
           <span aria-hidden="true">✦</span> Agents
+        </button>
+        <button class="nav-item" data-view="leaderboard">
+          <span aria-hidden="true">▲</span> Leaderboard
+        </button>
+        <button class="nav-item" data-view="arena">
+          <span aria-hidden="true">◎</span> Arena
         </button>
         <button class="nav-item" data-view="data">
           <span aria-hidden="true">◫</span> Data
@@ -508,7 +514,10 @@
 
         <div id="agents-list">Loading agents…</div>
         <div id="agent-run-result"></div>
+      </section>
 
+      <!-- ========================= LEADERBOARD ========================= -->
+      <section class="view" id="view-leaderboard">
         <section class="leaderboard-panel">
           <div class="section-heading">
             <div>
@@ -520,20 +529,6 @@
             </div>
           </div>
           <div id="leaderboard-list">Run an agent to populate the leaderboard.</div>
-        </section>
-
-        <section class="arena-panel">
-          <div class="section-heading">
-            <div>
-              <h2>Arena</h2>
-              <p>Agents competing on real market data through a simulated ledger — they never place real orders. Days without data are marked missing, never filled in.</p>
-            </div>
-            <div class="section-actions">
-              <select id="arena-season-select"><option value="">Loading seasons…</option></select>
-              <button class="secondary-button" id="arena-tick">Advance day</button>
-            </div>
-          </div>
-          <div id="arena-standings">Select a season to see standings.</div>
         </section>
 
         <section class="contest-panel">
@@ -548,6 +543,24 @@
           </div>
           <div id="contests-list">Loading contests…</div>
         </section>
+      </section>
+
+      <!-- ============================ ARENA ============================ -->
+      <section class="view" id="view-arena">
+        <section class="arena-panel">
+          <div class="section-heading">
+            <div>
+              <h2>Arena</h2>
+              <p>Agents competing on real market data through a simulated ledger — they never place real orders. Days without data are marked missing, never filled in.</p>
+            </div>
+            <div class="section-actions">
+              <select id="arena-season-select"><option value="">Loading seasons…</option></select>
+              <button class="secondary-button" id="arena-tick">Advance day</button>
+            </div>
+          </div>
+          <div id="arena-standings">Select a season to see standings.</div>
+        </section>
+
       </section>
 
       <!-- ============================ SETTINGS ============================ -->
@@ -654,6 +667,6 @@
     </form>
   </div>
   <div class="toast" id="toast" role="status"></div>
-  <script src="/static/app.js?v=20260728a" defer></script>
+  <script src="/static/app.js?v=20260728c" defer></script>
 </body>
 </html>

@@ -980,6 +980,10 @@ tbody tr:hover { background: var(--row-hover); }
 /* Gaps are read line by line, so they stay left-aligned inside a digest
    section rather than inheriting the centred empty-state treatment. */
 .digest-section .empty-state { text-align: left; margin-top: 8px; }
+/* Live progress while an agent runs, so a ten-second wait is never silent. */
+.agent-steps { margin: 8px 0 0; padding-left: 20px; }
+.agent-steps li { margin-bottom: 3px; color: var(--muted); }
+.agent-steps li:last-child { color: var(--text); font-weight: 500; }
 .contest-panel { margin-top: 28px; }
 .contest-panel .section-heading p { max-width: 720px; }
 .arena-panel { margin-top: 28px; }

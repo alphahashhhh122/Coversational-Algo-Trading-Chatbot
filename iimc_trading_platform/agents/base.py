@@ -16,6 +16,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Protocol, runtime_checkable
 
+from ..progress import report
+
 _CATEGORIES = ("research", "strategy", "monitor", "assistant")
 
 
@@ -129,16 +131,19 @@ class ServiceAgent:
         started = time.monotonic()
         ledger = BudgetLedger(task.budget)
         ledger.step()  # the tool invocation itself
+        report("running", f"{self.name} is working on {task.symbol or 'the task'}")
         try:
             payload = self.runner(task)
         except Exception as exc:  # noqa: BLE001 - captured honestly, not raised
             elapsed = round(time.monotonic() - started, 3)
+            report("failed", f"{self.name} could not finish: {str(exc)[:120]}")
             return AgentResult(
                 status="failed",
                 gaps=[str(exc)[:300]],
                 cost={"seconds": elapsed, "steps": ledger.steps},
             )
         elapsed = round(time.monotonic() - started, 3)
+        report("interpreting", f"{self.name} is reading its results")
         findings, evidence, gaps = self.interpret(payload)
         breaches = ledger.exceeded(elapsed)
         status = "ok" if not gaps and not breaches else "partial"

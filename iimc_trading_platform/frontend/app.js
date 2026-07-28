@@ -220,6 +220,8 @@ function setView(view) {
     data: ["Data", "Market data, documents, and financials."],
     monitor: ["Account", "Your live broker account: funds, positions, orders, trades."],
     agents: ["Agents", "Registered agents you can run — every run is recorded with evidence."],
+    leaderboard: ["Leaderboard", "How the agents rank, and the frozen contests they were judged in."],
+    arena: ["Arena", "Agents competing on real data through a simulated ledger."],
     settings: ["Settings", "Configuration and overview."],
   };
   document.querySelectorAll(".view").forEach((node) => node.classList.remove("active"));
@@ -1183,31 +1185,97 @@ async function showContestResults(contestId) {
   }
 }
 
+// Read a Server-Sent Events stream over fetch rather than EventSource.
+// EventSource cannot send an Authorization header, and the token does not
+// belong in a query string, so we parse the frames ourselves.
+async function streamSse(path, onEvent) {
+  const authHeaders = state.token ? { Authorization: `Bearer ${state.token}` } : {};
+  const response = await fetch(path, { headers: authHeaders });
+  if (!response.ok) {
+    if (response.status === 401) showLogin();
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload.detail || `Request failed (${response.status})`);
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let split;
+    while ((split = buffer.indexOf("\n\n")) >= 0) {
+      const frame = buffer.slice(0, split);
+      buffer = buffer.slice(split + 2);
+      // ":" frames are keep-alive comments — nothing to show.
+      if (!frame.trim() || frame.startsWith(":")) continue;
+      const lines = frame.split("\n");
+      const name = (lines.find((l) => l.startsWith("event: ")) || "").slice(7);
+      const data = lines
+        .filter((l) => l.startsWith("data: "))
+        .map((l) => l.slice(6))
+        .join("\n");
+      onEvent(name || "message", data ? JSON.parse(data) : {});
+    }
+  }
+}
+
+function renderAgentProgress(agentName, steps, finished) {
+  const items = steps
+    .map((s) => `<li>${escapeHtml(s.message || s.step || "")}</li>`)
+    .join("");
+  return `
+    <div class="agent-result">
+      <p><strong>${escapeHtml(_agentPretty(agentName))}</strong> ${finished ? "finished" : "is working…"}</p>
+      ${items ? `<ol class="agent-steps">${items}</ol>` : ""}
+    </div>`;
+}
+
+function renderAgentResult(agentName, payload) {
+  const gaps = (payload.gaps || []).map((g) => `<li>${escapeHtml(g)}</li>`).join("");
+  return `
+    <div class="agent-result">
+      <p><strong>${escapeHtml(_agentPretty(agentName))}</strong> finished:
+        <span class="watch-status watch-${payload.status === "ok" ? "active" : "triggered"}">${escapeHtml(payload.status)}</span>
+        · ${(payload.evidence || []).length} evidence item(s)
+        · took ${escapeHtml(String(payload.cost?.seconds ?? "?"))}s
+        · recorded as ${escapeHtml(payload.run_id)}</p>
+      ${gaps ? `<p>Honest gaps:</p><ul>${gaps}</ul>` : ""}
+      <details><summary>Full findings</summary><pre>${escapeHtml(JSON.stringify(payload.findings, null, 2))}</pre></details>
+    </div>`;
+}
+
 async function runAgent(agentId, agentName, button) {
   const result = $("#agent-run-result");
   const symbol = ($("#agent-symbol")?.value || "RELIANCE").trim().toUpperCase();
   const symbol2 = ($("#agent-symbol2")?.value || "").trim().toUpperCase();
-  const body = agentName === "comparator"
-    ? { symbols: [symbol, symbol2].filter(Boolean) }
-    : { symbol };
   if (button) button.disabled = true;
-  result.innerHTML = `<div class="empty-state">Running ${escapeHtml(_agentPretty(agentName))}…</div>`;
+  result.innerHTML = `<div class="empty-state">Starting ${escapeHtml(_agentPretty(agentName))}…</div>`;
   try {
-    const payload = await api(`/agents/${encodeURIComponent(agentId)}/run`, {
-      method: "POST",
-      body: JSON.stringify(body),
-    });
-    const gaps = (payload.gaps || []).map((g) => `<li>${escapeHtml(g)}</li>`).join("");
-    result.innerHTML = `
-      <div class="agent-result">
-        <p><strong>${escapeHtml(_agentPretty(agentName))}</strong> finished:
-          <span class="watch-status watch-${payload.status === "ok" ? "active" : "triggered"}">${escapeHtml(payload.status)}</span>
-          · ${(payload.evidence || []).length} evidence item(s)
-          · took ${escapeHtml(String(payload.cost?.seconds ?? "?"))}s
-          · recorded as ${escapeHtml(payload.run_id)}</p>
-        ${gaps ? `<p>Honest gaps:</p><ul>${gaps}</ul>` : ""}
-        <details><summary>Full findings</summary><pre>${escapeHtml(JSON.stringify(payload.findings, null, 2))}</pre></details>
-      </div>`;
+    // The comparator takes a list of symbols, which only the POST route
+    // accepts; everything else streams its progress while it runs.
+    if (agentName === "comparator") {
+      const payload = await api(`/agents/${encodeURIComponent(agentId)}/run`, {
+        method: "POST",
+        body: JSON.stringify({ symbols: [symbol, symbol2].filter(Boolean) }),
+      });
+      result.innerHTML = renderAgentResult(agentName, payload);
+    } else {
+      const steps = [];
+      await streamSse(
+        `/agents/${encodeURIComponent(agentId)}/run/stream?symbol=${encodeURIComponent(symbol)}`,
+        (name, data) => {
+          if (name === "progress") {
+            steps.push(data);
+            result.innerHTML = renderAgentProgress(agentName, steps, false);
+          } else if (name === "result") {
+            result.innerHTML = renderAgentResult(agentName, data);
+          } else if (name === "failed") {
+            result.innerHTML = `<div class="empty-state">${escapeHtml(data.error || "The run failed.")}</div>`;
+          }
+        },
+      );
+    }
     await loadAgents();
     await loadLeaderboard();
   } catch (error) {
@@ -1216,6 +1284,7 @@ async function runAgent(agentId, agentName, button) {
     if (button) button.disabled = false;
   }
 }
+
 
 // Top-of-landing-page live view: open positions and working orders, so the
 // client can see and act on live trades without leaving the chat.
@@ -2971,12 +3040,14 @@ function wireEvents() {
       if (button.dataset.view === "data") loadCoverage().catch(() => {});
       if (button.dataset.view === "agents") {
         loadAgents().catch(() => {});
-        loadLeaderboard().catch(() => {});
-        loadArenaSeasons().catch(() => {});
-        loadContests().catch(() => {});
         loadSupervisorFindings().catch(() => {});
         loadDigest().catch(() => {});
       }
+      if (button.dataset.view === "leaderboard") {
+        loadLeaderboard().catch(() => {});
+        loadContests().catch(() => {});
+      }
+      if (button.dataset.view === "arena") loadArenaSeasons().catch(() => {});
     });
   });
   $("#chat-form").addEventListener("submit", submitChat);

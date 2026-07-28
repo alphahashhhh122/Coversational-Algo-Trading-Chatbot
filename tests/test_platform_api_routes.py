@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from datetime import datetime
@@ -59,6 +60,40 @@ class PlatformApiRoutesTest(unittest.TestCase):
         detail = self.client.get("/agents/sentinel").json()
         self.assertEqual(detail["category"], "monitor")
         self.assertEqual(detail["run_count"], 1)
+
+    def test_agent_run_streams_progress_then_the_same_result(self) -> None:
+        """A streamed run is the same run: recorded once, scored the same."""
+        response = self.client.get("/agents/sentinel/run/stream")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("text/event-stream", response.headers["content-type"])
+
+        events = []
+        for frame in response.text.split("\n\n"):
+            if not frame.strip() or frame.startswith(":"):
+                continue
+            lines = frame.strip().split("\n")
+            events.append(
+                (lines[0].removeprefix("event: "),
+                 json.loads(lines[1].removeprefix("data: ")))
+            )
+        kinds = [kind for kind, _ in events]
+        self.assertEqual(kinds[0], "started")
+        self.assertEqual(kinds[-1], "result")
+        # The kernel narrates its phases, so a long run is never silent.
+        self.assertIn("progress", kinds)
+        self.assertIn("running", [d.get("step") for _, d in events if "step" in d])
+
+        result = events[-1][1]
+        self.assertTrue(result["run_id"].startswith("arun_"))
+        self.assertIn(result["status"], {"ok", "partial"})
+        # Recorded exactly once - streaming did not duplicate the run.
+        runs = self.client.get("/agents/sentinel/runs").json()["runs"]
+        self.assertEqual([r["run_id"] for r in runs], [result["run_id"]])
+
+    def test_streaming_an_unknown_agent_is_a_404_not_an_empty_stream(self) -> None:
+        self.assertEqual(
+            self.client.get("/agents/nope/run/stream").status_code, 404
+        )
 
     def test_supervisor_digest_endpoints_round_trip(self) -> None:
         """The digest is empty until generated, then readable and attributed."""

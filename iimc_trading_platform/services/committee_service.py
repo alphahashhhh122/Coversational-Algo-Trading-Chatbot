@@ -20,6 +20,8 @@ from typing import Any, Callable, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
+from ..progress import report
+
 
 class _State(TypedDict, total=False):
     symbol: str
@@ -72,6 +74,12 @@ class CommitteeService:
     def _convene(self, state: _State) -> _State:
         symbol, exchange = state["symbol"], state["exchange"]
 
+        report(
+            "convene",
+            f"Asking {len(state['members'])} agents about {symbol}: "
+            + ", ".join(state["members"]),
+        )
+
         async def _gather() -> dict[str, Any]:
             results = await asyncio.gather(
                 *(
@@ -94,6 +102,7 @@ class CommitteeService:
     def _synthesize(self, state: _State) -> _State:
         """Extract each member's directional read and compare them."""
 
+        report("synthesize", "Comparing what each member concluded")
         opinions = state.get("opinions", {})
         gaps: list[str] = []
         stances: dict[str, str] = {}
