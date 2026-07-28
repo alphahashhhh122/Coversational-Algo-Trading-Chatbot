@@ -857,6 +857,46 @@ class BacktestService:
         finally:
             con.close()
 
+    def reconcile_interrupted_runs(self) -> dict[str, Any]:
+        """Close out runs whose process died before they finished.
+
+        A backtest lives entirely inside the process running it — there is no
+        worker to resume it. So any row still marked ``running`` when the app
+        starts is, by definition, never going to finish: the process that owned
+        it is gone.
+
+        Left alone those rows sit in the UI claiming to be in progress forever,
+        which is the one thing this platform must not do — show something that
+        isn't true. Marking them ``interrupted`` says what actually happened
+        without pretending they were cancelled on purpose or that they failed
+        on their merits.
+        """
+
+        con = connect(self.db_path)
+        try:
+            stranded = [
+                row[0]
+                for row in con.execute(
+                    "SELECT run_id FROM strategy_runs WHERE status = ?",
+                    [RunStatus.RUNNING.value],
+                ).fetchall()
+            ]
+            if stranded:
+                con.execute(
+                    "UPDATE strategy_runs SET status = ?, finished_at = ?, "
+                    "error_message = ? WHERE status = ?",
+                    [
+                        RunStatus.INTERRUPTED.value,
+                        utc_now(),
+                        "The application stopped before this run finished, so "
+                        "it has no result. Run it again to get one.",
+                        RunStatus.RUNNING.value,
+                    ],
+                )
+        finally:
+            con.close()
+        return {"interrupted": stranded}
+
     def _finish_run(
         self,
         run_id: str,

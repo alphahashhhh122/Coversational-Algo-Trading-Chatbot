@@ -42,6 +42,18 @@ async function loadAgents() {
   }
 }
 
+// Walk-forward verdicts, said out loud. The stored values are stable keys the
+// scoring code depends on; these are only how they read on screen.
+// The row already says these are unseen-data results, so the verdict does not
+// repeat it.
+const VERDICT_WORDS = {
+  holds_up: "held up",
+  weaker_but_positive: "weaker, but still positive",
+  poor: "did not work",
+  overfit: "overfit — only worked on its tuning data",
+  inconclusive: "not enough evidence",
+};
+
 function renderLeaderboard(board) {
   const box = $("#leaderboard-list");
   if (!box) return;
@@ -55,15 +67,17 @@ function renderLeaderboard(board) {
   const metricText = (m) => {
     if (m.out_of_sample_return_pct !== undefined) {
       // Out-of-sample only, and shown against the benchmark it had to beat.
-      const parts = [`OOS ${num(m.out_of_sample_return_pct, 4)}%`];
+      // Spelled out rather than abbreviated: "OOS" and "DD" are desk shorthand,
+      // and this column is the one a reader is meant to judge the agent by.
+      const parts = [`on unseen data: ${num(m.out_of_sample_return_pct, 4)}%`];
       if (m.out_of_sample_excess_return_pct !== null && m.out_of_sample_excess_return_pct !== undefined) {
         const excess = Number(m.out_of_sample_excess_return_pct);
-        parts.push(`${excess >= 0 ? "beat" : "trailed"} hold by ${num(Math.abs(excess), 4)}%`);
+        parts.push(`${excess >= 0 ? "beat" : "trailed"} buy-and-hold by ${num(Math.abs(excess), 4)}%`);
       }
       if (m.out_of_sample_sharpe !== null && m.out_of_sample_sharpe !== undefined) parts.push(`Sharpe ${num(m.out_of_sample_sharpe, 2)}`);
-      if (m.out_of_sample_drawdown_pct !== null && m.out_of_sample_drawdown_pct !== undefined) parts.push(`DD ${num(m.out_of_sample_drawdown_pct, 3)}%`);
-      if (m.windows && m.windows > 1) parts.push(`${m.windows_held_up}/${m.windows} windows`);
-      parts.push(`${m.out_of_sample_trades} trades · ${m.verdict}`);
+      if (m.out_of_sample_drawdown_pct !== null && m.out_of_sample_drawdown_pct !== undefined) parts.push(`worst drop ${num(m.out_of_sample_drawdown_pct, 3)}%`);
+      if (m.windows && m.windows > 1) parts.push(`held up in ${m.windows_held_up} of ${m.windows} periods`);
+      parts.push(`${m.out_of_sample_trades} trades · ${VERDICT_WORDS[m.verdict] || m.verdict}`);
       return parts.join(" · ");
     }
     if (m.coverage !== undefined) {

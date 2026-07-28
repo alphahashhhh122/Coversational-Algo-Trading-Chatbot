@@ -62,18 +62,44 @@ class WatchService:
                 raise ValueError("An RSI level must be between 0 and 100.")
         else:
             threshold = None
+        symbol = symbol.upper().strip()
+        exchange = exchange.upper().strip()
+        level = float(threshold) if threshold is not None else None
         watch_id = f"watch_{uuid.uuid4().hex[:12]}"
         con = connect(self.db_path)
         try:
+            # Asking for the same watch twice is a repeated request, not a
+            # request for two alerts. Without this, saying "watch RELIANCE for
+            # RSI below 30" on Monday and again on Friday means every trigger
+            # notifies you twice, and the duplicate is invisible in the list
+            # because the rows look identical.
+            existing = con.execute(
+                "SELECT watch_id FROM technical_watches "
+                "WHERE symbol = ? AND exchange = ? AND condition = ? "
+                "AND status = 'active' "
+                "AND ((threshold IS NULL AND ? IS NULL) OR threshold = ?) "
+                "LIMIT 1",
+                [symbol, exchange, condition, level, level],
+            ).fetchone()
+            if existing:
+                return {
+                    "watch_id": existing[0],
+                    "symbol": symbol,
+                    "exchange": exchange,
+                    "condition": condition,
+                    "threshold": threshold,
+                    "status": "active",
+                    "already_watching": True,
+                }
             con.execute(
                 "INSERT INTO technical_watches VALUES "
                 "(?, ?, ?, ?, ?, 'active', ?, ?, NULL, NULL, NULL)",
                 [
                     watch_id,
-                    symbol.upper().strip(),
-                    exchange.upper().strip(),
+                    symbol,
+                    exchange,
                     condition,
-                    (float(threshold) if threshold is not None else None),
+                    level,
                     created_by,
                     _utc_now(),
                 ],
@@ -82,11 +108,12 @@ class WatchService:
             con.close()
         return {
             "watch_id": watch_id,
-            "symbol": symbol.upper().strip(),
-            "exchange": exchange.upper().strip(),
+            "symbol": symbol,
+            "exchange": exchange,
             "condition": condition,
             "threshold": threshold,
             "status": "active",
+            "already_watching": False,
         }
 
     def remove_by_id(self, watch_id: str) -> dict[str, Any]:

@@ -95,16 +95,23 @@ def _ready_for(has_price: bool, has_fundamentals: bool) -> list[str]:
 
 
 def _gap_summary(with_price: int, with_fundamentals: int, total: int) -> list[str]:
+    """Name the gap in the reader's words, and point at the button that fixes it.
+
+    "Run the universe backfill" is the name of a job, not an instruction anyone
+    outside this codebase can act on.
+    """
     gaps = []
     if with_price < total:
         gaps.append(
-            f"{total - with_price} of {total} symbols have no price history — "
-            "run the universe backfill to make them researchable."
+            f"{total - with_price} of {total} stocks have no price history yet, "
+            "so nothing can be researched or backtested on them. Press "
+            "“Fetch more history” to start filling them in."
         )
     if with_fundamentals < total:
         gaps.append(
-            f"{total - with_fundamentals} of {total} symbols have no financial "
-            "statements — the fundamental analyst and comparator cannot cover them."
+            f"{total - with_fundamentals} of {total} stocks have no company "
+            "financials, so questions about profits, margins, or valuation "
+            "can't be answered for them yet."
         )
     return gaps
 

@@ -36,6 +36,10 @@ class RunStatus(StrEnum):
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
+    # Distinct from CANCELLED, which means somebody chose to stop it. A run is
+    # INTERRUPTED when the process died underneath it — nobody decided
+    # anything, and the run will never produce a result.
+    INTERRUPTED = "interrupted"
 
 
 class ExecutionMode(StrEnum):

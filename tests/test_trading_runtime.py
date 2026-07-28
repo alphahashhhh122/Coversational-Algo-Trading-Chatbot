@@ -328,6 +328,77 @@ class TradingRuntimeTest(unittest.TestCase):
         return dataset_id
 
 
+class InterruptedRunReconciliationTest(unittest.TestCase):
+    """A run cannot outlive the process that owned it."""
+
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.db_path = Path(self.temp_dir.name) / "reconcile.duckdb"
+        initialize_database(self.db_path)
+        self.service = BacktestService(self.db_path, allow_live_trading=False)
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def _run_row(self, run_id: str, status: str) -> None:
+        con = connect(self.db_path)
+        try:
+            con.execute(
+                "INSERT INTO strategy_runs (run_id, strategy_id, dataset_id, "
+                "status, execution_mode, parameters_json, started_at, "
+                "finished_at, error_message) VALUES (?, 'ema', 'ds', ?, "
+                "'research', '{}', ?, NULL, NULL)",
+                [run_id, status, datetime(2026, 7, 22, 4, 38)],
+            )
+        finally:
+            con.close()
+
+    def _status(self, run_id: str) -> tuple[str, str | None]:
+        con = connect(self.db_path)
+        try:
+            return con.execute(
+                "SELECT status, error_message FROM strategy_runs WHERE run_id = ?",
+                [run_id],
+            ).fetchone()
+        finally:
+            con.close()
+
+    def test_stranded_running_rows_are_closed_out(self) -> None:
+        self._run_row("run_dead", "running")
+        result = self.service.reconcile_interrupted_runs()
+        self.assertEqual(result["interrupted"], ["run_dead"])
+        status, message = self._status("run_dead")
+        self.assertEqual(status, "interrupted")
+        # It says what happened, in words the reader can act on.
+        self.assertIn("Run it again", message)
+
+    def test_finished_runs_are_left_alone(self) -> None:
+        for run_id, status in (
+            ("run_ok", "completed"),
+            ("run_bad", "failed"),
+            ("run_stopped", "cancelled"),
+        ):
+            self._run_row(run_id, status)
+        self.assertEqual(self.service.reconcile_interrupted_runs()["interrupted"], [])
+        self.assertEqual(self._status("run_ok")[0], "completed")
+        self.assertEqual(self._status("run_bad")[0], "failed")
+        self.assertEqual(self._status("run_stopped")[0], "cancelled")
+
+    def test_an_interrupted_run_is_not_reported_as_cancelled(self) -> None:
+        """Cancelled means somebody decided. Nobody decided this."""
+        self._run_row("run_dead", "running")
+        self.service.reconcile_interrupted_runs()
+        self.assertNotEqual(self._status("run_dead")[0], "cancelled")
+
+    def test_reconciling_twice_is_harmless(self) -> None:
+        self._run_row("run_dead", "running")
+        self.service.reconcile_interrupted_runs()
+        self.assertEqual(self.service.reconcile_interrupted_runs()["interrupted"], [])
+
+    def test_nothing_to_do_on_a_clean_database(self) -> None:
+        self.assertEqual(self.service.reconcile_interrupted_runs()["interrupted"], [])
+
+
 class RiskPolicyEnvTest(unittest.TestCase):
     _RISK_ENV_KEYS = (
         "IIMC_RISK_MAX_QUANTITY",

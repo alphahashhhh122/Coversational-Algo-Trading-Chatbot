@@ -787,7 +787,22 @@ th { color: var(--muted); background: var(--surface-soft); font-size: 11px; text
 tbody tr { cursor: pointer; }
 tbody tr:hover { background: var(--row-hover); }
 .run-selector { width: 16px; height: 16px; accent-color: var(--green); }
-.status-pill { display: inline-block; padding: 3px 7px; color: var(--green); background: var(--green-soft); font-size: 11px; }
+/* The pill was one colour whatever the status, so a failed run read the same as
+   a successful one at a glance. Colour now follows the outcome.
+
+   Note for anyone extending this: --green is the brand accent and is *blue* in
+   both themes (#2e4d7b / #6f97d1), near-identical to --blue. So "completed"
+   keeps the accent, and the other states are separated using the hues that are
+   actually distinct — amber, red, and muted. */
+.status-pill { display: inline-block; padding: 3px 7px; border-radius: 4px; color: var(--green); background: var(--green-soft); font-size: 11px; }
+.status-pill.failed { color: var(--red); background: var(--red-soft); }
+/* In progress is a transient, uninformative state — it should not compete for
+   attention with an outcome. */
+.status-pill.running,
+.status-pill.pending { color: var(--muted); background: var(--surface-soft); }
+/* Amber: nothing went wrong with the strategy, the run just never finished. */
+.status-pill.interrupted,
+.status-pill.cancelled { color: var(--amber); background: var(--amber-soft); }
 .run-detail { margin-top: 14px; padding: 18px; }
 .detail-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 .detail-cell { padding: 12px; border: 1px solid var(--line); }
@@ -927,8 +942,14 @@ tbody tr:hover { background: var(--row-hover); }
   display: block;
   overflow-wrap: anywhere;
 }
-.openalgo-status-card strong { font-size: 12px; text-transform: uppercase; }
+/* Labels are words now, not endpoint names, so they read as written rather
+   than being shouted in caps. */
+.openalgo-status-card strong { font-size: 12px; }
 .openalgo-status-card span { margin-top: 5px; color: var(--muted); font-size: 12px; }
+.openalgo-status-card { border-left-width: 3px; border-radius: 6px; }
+.openalgo-status-card.ok { border-left-color: var(--green, #2e7d5b); }
+/* Amber, not red: an unreachable broker is a state to fix, not a failure. */
+.openalgo-status-card.down { border-left-color: var(--amber, #b8860b); }
 .approval-prompt { margin: 4px 0 12px; padding: 12px 14px; border: 1px solid var(--accent); border-radius: 8px; background: var(--surface-soft); display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .approval-prompt.live { border-color: #e74c3c; background: color-mix(in srgb, #e74c3c 8%, transparent); }
 .approval-prompt.resolved { border-color: var(--line); background: var(--surface-soft); opacity: 0.85; }
@@ -1410,15 +1431,20 @@ tbody tr:hover { background: var(--row-hover); }
   display: block;
   overflow-wrap: anywhere;
 }
-.settings-item strong {
+/* The markup puts the label in <span> and the value in <strong>; these rules
+   had it the other way round, so every value was uppercased — which turned
+   http://127.0.0.1:5000 into HTTP://... and llama-3.3-70b into LLAMA-3.3-70B.
+   Labels are the small muted caps, values are read as written. */
+.settings-item span {
   color: var(--muted);
   font-size: 10px;
   font-weight: 800;
   text-transform: uppercase;
 }
-.settings-item span {
+.settings-item strong {
   margin-top: 5px;
   font-size: 13px;
+  font-weight: 600;
 }
 .settings-item.ready {
   border-color: var(--green-line);

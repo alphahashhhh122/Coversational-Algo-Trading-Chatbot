@@ -163,6 +163,27 @@ def _evidence_dataset_id(evidence: list[dict[str, Any]]) -> str | None:
     return None
 
 
+class _RevalidatingStaticFiles(StaticFiles):
+    """Static assets the browser must re-check before reusing.
+
+    ``index.html`` cache-busts its entry points with ``?v=``, but an ES module's
+    ``import`` specifiers carry no version — so editing ``modules/agents.js``
+    used to leave browsers running the previous copy with no way to notice, and
+    the only symptom was a fix that appeared not to have worked.
+
+    ``no-cache`` does not mean "don't store"; it means "revalidate first". The
+    browser still keeps the file and still gets a 304 when nothing changed, so
+    the cost is one conditional request per asset — irrelevant for a locally
+    served research tool, and it removes a whole class of stale-asset
+    confusion.
+    """
+
+    def file_response(self, *args: Any, **kwargs: Any) -> Any:
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 def _sse(event: str, data: dict[str, Any]) -> str:
     return f"event: {event}\ndata: {json.dumps(data, default=str)}\n\n"
 
@@ -229,6 +250,19 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     logger = logging.getLogger(__name__)
 
     initialize_database(active_config.database_path)
+
+    # A backtest only exists inside the process running it, so anything still
+    # marked "running" belongs to a process that is gone. Close those out now
+    # rather than letting the UI claim they are in progress forever.
+    _stranded = BacktestService(
+        active_config.database_path, allow_live_trading=False
+    ).reconcile_interrupted_runs()["interrupted"]
+    if _stranded:
+        logger.info(
+            "Closed out runs left behind by a previous process",
+            extra={"event": "runs_reconciled", "run_count": len(_stranded)},
+        )
+
     if active_config.auth_required and not active_config.auth_secret:
         raise RuntimeError(
             "IIMC_AUTH_SECRET is required when authentication is enabled"
@@ -642,7 +676,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     frontend_dir = Path(__file__).parent / "frontend"
     app.mount(
         "/static",
-        StaticFiles(directory=frontend_dir),
+        _RevalidatingStaticFiles(directory=frontend_dir),
         name="static",
     )
 

@@ -626,9 +626,20 @@ def _grounded_fallback_response(
             f"{result.get('status')}."
         )
     if tool_name == "create_watch":
+        condition = _watch_condition_text(
+            result.get("condition"), result.get("threshold")
+        )
+        # Say plainly when the watch already existed. Claiming to have set up
+        # something that was already there invites the user to ask again, and
+        # each repeat used to add another alert that would fire alongside it.
+        if result.get("already_watching"):
+            return (
+                f"You're already watching **{result.get('symbol')}** for "
+                f"{condition}, so I've left that one in place rather than "
+                "adding a second alert for the same thing."
+            )
         return (
-            f"Now watching **{result.get('symbol')}** for "
-            f"{_watch_condition_text(result.get('condition'), result.get('threshold'))}. "
+            f"Now watching **{result.get('symbol')}** for {condition}. "
             "I'll flag it when it fires — say “check my watches” any time. "
             "(A watch only notifies; it never trades.)"
         )

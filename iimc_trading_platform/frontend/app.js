@@ -585,9 +585,10 @@ async function loadAccount() {
   }
   state.openalgoMonitor = monitor;
   const notConfigured = monitor.configured === false;
-  $("#openalgo-notice").textContent = notConfigured
-    ? "Connect your broker (OpenAlgo) to see live funds, positions, and orders."
-    : (monitor.message || "");
+  const notice = $("#openalgo-notice");
+  notice.textContent = brokerStatusMessage(monitor);
+  // The engineering wording stays reachable on hover for anyone debugging.
+  if (monitor.message) notice.title = monitor.message;
   renderOpenAlgoMonitor(monitor);
   // Watches are independent of live account data — load them regardless.
   loadWatches().catch(() => {});
@@ -862,18 +863,52 @@ async function loadLiveTrades() {
   body.innerHTML = html;
 }
 
+// The broker's endpoint names are its own vocabulary, not the user's. Nobody
+// asked to check their "positionbook".
+const BROKER_CHECK_LABELS = {
+  analyzer: "Connection",
+  funds: "Funds",
+  orderbook: "Orders",
+  tradebook: "Trades",
+  positionbook: "Positions",
+};
+
 function renderOpenAlgoMonitor(monitor) {
   const checks = monitor.checks || {};
-  const names = ["analyzer", "funds", "orderbook", "tradebook", "positionbook"];
-  $("#openalgo-monitor").innerHTML = names.map((name) => {
-    const check = checks[name] || { ok: false, status: monitor.status };
-    return `
-      <article class="openalgo-status-card">
-        <strong>${escapeHtml(name)}</strong>
-        <span>${check.ok ? "available" : escapeHtml(check.status || "unavailable")}</span>
+  $("#openalgo-monitor").innerHTML = Object.entries(BROKER_CHECK_LABELS)
+    .map(([name, label]) => {
+      const check = checks[name] || { ok: false, status: monitor.status };
+      return `
+      <article class="openalgo-status-card ${check.ok ? "ok" : "down"}">
+        <strong>${escapeHtml(label)}</strong>
+        <span>${check.ok ? "Working" : "Not reachable"}</span>
       </article>
     `;
-  }).join("");
+    }).join("");
+}
+
+// Broker failures arrive as engineering sentences. They are accurate and worth
+// keeping in the logs, but on screen a person needs to know what broke and what
+// to do about it — so translate here, at the boundary, and keep the original in
+// the tooltip rather than throwing it away.
+function brokerStatusMessage(monitor) {
+  if (monitor.configured === false) {
+    return "Connect your broker (OpenAlgo) to see live funds, positions, and orders.";
+  }
+  const raw = monitor.message || "";
+  if (/unavailable at the configured base URL|unavailable/i.test(raw)) {
+    return "Your broker connection isn't running, so live account data can't be "
+      + "shown. Start OpenAlgo, then press Refresh.";
+  }
+  if (/rejected the configured API key|authentication/i.test(raw)) {
+    return "Your broker rejected the saved key. Log in to OpenAlgo again to "
+      + "refresh it, then press Refresh here.";
+  }
+  if (/HTTP \d+|non-JSON|unexpected response shape/i.test(raw)) {
+    return "Your broker replied with something this app couldn't read. It may "
+      + "be restarting — wait a moment and press Refresh.";
+  }
+  return raw;
 }
 
 function renderExperiments() {
@@ -1768,6 +1803,17 @@ function maybeRenderApprovalPrompt(payload) {
   });
 }
 
+// A run that was cut off when the app stopped is not "cancelled" — nobody
+// chose that — and it is not a failure on the strategy's merits either.
+const RUN_STATUS_WORDS = {
+  interrupted: "stopped — app restarted",
+  running: "running",
+  completed: "completed",
+  failed: "failed",
+  cancelled: "cancelled",
+  pending: "queued",
+};
+
 function renderRuns() {
   renderBacktestControls();
   const table = $("#runs-table");
@@ -1780,7 +1826,9 @@ function renderRuns() {
       <td><input class="run-selector" type="checkbox" aria-label="Select ${escapeHtml(run.run_id)}"></td>
       <td>${escapeHtml(run.run_id)}</td>
       <td>${escapeHtml(run.strategy)}</td>
-      <td><span class="status-pill">${escapeHtml(run.status)}</span></td>
+      <td><span class="status-pill ${escapeHtml(run.status)}">${
+        escapeHtml(RUN_STATUS_WORDS[run.status] || run.status)
+      }</span></td>
       <td>${formatNumber(run.total_trades, 0)}</td>
       <td>${formatNumber(run.net_pnl)}</td>
       <td>${formatNumber(run.max_drawdown)}</td>
