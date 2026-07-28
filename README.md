@@ -114,7 +114,12 @@ Key modules under `iimc_trading_platform/`:
 | Path | Responsibility |
 |---|---|
 | `api.py` | REST + dashboard routes |
-| `orchestration.py` | LLM tool selection and grounded responses |
+| `api_routes.py` | The agent-platform routes, with their dependencies named |
+| `orchestration/core.py` | Three-tier routing: regex → LLM tools → plain LLM |
+| `orchestration/text.py` | Reading a message: symbols, dates, parameters, intent |
+| `orchestration/renderers.py` | Tool payload in, plain English out |
+| `orchestration/education.py` | Concepts, domain refusals, advice deflection |
+| `progress.py` | Progress reporting for streamed long runs |
 | `tools/registry.py` | Typed tool contracts (schema, roles, side effects) |
 | `services/` | Backtesting, risk, screener, news, retrieval, instrument names |
 | `services/research_agent_service.py` | Parallel multi-analyst research (`asyncio`) |
