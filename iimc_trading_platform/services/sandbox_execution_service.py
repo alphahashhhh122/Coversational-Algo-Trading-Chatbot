@@ -9,7 +9,7 @@ from typing import Any, Callable, Protocol
 
 from ..db import connect
 from ..domain import ExecutionMode, OrderStatus
-from ..infrastructure.openalgo import OpenAlgoClient, OpenAlgoResponseError
+from ..infrastructure.openalgo import OpenAlgoResponseError
 from .audit_service import AuditService
 from .order_service import OrderService
 

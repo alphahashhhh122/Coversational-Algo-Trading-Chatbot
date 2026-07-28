@@ -153,21 +153,35 @@ class ChatService:
                 tool_result=None,
                 tool_call_id=None,
             )
+            # No tool ran, but that covers several different outcomes: a
+            # concept explained, an off-topic question declined, advice
+            # refused, or genuinely not knowing what was meant. Only the last
+            # is "unsupported". Recording them all under one label made the
+            # platform's own record of itself wrong and left the evaluation
+            # harness unable to tell a good explanation from a refusal.
+            intent = decision.direct_kind or "unsupported"
             self._store_assistant(
                 active_session_id,
                 evaluation.answer,
                 {
-                    "intent": "unsupported",
+                    "intent": intent,
                     "orchestration_mode": self.orchestrator.mode,
                     "evaluation": evaluation.warnings,
                 },
             )
             return ChatResult(
                 session_id=active_session_id,
-                intent="unsupported",
+                intent=intent,
                 answer=evaluation.answer,
                 tool_calls=[],
-                data={"available_tools": active_registry.list_tools()},
+                # "Here is everything I can do" belongs with "I didn't
+                # understand you". Attaching it to a question that was answered
+                # well is a large payload that also implies the answer failed.
+                data=(
+                    {}
+                    if decision.direct_kind
+                    else {"available_tools": active_registry.list_tools()}
+                ),
                 orchestration_mode=self.orchestrator.mode,
                 evaluation={
                     "passed": evaluation.passed,

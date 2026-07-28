@@ -1,6 +1,6 @@
 # OpenAlgo Integration
 
-OpenAlgo is treated strictly as an **external broker-integration service**: this platform talks only to its public REST API through `infrastructure/openalgo.py` and never reads its internal database. `OPENALGO_SANDBOX_BRIDGE.md` documents the analyzer bridge in depth; this file is the capability contract.
+OpenAlgo is treated strictly as an **external broker-integration service**: this platform talks only to its public REST API through `infrastructure/openalgo.py` and never reads its internal database. This file is the capability contract; the analyzer bridge is described under "Paper workflow" below.
 
 ## Configuration
 
@@ -16,7 +16,9 @@ Without a key, every OpenAlgo-backed tool and endpoint reports "not configured" 
 | Capability | Surface |
 |---|---|
 | Connection/health + analyzer-mode status | monitor endpoints, readiness checks |
-| Funds, positionbook, orderbook, tradebook | `get_openalgo_snapshot` (persisted, sanitized history) |
+| Funds, positionbook, orderbook, tradebook, holdings | `get_openalgo_snapshot` (persisted, sanitized history) |
+| Order modification | `modify_order` |
+| Cancel-all / square-off | `cancel_all_orders`, `close_all_positions`, behind `POST /openalgo/emergency/{action}` and a typed confirmation in the UI |
 | Quotes (LTP/quote resolution incl. option symbols) | `get_market_quote`, instrument tools |
 | Historical candles → governed datasets | `import_openalgo_history` (provenance SHA-256, catalog, freshness) |
 | Instrument search / symbol validation / option symbol construction | instrument tools + `/platform/instruments/*` |
@@ -24,7 +26,7 @@ Without a key, every OpenAlgo-backed tool and endpoint reports "not configured" 
 | Live order intent | separate gated path; disabled by default |
 | Error normalization | `OpenAlgoUnavailableError`, `OpenAlgoAuthenticationError` → typed HTTP statuses; secrets redacted |
 
-Not yet wrapped: WebSocket live quotes/market depth (the platform polls), order modification, cancel-all, square-off, holdings endpoint. These are listed in `GAP_ANALYSIS.md`.
+Not yet wrapped: WebSocket live quotes and market depth — the platform polls instead.
 
 ## Paper workflow (analyzer mode, the default)
 

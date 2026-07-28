@@ -86,6 +86,12 @@ class OrchestrationDecision:
     # Authoritative direct responses (greetings, domain refusals, education)
     # are final even when an LLM router is configured.
     authoritative: bool = False
+    # What kind of direct answer this is, when no tool was called. Answering a
+    # question well, declining an off-topic one, and not knowing what was meant
+    # are three different outcomes; recording them all as "unsupported" makes
+    # the platform's own record of itself wrong, and the evaluation harness
+    # cannot tell a good explanation from a refusal.
+    direct_kind: str | None = None
 
 
 class Orchestrator(Protocol):
@@ -532,6 +538,7 @@ class OfflineOrchestrator:
                 arguments={},
                 direct_response=_domain_refusal_response(off_topic_category),
                 authoritative=True,
+                direct_kind="off_topic",
             )
         if _is_open_ended_advice(text, message):
             return OrchestrationDecision(
@@ -539,6 +546,7 @@ class OfflineOrchestrator:
                 arguments={},
                 direct_response=_open_ended_advice_response(),
                 authoritative=True,
+                direct_kind="advice_declined",
             )
         # Conceptual comparisons ("difference between a mutual fund and an
         # ETF", "value vs growth investing") are educational, not a broker
@@ -571,6 +579,7 @@ class OfflineOrchestrator:
                 direct_response=_educational_response(
                     message.strip().rstrip("?")
                 ),
+                direct_kind="education",
             )
         # A *qualitative* comparison of two or more REAL instruments ("which is
         # stronger, INFY or TCS", "compare RELIANCE and TCS fundamentally") → the
@@ -643,6 +652,7 @@ class OfflineOrchestrator:
                 tool_name=None,
                 arguments={},
                 direct_response=_closest_action_response(text),
+                direct_kind="closest_action",
             )
 
         asks_for_catalog = any(
@@ -1837,6 +1847,7 @@ class OfflineOrchestrator:
                         arguments={},
                         direct_response=known,
                         authoritative=True,
+                        direct_kind="education",
                     )
                 # A general finance concept: prefer a direct answer. The
                 # response is non-authoritative, so when an LLM is configured
@@ -1847,6 +1858,7 @@ class OfflineOrchestrator:
                     tool_name=None,
                     arguments={},
                     direct_response=_educational_response(concept),
+                    direct_kind="education",
                 )
 
         if not re.search(r"\bdocuments?\b", text) and any(

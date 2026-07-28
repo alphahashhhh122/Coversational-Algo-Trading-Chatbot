@@ -1267,6 +1267,36 @@ class OrchestrationContractsTest(unittest.TestCase):
         self.assertIn("delta hedging", decision.direct_response.lower())
         self.assertFalse(decision.authoritative)
 
+    def test_direct_answers_are_classified_not_lumped_together(self) -> None:
+        """Answering, declining, and not understanding are different outcomes.
+
+        All three used to be recorded as "unsupported", which made the
+        platform's own record of itself wrong and left the evaluation harness
+        unable to tell a good explanation from a refusal.
+        """
+        from iimc_trading_platform.orchestration import OfflineOrchestrator
+
+        registry = build_default_tool_registry(Path("unused.duckdb"))
+        orchestrator = OfflineOrchestrator()
+
+        education = orchestrator.select_tool("What is a stop loss?", [], registry)
+        self.assertIsNone(education.tool_name)
+        self.assertEqual(education.direct_kind, "education")
+
+        off_topic = orchestrator.select_tool(
+            "Write me a poem about cats", [], registry
+        )
+        if off_topic.tool_name is None and off_topic.direct_kind:
+            self.assertEqual(off_topic.direct_kind, "off_topic")
+
+    def test_an_unclassified_direct_answer_still_says_unsupported(self) -> None:
+        """The fallback must stay honest when nothing was recognised."""
+        from iimc_trading_platform.orchestration import OrchestrationDecision
+
+        self.assertIsNone(
+            OrchestrationDecision(tool_name=None, arguments={}).direct_kind
+        )
+
     def test_education_lookup_matches_whole_words_only(self) -> None:
         from iimc_trading_platform.orchestration import _education_lookup
 

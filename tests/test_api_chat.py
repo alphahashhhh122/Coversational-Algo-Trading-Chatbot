@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -11,7 +10,6 @@ from fastapi.testclient import TestClient
 from iimc_trading_platform.api import create_app
 from iimc_trading_platform.config import AppConfig
 from iimc_trading_platform.db import connect
-from iimc_trading_platform.infrastructure import initialize_database
 from iimc_trading_platform.services.custom_strategy_service import (
     CustomStrategyService,
 )

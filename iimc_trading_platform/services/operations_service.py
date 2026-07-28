@@ -19,15 +19,23 @@ from .retention_service import RetentionService
 from .task_service import TaskService
 
 
+# The documents the knowledge base indexes, so agents can answer questions
+# about the platform from its own docs.
+#
+# Five of the eight entries here used to name files that had been renamed or
+# removed, and ``knowledge_sync`` skipped anything missing without a word — so
+# the corpus was silently three documents deep while the list claimed eight.
+# The list now matches what is on disk, and the job reports anything it cannot
+# find rather than quietly indexing less than it was asked to.
 CURATED_DOCUMENTS = [
     Path("README.md"),
     Path("docs/ARCHITECTURE.md"),
-    Path("docs/DATA_DOMAINS.md"),
+    Path("docs/AGENT_ARCHITECTURE.md"),
+    Path("docs/ATL_TRANSITION.md"),
+    Path("docs/OPENALGO_INTEGRATION.md"),
     Path("docs/SECURITY_AND_SECRETS.md"),
-    Path("docs/OPENALGO_SANDBOX_BRIDGE.md"),
-    Path("docs/OPERATOR_RUNBOOK.md"),
-    Path("docs/OPERATIONS_FAILURE_RUNBOOK.md"),
-    Path("docs/PRODUCTION_READINESS.md"),
+    Path("docs/LOCAL_DEVELOPMENT.md"),
+    Path("docs/DEMO.md"),
 ]
 
 
@@ -81,17 +89,22 @@ def build_job_service(config: AppConfig) -> JobService:
 
     def knowledge_sync(payload: dict[str, Any]) -> dict[str, Any]:
         indexed = 0
+        missing: list[str] = []
         for path in CURATED_DOCUMENTS:
-            if path.exists():
-                knowledge.index_text(
-                    title=path.stem.replace("_", " "),
-                    source_uri=str(path.resolve()),
-                    text=path.read_text(encoding="utf-8"),
-                    document_type=path.suffix.removeprefix(".") or "text",
-                    metadata={"corpus": "curated_project_docs"},
-                )
-                indexed += 1
-        return {"indexed_documents": indexed}
+            if not path.exists():
+                # Report it. A silently thinner corpus looks like an agent that
+                # doesn't know things, not like a stale configuration.
+                missing.append(str(path))
+                continue
+            knowledge.index_text(
+                title=path.stem.replace("_", " "),
+                source_uri=str(path.resolve()),
+                text=path.read_text(encoding="utf-8"),
+                document_type=path.suffix.removeprefix(".") or "text",
+                metadata={"corpus": "curated_project_docs"},
+            )
+            indexed += 1
+        return {"indexed_documents": indexed, "missing_documents": missing}
 
     def backup_restore_verification(
         payload: dict[str, Any],

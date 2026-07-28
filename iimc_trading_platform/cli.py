@@ -161,7 +161,7 @@ def main() -> None:
     dataset_parser = subparsers.add_parser("dataset", help="Show dataset detail.")
     dataset_parser.add_argument("dataset_id")
 
-    config_parser = subparsers.add_parser("show-config", help="Print active config.")
+    subparsers.add_parser("show-config", help="Print active config.")
 
     args = parser.parse_args()
     config = load_config()

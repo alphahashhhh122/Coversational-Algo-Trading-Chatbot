@@ -71,16 +71,29 @@ _LT_WORDS = (
     "lower than", "below", "under",
 )
 
+# Words that may sit between the verb and its "when", e.g. the instrument and
+# timeframe in "buy RELIANCE 5m when ...". Digits belong here: without them a
+# timeframe ("5m") or a symbol like NIFTY50 breaks the match and the rule is
+# silently dropped. Three, because "go short on RELIANCE 5m when" needs it.
+_TRIGGER_FILLER = r"(?:\s+[a-z0-9&.-]+){0,3}?"
+
 _ENTRY_TRIGGER = re.compile(
     r"(?:buys?|enters?(?:\s+(?:a\s+)?(?:long|short|position|trade))?|"
     r"goes?\s+(?:long|short)|longs?|shorts?|opens?\s+(?:a\s+)?position)"
-    r"(?:\s+[a-z&.-]+){0,2}?\s+(?:when(?:ever)?|if|once)\b",
+    + _TRIGGER_FILLER
+    + r"\s+(?:when(?:ever)?|if|once)\b",
     flags=re.IGNORECASE,
 )
 _EXIT_TRIGGER = re.compile(
-    r"(?:exits?(?:\s+(?:the\s+)?(?:position|trade))?|sells?|closes?"
-    r"(?:\s+(?:the\s+)?(?:position|trade))?|squares?\s*(?:off|out)|"
-    r"covers?|books?\s+(?:profit|out))"
+    # Unambiguous exit verbs get the same filler allowance as entries, so
+    # "sell RELIANCE 5m when ..." is recognised rather than dropped.
+    r"(?:(?:exits?(?:\s+(?:the\s+)?(?:position|trade))?|sells?|"
+    r"squares?\s*(?:off|out)|covers?|books?\s+(?:profit|out))"
+    + _TRIGGER_FILLER
+    # "closes" is deliberately excluded from that allowance: it is also a price
+    # word, and "price closes above 9 if ..." would otherwise be read as an
+    # exit trigger sitting inside an entry clause.
+    + r"|closes?(?:\s+(?:the\s+)?(?:position|trade))?)"
     r"\s+(?:when(?:ever)?|if|once)\b",
     flags=re.IGNORECASE,
 )
@@ -193,14 +206,43 @@ class _CompileState:
         return ref
 
 
+# "Cover" only ever closes a short. Its presence is the one unambiguous signal
+# that the strategy is short-side.
+_COVER_TRIGGER = re.compile(
+    r"\b(?:covers?|buys?\s+to\s+cover)\b", flags=re.IGNORECASE
+)
+
+
+def _promote_short_entry(
+    text: str, markers: list[tuple[int, int, str]]
+) -> list[tuple[int, int, str]]:
+    """Read the opening "sell when ..." of a short strategy as its entry.
+
+    "Sell RELIANCE when RSI is above 70, cover when RSI is below 30" is a short
+    trade: the sell opens it and the cover closes it. Read literally, both verbs
+    are exits, which leaves the strategy with two exits and no way in.
+
+    The correction is deliberately narrow. It applies only when the text says
+    "cover" — the one verb that cannot mean anything but closing a short — and
+    only when nothing was recognised as an entry at all. A long strategy, which
+    never mentions covering, is untouched.
+    """
+
+    if not _COVER_TRIGGER.search(text):
+        return markers
+    if any(kind == "entry" for _, _, kind in markers):
+        return markers
+    if len(markers) < 2:
+        return markers
+    start, end, _ = markers[0]
+    return [(start, end, "entry"), *markers[1:]]
+
+
 def _split_segments(text: str) -> tuple[list[str], list[str]]:
     """Split text into entry and exit condition segments."""
     markers: list[tuple[int, int, str]] = []
     for match in _ENTRY_TRIGGER.finditer(text):
-        kind = "entry"
-        matched = match.group(0).lower()
-        # "sells when" style verbs are exits unless the strategy is short.
-        markers.append((match.start(), match.end(), kind))
+        markers.append((match.start(), match.end(), "entry"))
     for match in _EXIT_TRIGGER.finditer(text):
         markers.append((match.start(), match.end(), "exit"))
     markers.sort(key=lambda item: item[0])
@@ -210,6 +252,7 @@ def _split_segments(text: str) -> tuple[list[str], list[str]]:
         if deduped and marker[0] < deduped[-1][1]:
             continue
         deduped.append(marker)
+    deduped = _promote_short_entry(text, deduped)
 
     entries: list[str] = []
     exits: list[str] = []
@@ -793,7 +836,16 @@ def _extract_timeframe(lower: str) -> str | None:
 
 
 def _extract_position_side(lower: str) -> str:
-    if re.search(r"\b(?:go(?:es)?\s+short|shorts?\s+when|short\s+strategy|sell\s+short)\b", lower):
+    if re.search(
+        r"\b(?:go(?:es)?\s+short|shorts?\s+when|short\s+strategy|sell\s+short)\b",
+        lower,
+    ):
+        return "short"
+    # "Cover" closes a short and nothing else, so a strategy that covers is a
+    # short one even when it opened with a bare "sell". Getting this wrong is
+    # worse than failing to parse: the spec would compile cleanly and then be
+    # backtested in the opposite direction to the one described.
+    if _COVER_TRIGGER.search(lower):
         return "short"
     return "long"
 

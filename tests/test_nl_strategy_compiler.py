@@ -180,6 +180,75 @@ class NlStrategyCompilerTest(unittest.TestCase):
         self.assertEqual(kinds, {"risk_control", "session"})
 
 
+class TriggerPhrasingTest(unittest.TestCase):
+    """Phrasings that used to lose a rule silently."""
+
+    def _spec(self, text: str) -> dict:
+        return compile_strategy_text(text)["spec"]
+
+    def test_a_timeframe_between_verb_and_when_keeps_the_entry(self) -> None:
+        """"Buy RELIANCE 5m when ..." — the digit in "5m" used to break it."""
+        spec = self._spec(
+            "Buy RELIANCE 5m when RSI is below 30 and sell when RSI is above 70"
+        )
+        self.assertEqual(len(spec["entry_rules"]), 1)
+        self.assertEqual(spec["entry_rules"][0]["right"], 30.0)
+        self.assertEqual(len(spec["exit_rules"]), 1)
+
+    def test_words_between_the_exit_verb_and_when_keep_the_exit(self) -> None:
+        spec = self._spec(
+            "Buy RELIANCE when RSI is below 30, sell RELIANCE 5m when RSI is above 70"
+        )
+        self.assertEqual(len(spec["entry_rules"]), 1)
+        self.assertEqual(len(spec["exit_rules"]), 1)
+
+    def test_go_short_on_symbol_and_timeframe_is_recognised(self) -> None:
+        spec = self._spec(
+            "Go short on RELIANCE 5m when EMA 9 crosses below EMA 21, "
+            "cover when EMA 9 crosses above EMA 21"
+        )
+        self.assertEqual(spec["position_side"], "short")
+        self.assertEqual(len(spec["entry_rules"]), 1)
+        self.assertEqual(spec["entry_rules"][0]["operator"], "crosses_below")
+
+    def test_sell_then_cover_is_a_short_entry_not_two_exits(self) -> None:
+        """A short opened with a bare "sell" still needs a way in."""
+        spec = self._spec(
+            "Sell RELIANCE 5m when RSI is above 70 and cover when RSI is below 30"
+        )
+        self.assertEqual(spec["position_side"], "short")
+        self.assertEqual(len(spec["entry_rules"]), 1)
+        self.assertEqual(spec["entry_rules"][0]["right"], 70.0)
+        self.assertEqual(len(spec["exit_rules"]), 1)
+        self.assertEqual(spec["exit_rules"][0]["right"], 30.0)
+
+    def test_covering_makes_it_short_even_without_the_word_short(self) -> None:
+        """Getting this wrong backtests the strategy the wrong way round."""
+        self.assertEqual(
+            self._spec(
+                "Sell RELIANCE when RSI is above 70, cover when RSI is below 30"
+            )["position_side"],
+            "short",
+        )
+
+    def test_a_long_strategy_is_left_alone(self) -> None:
+        """The short correction must not touch the ordinary case."""
+        spec = self._spec(
+            "Buy RELIANCE when RSI is below 30 and sell when RSI is above 70"
+        )
+        self.assertEqual(spec["position_side"], "long")
+        self.assertEqual(spec["entry_rules"][0]["right"], 30.0)
+        self.assertEqual(spec["exit_rules"][0]["right"], 70.0)
+
+    def test_closes_above_is_not_read_as_an_exit_trigger(self) -> None:
+        """"closes" is a price word as well as an exit verb."""
+        spec = self._spec(
+            "Buy RELIANCE when price closes above EMA 21, sell when RSI is above 70"
+        )
+        self.assertEqual(len(spec["exit_rules"]), 1)
+        self.assertEqual(spec["exit_rules"][0]["left"], "RSI_14")
+
+
 class RuleSpecRuntimeExtensionsTest(unittest.TestCase):
     def test_trailing_stop_exits_after_pullback_from_peak(self) -> None:
         spec = {

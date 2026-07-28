@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from ..tools.registry import ToolRegistry
-from .base import AgentResult, AgentTask, ServiceAgent
+from .base import AgentTask, ServiceAgent
 
 _Interp = tuple[dict[str, Any], list[dict[str, Any]], list[str]]
 

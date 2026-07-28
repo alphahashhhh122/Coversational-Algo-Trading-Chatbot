@@ -29,8 +29,10 @@ def _pending_order_summary(approval: dict[str, Any]) -> str:
     action = str(approval.get("requested_action") or "order").replace("_", " ")
     return action
 
+
 def grounded_tool_response(tool_name: str, result: dict[str, Any]) -> str:
     return _grounded_fallback_response(tool_name, result)
+
 
 def _pick(row: dict[str, Any], *names: str) -> Any:
     for name in names:
@@ -316,7 +318,7 @@ def _render_research_briefing(result: dict[str, Any]) -> str:
         )
         period = fundamentals.get("period")
         lines.append(
-            f"**Fundamentals**"
+            "**Fundamentals**"
             + (f" ({period})" if period else "")
             + f": {shown}."
         )
@@ -724,7 +726,7 @@ def _grounded_fallback_response(
             )
             for item in alerts[:15]
         ]
-        return f"Your price alerts:\n" + "\n".join(lines)
+        return "Your price alerts:\n" + "\n".join(lines)
     if tool_name == "get_option_chain":
         analytics = result.get("analytics", {})
         pcr = analytics.get("put_call_oi_ratio")
@@ -1120,7 +1122,7 @@ def _grounded_fallback_response(
             )
         if status == "not_found":
             return (
-                f"I couldn't find that pending order. "
+                "I couldn't find that pending order. "
                 "Say 'show pending orders' to see what's waiting."
             )
         if status == "multiple_pending":

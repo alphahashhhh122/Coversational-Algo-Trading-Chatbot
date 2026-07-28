@@ -11,7 +11,6 @@ from iimc_trading_platform.api import create_app
 from iimc_trading_platform.config import AppConfig
 from iimc_trading_platform.db import connect
 from iimc_trading_platform.infrastructure import initialize_database
-from iimc_trading_platform.services.backtest_service import BacktestService
 from iimc_trading_platform.services.capability_coverage_service import (
     CapabilityCoverageService,
 )

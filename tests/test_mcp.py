@@ -4,10 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from fastapi.testclient import TestClient
 
-from iimc_trading_platform.api import create_app
-from iimc_trading_platform.config import AppConfig
 from iimc_trading_platform.infrastructure import initialize_database
 from iimc_trading_platform.mcp_server import handle_request
 from iimc_trading_platform.tools.registry import build_default_tool_registry
