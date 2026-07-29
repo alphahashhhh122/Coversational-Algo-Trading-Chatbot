@@ -8,6 +8,7 @@ wrong produces no error, just a quietly worse platform.
 from __future__ import annotations
 
 import ast
+import builtins
 import re
 import unittest
 from pathlib import Path
@@ -130,6 +131,60 @@ class RouteHandlerSmokeTest(unittest.TestCase):
             self.assertEqual(failures, [])
         finally:
             logging.disable(logging.NOTSET)
+
+
+class ToolCatalogueTest(unittest.TestCase):
+    """The catalogue split must not change what a tool is or where it sits."""
+
+    def _registry(self):
+        from iimc_trading_platform.tools.registry import build_default_tool_registry
+
+        return build_default_tool_registry(Path("unused.duckdb"))
+
+    def test_catalogue_modules_have_no_unresolved_names(self) -> None:
+        """Handlers are lambdas — an unresolved name waits until the call.
+
+        Splitting the catalogue moved tools away from helpers they referenced
+        without importing. Building the registry still succeeded, and so did
+        importing it; only calling that one tool would have failed. This is the
+        static check that found it.
+        """
+        package = _ROOT / "iimc_trading_platform" / "tools" / "catalog"
+        problems: list[str] = []
+        for path in sorted(package.glob("*.py")):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            bound = set(dir(builtins))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.alias):
+                    bound.add(node.asname or node.name.split(".")[0])
+                elif isinstance(node, (ast.FunctionDef, ast.ClassDef)):
+                    bound.add(node.name)
+                elif isinstance(node, ast.arg):
+                    bound.add(node.arg)
+                elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+                    bound.add(node.id)
+                elif isinstance(node, ast.ExceptHandler) and node.name:
+                    bound.add(node.name)
+            used = {
+                n.id for n in ast.walk(tree)
+                if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)
+            }
+            problems += [f"{path.name}: {n}" for n in sorted(used - bound)]
+        self.assertEqual(problems, [], f"unimported names in the catalogue: {problems}")
+
+    def test_the_registry_keeps_its_public_import_surface(self) -> None:
+        """Other modules import the input models from tools.registry."""
+        import iimc_trading_platform.tools.registry as registry
+
+        for name in (
+            "ToolDefinition",
+            "ToolRegistry",
+            "KnowledgeSearchInput",
+            "MarketQuoteInput",
+            "RunIdInput",
+            "build_default_tool_registry",
+        ):
+            self.assertTrue(hasattr(registry, name), f"registry lost {name}")
 
 
 if __name__ == "__main__":

@@ -120,7 +120,10 @@ Key modules under `iimc_trading_platform/`:
 | `orchestration/renderers.py` | Tool payload in, plain English out |
 | `orchestration/education.py` | Concepts, domain refusals, advice deflection |
 | `progress.py` | Progress reporting for streamed long runs |
-| `tools/registry.py` | Typed tool contracts (schema, roles, side effects) |
+| `tools/contracts.py` | What a tool *is*: input base, definition, registry |
+| `tools/inputs.py` | One validated input model per tool |
+| `tools/catalog/` | The 64 tool declarations, grouped by surface |
+| `tools/registry.py` | The factory: builds services, assembles the catalogue |
 | `services/` | Backtesting, risk, screener, news, retrieval, instrument names |
 | `services/research_agent_service.py` | Parallel multi-analyst research (`asyncio`) |
 | `services/deep_research_loop_service.py` | Iterative self-critiquing research (LangGraph) |
