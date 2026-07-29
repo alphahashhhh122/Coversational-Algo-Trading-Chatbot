@@ -113,8 +113,8 @@ Key modules under `iimc_trading_platform/`:
 
 | Path | Responsibility |
 |---|---|
-| `api.py` | REST + dashboard routes |
-| `api_routes.py` | The agent-platform routes, with their dependencies named |
+| `api.py` | App construction, chat, auth, and the SSE stream |
+| `api_routes/` | Route groups, each naming its dependencies in one signature |
 | `orchestration/core.py` | Three-tier routing: regex → LLM tools → plain LLM |
 | `orchestration/text.py` | Reading a message: symbols, dates, parameters, intent |
 | `orchestration/renderers.py` | Tool payload in, plain English out |

@@ -3,52 +3,24 @@ from __future__ import annotations
 import json
 import logging
 import queue
-import re
 import threading
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
-from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Response
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 
 from .api_models import (
-    ApprovalDecisionRequest,
-    AlertAcknowledgementRequest,
-    AiEvaluationRequest,
-    BackfillRequest,
-    BatchSubmitRequest,
     ChatRequest,
-    DirectOrderRequest,
     ChatResponse,
-    CreatePortfolioRequest,
-    CustomStrategyBacktestRequest,
-    DashboardPreferencesRequest,
-    FundamentalStatementsImportRequest,
-    KnowledgeDocumentUploadRequest,
     LoginRequest,
-    LocalFeatureDatasetInput,
-    LocalOhlcvDatasetInput,
-    McpCallRequest,
-    OpenAlgoHistoryImportRequest,
-    OptionsFeatureDerivationInput,
-    PortfolioControlRequest,
-    PortfolioFillRequest,
-    PortfolioRiskCheckRequest,
-    RetentionExecuteRequest,
-    ScreenDefinitionRequest,
-    RetentionPreviewRequest,
-    ResearchBriefRequest,
-    RobustnessExperimentRequest,
-    RunComparisonRequest,
-    SandboxActionRequest,
 )
-from .config import AppConfig, load_config, public_config
-from .db import connect
+from .config import AppConfig, load_config
 from .evaluator import ResponseEvaluator
 from .infrastructure import (
     DuckDBAuditRepository,
@@ -61,7 +33,15 @@ from .infrastructure import (
 )
 from .observability import configure_logging
 from .progress import reporting_to
-from . import api_routes
+from .api_routes import (
+    agent_platform,
+    execution_routes,
+    knowledge_routes,
+    market_data_routes,
+    operations_routes,
+    platform_routes,
+    research_routes,
+)
 from .telemetry import configure_telemetry
 from .middleware import (
     RateLimitMiddleware,
@@ -69,13 +49,11 @@ from .middleware import (
     RequestContextMiddleware,
 )
 from .orchestration import build_orchestrator
-from .services.instrument_names import company_name as _company_name
 from .services import (
     AuditService,
     AuthService,
     BackupService,
     CapabilityCoverageService,
-    CustomStrategyService,
     DashboardPreferenceService,
     build_job_service,
     build_task_service,
@@ -86,20 +64,16 @@ from .services import (
     MarketDataIngestionService,
     OpenAlgoReadinessService,
     OpenAlgoHistoryImportService,
-    operational_summary,
     PersonaService,
     PlatformDashboardService,
     Principal,
     PortfolioService,
-    production_readiness,
     register_default_jobs,
     ResearchService,
     RobustnessService,
     ToolExecutionService,
-    foundation_health,
 )
 from .services.chat_service import ChatService
-from .services.knowledge_service import KnowledgeService
 from .services.ai_evaluation_service import AiEvaluationService
 from .services.alert_service import AlertService
 from .services.retrieval_evaluation_service import (
@@ -113,45 +87,15 @@ from .services.conversation_service import ConversationService
 from .services.sandbox_execution_service import SandboxExecutionService
 from .services.tool_execution_service import ToolExecutionError
 from .tools.registry import (
-    CompileCustomStrategyInput,
-    CreateCustomStrategySpecInput,
-    DatasetDetailInput,
-    DatasetFreshnessInput,
-    InstrumentSearchInput,
-    KnowledgeSearchInput,
-    ListCustomStrategySpecsInput,
-    MarketQuoteInput,
-    OpenAlgoSnapshotInput,
-    OptionSymbolInput,
-    PrepareSandboxIntentInput,
-    RunBacktestInput,
-    RunCustomStrategySpecInput,
-    RunIdInput,
-    SymbolValidationInput,
     build_default_tool_registry,
 )
 
 
-_NAME_SYMBOL_KEYS = ("symbol", "tradingsymbol", "tsym")
 
 # How long a stream may stay silent before sending a keep-alive comment.
 _SSE_HEARTBEAT_SECONDS = 15.0
 
 
-def _annotate_company_names(data: Any, openalgo_root: Path) -> None:
-    """Add a readable ``company_name`` to each broker row, in place."""
-    if not isinstance(data, list):
-        return
-    for row in data:
-        if not isinstance(row, dict) or row.get("company_name"):
-            continue
-        symbol = next(
-            (row[key] for key in _NAME_SYMBOL_KEYS if row.get(key)), None
-        )
-        exchange = row.get("exchange") or "NSE"
-        name = _company_name(symbol, exchange, openalgo_root=openalgo_root)
-        if name:
-            row["company_name"] = name
 
 
 def _evidence_dataset_id(evidence: list[dict[str, Any]]) -> str | None:
@@ -824,261 +768,25 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             )
         return {"status": "logged_out", "user_id": principal.user_id}
 
-    @app.get("/operations/summary")
-    def operations_summary(
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        return operational_summary(active_config)
 
-    @app.get("/operations/backups")
-    def backups(
-        principal: Principal = Depends(approver),
-    ) -> dict[str, Any]:
-        return backup_service.list()
 
-    @app.post("/operations/backups")
-    def create_backup(
-        principal: Principal = Depends(approver),
-    ) -> dict[str, Any]:
-        return backup_service.create(created_by=principal.username)
 
-    @app.get("/operations/backups/{backup_id}/verify")
-    def verify_backup(
-        backup_id: str,
-        principal: Principal = Depends(approver),
-    ) -> dict[str, Any]:
-        return backup_service.verify(
-            backup_id,
-            verified_by=principal.username,
-        )
 
-    @app.get("/evaluations")
-    def evaluations(
-        limit: int = 50,
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        if limit < 1 or limit > 200:
-            raise HTTPException(
-                status_code=422,
-                detail="limit must be between 1 and 200",
-            )
-        return ai_evaluation_service.list(limit)
 
-    @app.post("/evaluations/run")
-    def run_evaluation(
-        request: AiEvaluationRequest,
-        principal: Principal = Depends(approver),
-    ) -> dict[str, Any]:
-        configured_api_key = (
-            active_config.groq_api_key
-            if active_config.llm_provider == "groq"
-            else active_config.openai_api_key
-        )
-        configured_model = (
-            active_config.groq_model
-            if active_config.llm_provider == "groq"
-            else active_config.openai_model
-        )
-        if request.mode == "configured" and not configured_api_key:
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    f"{active_config.llm_provider.upper()} API key is "
-                    "required for configured evaluation"
-                ),
-            )
-        orchestrator = build_orchestrator(
-            api_key=configured_api_key if request.mode == "configured" else None,
-            model=active_config.openai_model,
-            provider=active_config.llm_provider,
-            groq_api_key=(
-                active_config.groq_api_key
-                if request.mode == "configured"
-                else None
-            ),
-            groq_model=active_config.groq_model,
-            groq_fallback_model=active_config.groq_fallback_model,
-            require_real_llm=(request.mode == "configured"),
-        )
-        return ai_evaluation_service.run(
-            orchestrator=orchestrator,
-            model=configured_model if request.mode == "configured" else None,
-            created_by=principal.username,
-        )
 
-    @app.get("/evaluations/retrieval")
-    def retrieval_evaluations(
-        limit: int = 50,
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        if limit < 1 or limit > 200:
-            raise HTTPException(
-                status_code=422,
-                detail="limit must be between 1 and 200",
-            )
-        return retrieval_evaluation_service.list(limit)
 
-    @app.post("/evaluations/retrieval/run")
-    def run_retrieval_evaluation(
-        principal: Principal = Depends(approver),
-    ) -> dict[str, Any]:
-        return retrieval_evaluation_service.run(
-            created_by=principal.username,
-        )
 
-    @app.get("/operations/retention")
-    def retention(
-        limit: int = 50,
-        principal: Principal = Depends(approver),
-    ) -> dict[str, Any]:
-        if limit < 1 or limit > 200:
-            raise HTTPException(
-                status_code=422,
-                detail="limit must be between 1 and 200",
-            )
-        return {
-            **retention_service.policies(),
-            **retention_service.recent_runs(limit),
-        }
 
-    @app.post("/operations/retention/preview")
-    def preview_retention(
-        request: RetentionPreviewRequest,
-        principal: Principal = Depends(approver),
-    ) -> dict[str, Any]:
-        return retention_service.preview(
-            actor=principal.username,
-            policy_names=request.policy_names,
-        )
 
-    @app.post("/operations/retention/execute")
-    def execute_retention(
-        request: RetentionExecuteRequest,
-        principal: Principal = Depends(admin),
-    ) -> dict[str, Any]:
-        return retention_service.execute(
-            actor=principal.username,
-            confirmation=request.confirmation,
-            policy_names=request.policy_names,
-        )
 
-    @app.get("/operations/alerts")
-    def alerts(
-        include_resolved: bool = False,
-        limit: int = 100,
-        principal: Principal = Depends(approver),
-    ) -> dict[str, Any]:
-        if limit < 1 or limit > 500:
-            raise HTTPException(
-                status_code=422,
-                detail="limit must be between 1 and 500",
-            )
-        return alert_service.list(
-            include_resolved=include_resolved,
-            limit=limit,
-        )
 
-    @app.post("/operations/alerts/evaluate")
-    def evaluate_alerts(
-        principal: Principal = Depends(approver),
-    ) -> dict[str, Any]:
-        return alert_service.evaluate(actor=principal.username)
 
-    @app.post("/operations/alerts/{alert_id}/acknowledge")
-    def acknowledge_alert(
-        alert_id: str,
-        request: AlertAcknowledgementRequest,
-        principal: Principal = Depends(approver),
-    ) -> dict[str, Any]:
-        return alert_service.acknowledge(
-            alert_id,
-            actor=principal.username,
-            reason=request.reason,
-        )
 
-    @app.post("/operations/storage-plan")
-    def storage_plan(
-        principal: Principal = Depends(admin),
-    ) -> dict[str, Any]:
-        return storage_migration_service.generate()
 
-    @app.post("/operations/storage-export-analytical")
-    def storage_export_analytical(
-        principal: Principal = Depends(admin),
-    ) -> dict[str, Any]:
-        return storage_migration_service.export_analytical_history()
 
-    @app.get("/metrics", response_class=PlainTextResponse)
-    def metrics(
-        principal: Principal = Depends(approver),
-    ) -> str:
-        summary = operational_summary(active_config)
-        return "\n".join(
-            [
-                "# TYPE iimc_enabled_jobs gauge",
-                f"iimc_enabled_jobs {summary['enabled_jobs']}",
-                "# TYPE iimc_failed_job_runs counter",
-                f"iimc_failed_job_runs {summary['failed_job_runs']}",
-                "# TYPE iimc_stale_assessments gauge",
-                (
-                    "iimc_stale_assessments "
-                    f"{summary['stale_assessments']}"
-                ),
-                "# TYPE iimc_pending_approvals gauge",
-                (
-                    "iimc_pending_approvals "
-                    f"{summary['pending_approvals']}"
-                ),
-                "# TYPE iimc_uncertain_submissions gauge",
-                (
-                    "iimc_uncertain_submissions "
-                    f"{summary['uncertain_submissions']}"
-                ),
-                "# TYPE iimc_active_tasks gauge",
-                f"iimc_active_tasks {summary['active_tasks']}",
-                "# TYPE iimc_failed_tasks gauge",
-                f"iimc_failed_tasks {summary['failed_tasks']}",
-                "# TYPE iimc_active_critical_alerts gauge",
-                (
-                    "iimc_active_critical_alerts "
-                    f"{summary['active_critical_alerts']}"
-                ),
-                "# TYPE iimc_active_warning_alerts gauge",
-                (
-                    "iimc_active_warning_alerts "
-                    f"{summary['active_warning_alerts']}"
-                ),
-                "",
-            ]
-        )
 
-    @app.get("/jobs")
-    def jobs(
-        principal: Principal = Depends(approver),
-    ) -> dict[str, Any]:
-        return job_service.list_jobs()
 
-    @app.get("/jobs/runs")
-    def job_runs(
-        limit: int = 100,
-        principal: Principal = Depends(approver),
-    ) -> dict[str, Any]:
-        if limit < 1 or limit > 500:
-            raise HTTPException(
-                status_code=422,
-                detail="limit must be between 1 and 500",
-            )
-        return job_service.recent_runs(limit)
 
-    @app.post("/jobs/{job_id}/run")
-    def run_job(
-        job_id: str,
-        principal: Principal = Depends(approver),
-    ) -> dict[str, Any]:
-        return job_service.run_now(
-            job_id,
-            worker_id=f"api:{principal.username}",
-        )
 
     def execute_tool(
         tool_name: str,
@@ -1124,203 +832,28 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             ) from exc
         return {"tool_call_id": tool_call_id, **result}
 
-    @app.get("/settings")
-    def settings(principal: Principal = Depends(viewer)) -> dict[str, Any]:
-        """Redacted runtime configuration for the Settings view."""
-        return public_config(active_config)
 
-    @app.get("/health")
-    def health() -> dict[str, Any]:
-        return foundation_health(active_config)
 
-    @app.get("/live")
-    def live() -> dict[str, str]:
-        return {"status": "alive"}
 
-    @app.get("/ready")
-    def ready() -> dict[str, Any]:
-        result = json.loads(
-            json.dumps(production_readiness(active_config), default=str)
-        )
-        if result["status"] != "ready":
-            raise HTTPException(status_code=503, detail=result)
-        return result
 
-    @app.get("/tools")
-    def tools(principal: Principal = Depends(viewer)) -> dict[str, Any]:
-        return {
-            "orchestration_mode": chat_service.orchestrator.mode,
-            "tools": tool_registry.list_tools(),
-        }
 
-    @app.get("/platform/summary")
-    def platform_summary(
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        return platform_dashboard_service.summary()
 
-    @app.get("/platform/dashboard")
-    def platform_dashboard(
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        return platform_dashboard_service.summary()
 
-    @app.get("/platform/dashboard/summary")
-    def platform_dashboard_summary(
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        return platform_dashboard_service.summary()
 
-    @app.get("/platform/dashboard/preferences")
-    def dashboard_preferences(
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        return dashboard_preference_service.get(principal.user_id)
 
-    @app.put("/platform/dashboard/preferences")
-    def update_dashboard_preferences(
-        request: DashboardPreferencesRequest,
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        try:
-            return dashboard_preference_service.update(
-                principal.user_id,
-                widgets=request.widgets,
-                auto_refresh=request.auto_refresh,
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    @app.get("/platform/operator-review")
-    def platform_operator_review(
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        return platform_dashboard_service.operator_review()
 
-    @app.get("/platform/status")
-    def platform_status(
-        symbol: str = "NIFTY",
-        exchange: str = "NFO",
-        asset_class: str = "options",
-        interval: str = "5m",
-        start_date: str = "2026-04-23",
-        end_date: str = "2026-05-23",
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        return capability_coverage_service.platform_status(
-            symbol=symbol,
-            exchange=exchange,
-            asset_class=asset_class,
-            interval=interval,
-            start_date=start_date,
-            end_date=end_date,
-        )
 
-    @app.get("/platform/execution/readiness")
-    def platform_execution_readiness(
-        symbol: str = "NIFTY",
-        exchange: str = "NFO",
-        asset_class: str = "options",
-        interval: str = "5m",
-        start_date: str = "2026-04-23",
-        end_date: str = "2026-05-23",
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        return execution_readiness_service.readiness(
-            symbol=symbol,
-            exchange=exchange,
-            asset_class=asset_class,
-            interval=interval,
-            start_date=start_date,
-            end_date=end_date,
-        )
 
-    @app.get("/platform/symbol/readiness")
-    def platform_symbol_readiness(
-        symbol: str,
-        exchange: str,
-        asset_class: str,
-        interval: str,
-        start_date: str,
-        end_date: str,
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        return capability_coverage_service.platform_status(
-            symbol=symbol,
-            exchange=exchange,
-            asset_class=asset_class,
-            interval=interval,
-            start_date=start_date,
-            end_date=end_date,
-        )
 
-    @app.get("/platform/research/context")
-    def platform_research_context(
-        symbol: str,
-        exchange: str,
-        asset_class: str,
-        interval: str,
-        start_date: str,
-        end_date: str,
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        return research_service.research_context(
-            symbol=symbol,
-            exchange=exchange,
-            asset_class=asset_class,
-            interval=interval,
-            start_date=start_date,
-            end_date=end_date,
-        )
 
-    @app.get("/platform/research/briefs")
-    def platform_research_briefs(
-        limit: int = 20,
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        if limit < 1 or limit > 100:
-            raise HTTPException(
-                status_code=422,
-                detail="limit must be between 1 and 100",
-            )
-        return research_service.list_briefs(limit=limit)
 
-    @app.post("/platform/research/briefs")
-    def create_platform_research_brief(
-        request: ResearchBriefRequest,
-        principal: Principal = Depends(researcher),
-    ) -> dict[str, Any]:
-        return research_service.create_brief(
-            **request.model_dump(),
-            created_by=principal.username,
-        )
 
-    @app.get("/platform/openalgo/monitor")
-    def platform_openalgo_monitor(
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        return openalgo_readiness_service.monitor()
 
-    @app.get("/watches")
-    def list_watches_endpoint(
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        return watch_service.list()
 
-    @app.post("/watches/check")
-    def check_watches_endpoint(
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        return watch_service.evaluate()
 
-    @app.delete("/watches/{watch_id}")
-    def remove_watch_endpoint(
-        watch_id: str,
-        principal: Principal = Depends(approver),
-    ) -> dict[str, Any]:
-        return watch_service.remove_by_id(watch_id)
 
-    api_routes.register(
+    agent_platform.register(
         app,
         agents_by_key=_agents_by_key,
         agent_registry=agent_registry,
@@ -1348,35 +881,6 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
 
 
-    @app.get("/data/health")
-    def data_health_endpoint(
-        universe: str = "nifty50",
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        return data_health_service.coverage(universe)
-
-    @app.get("/data/backfill/status")
-    def backfill_status_endpoint(
-        universe: str = "nifty50",
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        return universe_backfill.status(universe)
-
-    @app.post("/data/backfill/run")
-    def backfill_run_endpoint(
-        request: BackfillRequest,
-        principal: Principal = Depends(researcher),
-    ) -> dict[str, Any]:
-        try:
-            return universe_backfill.run(
-                universe=request.universe,
-                interval=request.interval,
-                exchange=request.exchange,
-                lookback_days=request.lookback_days,
-                max_symbols=request.max_symbols,
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 
@@ -1392,423 +896,31 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
 
 
-    @app.get("/platform/instruments/search")
-    def platform_instrument_search(
-        query: str,
-        exchange: str,
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        try:
-            payload = InstrumentSearchInput(
-                query=query,
-                exchange=exchange,
-            )
-        except ValidationError as exc:
-            raise HTTPException(
-                status_code=422,
-                detail=exc.errors(include_url=False),
-            ) from exc
-        return instrument_discovery_service.search(**payload.model_dump())
 
-    @app.get("/platform/instruments/symbol")
-    def platform_instrument_symbol(
-        symbol: str,
-        exchange: str,
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        try:
-            payload = SymbolValidationInput(
-                symbol=symbol,
-                exchange=exchange,
-            )
-        except ValidationError as exc:
-            raise HTTPException(
-                status_code=422,
-                detail=exc.errors(include_url=False),
-            ) from exc
-        return instrument_discovery_service.validate_symbol(
-            **payload.model_dump()
-        )
 
-    @app.get("/platform/instruments/quote")
-    def platform_instrument_quote(
-        query: str,
-        exchange: str = "NSE",
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        try:
-            payload = MarketQuoteInput(
-                query=query,
-                exchange=exchange,
-            ).model_dump(mode="json")
-        except ValidationError as exc:
-            raise HTTPException(
-                status_code=422,
-                detail=exc.errors(include_url=False),
-            ) from exc
-        return execute_tool("get_market_quote", payload)
 
-    @app.get("/platform/instruments/optionsymbol")
-    def platform_option_symbol(
-        underlying: str,
-        exchange: str,
-        expiry_date: str,
-        option_type: str,
-        offset: str = "ATM",
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        try:
-            payload = OptionSymbolInput(
-                underlying=underlying,
-                exchange=exchange,
-                expiry_date=expiry_date,
-                offset=offset,
-                option_type=option_type,
-            )
-        except ValidationError as exc:
-            raise HTTPException(
-                status_code=422,
-                detail=exc.errors(include_url=False),
-            ) from exc
-        return instrument_discovery_service.resolve_option_symbol(
-            **payload.model_dump()
-        )
 
-    @app.post("/platform/backtest/run", response_model=None)
-    def platform_backtest_run(
-        request: RunBacktestInput,
-        response: Response,
-        principal: Principal = Depends(researcher),
-    ) -> dict[str, Any]:
-        try:
-            result = execute_tool(
-                "run_backtest",
-                request.model_dump(mode="json"),
-            )
-        except HTTPException as exc:
-            response.status_code = int(exc.status_code)
-            detail = exc.detail if isinstance(exc.detail, dict) else {}
-            return {
-                "ok": False,
-                "status": "backtest_failed",
-                "safe_failure": True,
-                "message": (
-                    detail.get("message")
-                    if isinstance(detail, dict)
-                    else str(exc.detail)
-                ),
-                "no_synthetic_fallback": True,
-                "data_source": "real",
-                "visible_in_openalgo": False,
-                "detail": exc.detail,
-            }
-        return {
-            "ok": True,
-            "status": "completed",
-            "safe_failure": False,
-            "message": "IIMC historical backtest completed.",
-            "no_synthetic_fallback": True,
-            "data_source": "real",
-            "visible_in_openalgo": False,
-            **result,
-        }
 
-    @app.get("/datasets")
-    def datasets(principal: Principal = Depends(viewer)) -> dict[str, Any]:
-        return execute_tool("list_datasets", {})
 
-    @app.get("/datasets/{dataset_id}/instruments")
-    def dataset_instruments(
-        dataset_id: str,
-        limit: int = 500,
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        try:
-            return BacktestService(
-                active_config.database_path,
-                strategy_plugin_dir=active_config.strategy_plugin_dir,
-            ).list_dataset_instruments(dataset_id, limit=limit)
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    @app.get("/datasets/{dataset_id}/ohlcv")
-    def dataset_ohlcv(
-        dataset_id: str,
-        limit: int = 500,
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        if limit < 10 or limit > 2000:
-            raise HTTPException(
-                status_code=422,
-                detail="limit must be between 10 and 2000",
-            )
-        try:
-            metadata, candles = BacktestService(
-                active_config.database_path,
-                strategy_plugin_dir=active_config.strategy_plugin_dir,
-            ).load_dataset_candles(dataset_id)
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        tail = candles[-limit:]
-        return {
-            "dataset_id": dataset_id,
-            "symbol": metadata["symbol"],
-            "exchange": metadata["exchange"],
-            "interval": metadata["interval"],
-            "asset_class": metadata["asset_class"],
-            "total_candles": len(candles),
-            "returned_candles": len(tail),
-            "candles": [
-                {
-                    "timestamp": (
-                        candle["timestamp"].isoformat()
-                        if hasattr(candle["timestamp"], "isoformat")
-                        else str(candle["timestamp"])
-                    ),
-                    "open": candle["open"],
-                    "high": candle["high"],
-                    "low": candle["low"],
-                    "close": candle["close"],
-                    "volume": candle["volume"],
-                }
-                for candle in tail
-            ],
-        }
 
-    @app.post("/datasets/ohlcv")
-    def import_local_ohlcv_dataset(
-        request: LocalOhlcvDatasetInput,
-        principal: Principal = Depends(researcher),
-    ) -> dict[str, Any]:
-        try:
-            result = market_data_ingestion_service.import_ohlcv(
-                **request.model_dump(),
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        audit = AuditService(
-            DuckDBAuditRepository(active_config.database_path)
-        ).record(
-            entity_type="dataset",
-            entity_id=result["dataset_id"],
-            action="local_ohlcv_imported",
-            actor=principal.username,
-            payload={
-                "asset_class": result["asset_class"],
-                "row_count": result["row_count"],
-                "source_sha256": result["source_sha256"],
-            },
-        )
-        return {**result, "audit_id": audit.audit_id}
 
-    @app.post("/datasets/openalgo-history")
-    def import_openalgo_history_dataset(
-        request: OpenAlgoHistoryImportRequest,
-        principal: Principal = Depends(researcher),
-    ) -> dict[str, Any]:
-        try:
-            result = openalgo_history_import_service.import_history(
-                **request.model_dump(),
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        audit = AuditService(
-            DuckDBAuditRepository(active_config.database_path)
-        ).record(
-            entity_type="dataset",
-            entity_id=result["dataset_id"],
-            action="openalgo_history_imported",
-            actor=principal.username,
-            payload={
-                "provider": "openalgo",
-                "symbol": result["resolved_symbol"],
-                "exchange": result["resolved_exchange"],
-                "asset_class": result["asset_class"],
-                "row_count": result["row_count"],
-                "source_sha256": result["source_sha256"],
-            },
-        )
-        return {**result, "audit_id": audit.audit_id}
 
-    @app.post("/datasets/features")
-    def import_local_feature_dataset(
-        request: LocalFeatureDatasetInput,
-        principal: Principal = Depends(researcher),
-    ) -> dict[str, Any]:
-        try:
-            result = market_data_ingestion_service.import_features(
-                **request.model_dump(),
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        audit = AuditService(
-            DuckDBAuditRepository(active_config.database_path)
-        ).record(
-            entity_type="dataset",
-            entity_id=result["dataset_id"],
-            action="local_feature_series_imported",
-            actor=principal.username,
-            payload={
-                "feature_names": result["feature_names"],
-                "row_count": result["row_count"],
-                "source_sha256": result["source_sha256"],
-                "point_in_time_safe": True,
-            },
-        )
-        return {**result, "audit_id": audit.audit_id}
 
-    @app.post("/datasets/options/{dataset_id}/derive-features")
-    def derive_options_feature_dataset(
-        dataset_id: str,
-        request: OptionsFeatureDerivationInput,
-        principal: Principal = Depends(researcher),
-    ) -> dict[str, Any]:
-        try:
-            result = market_data_ingestion_service.derive_options_features(
-                options_dataset_id=dataset_id,
-                **request.model_dump(),
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        audit = AuditService(
-            DuckDBAuditRepository(active_config.database_path)
-        ).record(
-            entity_type="dataset",
-            entity_id=result["dataset_id"],
-            action="options_features_derived",
-            actor=principal.username,
-            payload={
-                "source_dataset_id": dataset_id,
-                "feature_names": result["feature_names"],
-                "source_sha256": result["source_sha256"],
-            },
-        )
-        return {**result, "audit_id": audit.audit_id}
 
-    @app.get("/datasets/{dataset_id}")
-    def dataset_detail(
-        dataset_id: str,
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        payload = DatasetDetailInput(dataset_id=dataset_id).model_dump(
-            mode="json"
-        )
-        return execute_tool("get_dataset_detail", payload)
 
-    @app.get("/datasets/{dataset_id}/freshness")
-    def dataset_freshness(
-        dataset_id: str,
-        purpose: str = "historical_research",
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        try:
-            payload = DatasetFreshnessInput(
-                dataset_id=dataset_id,
-                purpose=purpose,
-            ).model_dump(mode="json")
-        except ValidationError as exc:
-            raise HTTPException(
-                status_code=422,
-                detail=exc.errors(include_url=False),
-            ) from exc
-        return execute_tool("assess_dataset_freshness", payload)
 
-    @app.get("/strategies")
-    def strategies(principal: Principal = Depends(viewer)) -> dict[str, Any]:
-        return execute_tool("list_strategies", {})
 
-    @app.get("/custom-strategy-specs")
-    def custom_strategy_specs(
-        limit: int = 50,
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        payload = ListCustomStrategySpecsInput(limit=limit).model_dump(
-            mode="json"
-        )
-        return execute_tool("list_custom_strategy_specs", payload)
 
-    @app.get("/custom-strategy-capabilities")
-    def custom_strategy_capabilities(
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        return execute_tool("get_custom_strategy_capabilities", {})
 
-    @app.post("/custom-strategy-specs")
-    def create_custom_strategy_spec(
-        request: CreateCustomStrategySpecInput,
-        principal: Principal = Depends(researcher),
-    ) -> dict[str, Any]:
-        payload = request.model_dump(mode="json")
-        payload["created_by"] = principal.username
-        return execute_tool("create_custom_strategy_spec", payload)
 
-    @app.post("/custom-strategy-specs/compile")
-    def compile_custom_strategy_spec(
-        request: CompileCustomStrategyInput,
-        principal: Principal = Depends(researcher),
-    ) -> dict[str, Any]:
-        return execute_tool(
-            "compile_custom_strategy_spec",
-            request.model_dump(mode="json"),
-        )
 
-    @app.put("/custom-strategy-specs/{spec_id}")
-    def update_custom_strategy_spec(
-        spec_id: str,
-        request: CreateCustomStrategySpecInput,
-        principal: Principal = Depends(researcher),
-    ) -> dict[str, Any]:
-        payload = request.model_dump(mode="json")
-        payload["spec_id"] = spec_id
-        payload["created_by"] = principal.username
-        return execute_tool("update_custom_strategy_spec", payload)
 
-    @app.get("/custom-strategy-specs/{spec_id}")
-    def get_custom_strategy_spec(
-        spec_id: str,
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        try:
-            return CustomStrategyService(
-                active_config.database_path
-            ).get_spec(spec_id)
-        except ValueError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    @app.delete("/custom-strategy-specs/{spec_id}")
-    def delete_custom_strategy_spec(
-        spec_id: str,
-        principal: Principal = Depends(researcher),
-    ) -> dict[str, Any]:
-        try:
-            return CustomStrategyService(
-                active_config.database_path
-            ).delete_spec(spec_id)
-        except ValueError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    @app.post("/custom-strategy-specs/validate")
-    def validate_custom_strategy_spec(
-        request: CreateCustomStrategySpecInput,
-        principal: Principal = Depends(researcher),
-    ) -> dict[str, Any]:
-        payload = request.model_dump(mode="json")
-        payload.pop("created_by", None)
-        return CustomStrategyService(active_config.database_path).validate_spec(
-            **payload
-        )
 
-    @app.post("/custom-strategy-specs/{spec_id}/backtest")
-    def run_custom_strategy_spec(
-        spec_id: str,
-        request: CustomStrategyBacktestRequest,
-        principal: Principal = Depends(researcher),
-    ) -> dict[str, Any]:
-        payload = RunCustomStrategySpecInput(
-            spec_id=spec_id,
-            **request.model_dump(mode="json"),
-        ).model_dump(mode="json")
-        return execute_tool("run_custom_strategy_spec", payload)
+
+
 
     @app.get("/personas")
     def personas(principal: Principal = Depends(viewer)) -> dict[str, Any]:
@@ -1821,733 +933,56 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     ) -> dict[str, Any]:
         return persona_service.get(persona_id)
 
-    @app.get("/knowledge/documents")
-    def knowledge_documents(
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        return execute_tool("list_knowledge_documents", {})
 
-    @app.post("/knowledge/search")
-    def knowledge_search(
-        request: KnowledgeSearchInput,
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        return execute_tool(
-            "search_knowledge",
-            request.model_dump(mode="json"),
-        )
 
-    @app.post("/fundamentals/statements")
-    def import_fundamental_statements(
-        request: FundamentalStatementsImportRequest,
-        principal: Principal = Depends(researcher),
-    ) -> dict[str, Any]:
-        from .services.fundamentals_service import FundamentalsService
 
-        try:
-            result = FundamentalsService(
-                active_config.database_path
-            ).import_statements(
-                symbol=request.symbol,
-                currency=request.currency,
-                source=request.source,
-                statements=request.statements,
-                imported_by=principal.username,
-            )
-        except (ValueError, TypeError) as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        audit = AuditService(
-            DuckDBAuditRepository(active_config.database_path)
-        )
-        event = audit.record(
-            actor=principal.username,
-            action="fundamental_statements_imported",
-            entity_type="financial_statements",
-            entity_id=result["symbol"],
-            payload=result,
-        )
-        return {**result, "audit_id": event.audit_id}
 
-    @app.get("/fundamentals/{symbol}/analysis")
-    def fundamental_analysis(
-        symbol: str,
-        market_price: float | None = None,
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        return execute_tool(
-            "analyze_fundamentals",
-            {"symbol": symbol, "market_price": market_price},
-        )
 
-    @app.get("/runs/{run_id}/trades.csv")
-    def export_run_trades_csv(
-        run_id: str,
-        principal: Principal = Depends(viewer),
-    ) -> PlainTextResponse:
-        con = connect(active_config.database_path)
-        try:
-            rows = con.execute(
-                """
-                SELECT trade_id, symbol, side, quantity, price,
-                       realized_pnl, fees, filled_at
-                FROM trade_fills
-                WHERE run_id = ?
-                ORDER BY filled_at, trade_id
-                """,
-                [run_id],
-            ).fetchall()
-        finally:
-            con.close()
-        if not rows:
-            raise HTTPException(
-                status_code=404,
-                detail=f"No trades stored for run {run_id!r}",
-            )
-        lines = ["trade_id,symbol,side,quantity,price,realized_pnl,fees,filled_at"]
-        for row in rows:
-            lines.append(
-                ",".join(str(value) for value in row)
-            )
-        return PlainTextResponse(
-            "\n".join(lines) + "\n",
-            media_type="text/csv",
-            headers={
-                "Content-Disposition": (
-                    f"attachment; filename={run_id}_trades.csv"
-                ),
-            },
-        )
 
-    @app.get("/screens")
-    def list_screens(
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        from .services.screen_service import ScreenService
 
-        service = ScreenService(active_config.database_path)
-        service.ensure_defaults()
-        return service.list_definitions()
 
-    @app.post("/screens")
-    def save_screen(
-        request: ScreenDefinitionRequest,
-        principal: Principal = Depends(researcher),
-    ) -> dict[str, Any]:
-        from .services.screen_service import ScreenService
 
-        try:
-            return ScreenService(active_config.database_path).save_definition(
-                name=request.name,
-                description=request.description,
-                criteria=request.criteria,
-                created_by=principal.username,
-            )
-        except (ValueError, TypeError) as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    @app.get("/screens/{name}/run")
-    def run_screen(
-        name: str,
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        return execute_tool("run_screen", {"name": name})
 
-    @app.post("/knowledge/documents")
-    def upload_knowledge_document(
-        request: KnowledgeDocumentUploadRequest,
-        principal: Principal = Depends(researcher),
-    ) -> dict[str, Any]:
-        """Index a user-supplied document (company report, filing, notes)."""
-        text = request.text
-        document_type = request.document_type
-        if request.content_base64:
-            try:
-                import pypdf  # noqa: F401
-            except ImportError as exc:
-                raise HTTPException(
-                    status_code=422,
-                    detail=(
-                        "PDF support requires the optional pypdf package "
-                        "(pip install pypdf). Paste the text or upload a "
-                        ".txt/.md file instead."
-                    ),
-                ) from exc
-            import base64
-            import io
-            try:
-                reader = pypdf.PdfReader(
-                    io.BytesIO(base64.b64decode(request.content_base64))
-                )
-                text = "\n\n".join(
-                    page.extract_text() or "" for page in reader.pages
-                )
-                document_type = "pdf"
-            except Exception as exc:
-                raise HTTPException(
-                    status_code=422,
-                    detail=f"Could not read the PDF: {exc}",
-                ) from exc
-        if not text.strip():
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "The document has no extractable text. Provide 'text' "
-                    "or a readable PDF."
-                ),
-            )
-        slug = re.sub(r"[^a-z0-9]+", "-", request.title.lower()).strip("-")
-        knowledge = KnowledgeService(active_config.database_path)
-        try:
-            document = knowledge.index_text(
-                title=request.title,
-                source_uri=request.source_uri or f"upload://{slug}",
-                text=text,
-                document_type=document_type,
-                metadata={
-                    "corpus": "user_uploaded",
-                    "uploaded_by": principal.username,
-                },
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        audit = AuditService(
-            DuckDBAuditRepository(active_config.database_path)
-        )
-        event = audit.record(
-            actor=principal.username,
-            action="knowledge_document_uploaded",
-            entity_type="knowledge_document",
-            entity_id=document["document_id"],
-            payload={
-                "title": request.title,
-                "document_type": document_type,
-                "chunk_count": document.get("chunk_count"),
-            },
-        )
-        return {**document, "audit_id": event.audit_id}
 
-    @app.get("/market-news/status")
-    def market_news_status(
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        return market_news_service.status()
 
-    @app.get("/market-news/latest")
-    def market_news_latest(
-        limit: int = 20,
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        return market_news_service.latest(limit)
 
-    @app.post("/market-news/fetch", response_model=None)
-    def market_news_fetch(
-        response: Response,
-        query: str | None = None,
-        symbol: str | None = None,
-        principal: Principal = Depends(researcher),
-    ) -> dict[str, Any]:
-        result = market_news_service.fetch(query=query, symbol=symbol)
-        if not result.get("ok"):
-            response.status_code = 409
-        return result
 
-    @app.get("/openalgo/snapshots")
-    def openalgo_snapshots(
-        limit: int = 100,
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        return openalgo_snapshot_service.list(limit)
 
-    @app.post("/openalgo/emergency/{action}")
-    def openalgo_emergency(
-        action: str,
-        principal: Principal = Depends(approver),
-    ) -> dict[str, Any]:
-        """Protective broker controls: cancel-all orders or square-off."""
-        if action not in {"cancel_all_orders", "square_off_positions"}:
-            raise HTTPException(
-                status_code=422,
-                detail=(
-                    "action must be cancel_all_orders or "
-                    "square_off_positions"
-                ),
-            )
-        if not active_config.openalgo_api_key:
-            raise HTTPException(
-                status_code=503,
-                detail={
-                    "ok": False,
-                    "status": "credential_required",
-                    "safe_failure": True,
-                    "message": "OPENALGO_API_KEY is not configured",
-                    "no_synthetic_fallback": True,
-                },
-            )
-        try:
-            result = openalgo_snapshot_service.emergency_action(
-                action,
-                actor=principal.username,
-            )
-        except OpenAlgoUnavailableError as exc:
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        audit = AuditService(
-            DuckDBAuditRepository(active_config.database_path)
-        )
-        event = audit.record(
-            actor=principal.username,
-            action=f"openalgo_emergency_{action}",
-            entity_type="openalgo_emergency",
-            entity_id=result["record_id"],
-            payload={"broker_response": result["broker_response"]},
-        )
-        return {**result, "audit_id": event.audit_id}
 
-    @app.get("/openalgo/{snapshot_type}")
-    def openalgo_snapshot(
-        snapshot_type: str,
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        if not active_config.openalgo_api_key:
-            raise HTTPException(
-                status_code=503,
-                detail={
-                    "ok": False,
-                    "status": "credential_required",
-                    "safe_failure": True,
-                    "message": "OPENALGO_API_KEY is not configured",
-                    "no_synthetic_fallback": True,
-                },
-            )
-        try:
-            payload = OpenAlgoSnapshotInput(
-                snapshot_type=snapshot_type
-            ).model_dump(mode="json")
-        except ValidationError as exc:
-            raise HTTPException(
-                status_code=422,
-                detail=exc.errors(include_url=False),
-            ) from exc
-        result = execute_tool("get_openalgo_snapshot", payload)
-        _annotate_company_names(
-            result.get("data"), active_config.openalgo_root
-        )
-        return result
 
-    @app.post("/sandbox/intents")
-    def prepare_sandbox_intent(
-        request: PrepareSandboxIntentInput,
-        principal: Principal = Depends(researcher),
-    ) -> dict[str, Any]:
-        payload = request.model_dump()
-        payload["requested_by"] = principal.username
-        try:
-            return sandbox_service.prepare_intent(**payload)
-        except (ValueError, PermissionError) as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    @app.post("/sandbox/direct-order")
-    def prepare_direct_order(
-        request: DirectOrderRequest,
-        principal: Principal = Depends(researcher),
-    ) -> dict[str, Any]:
-        """Discretionary buy anchored to a fresh quote (no strategy needed)."""
-        try:
-            return sandbox_service.prepare_direct_intent(
-                risk_service=direct_risk_service,
-                symbol=request.symbol,
-                side=request.side,
-                quantity=request.quantity,
-                exchange=request.exchange,
-                product=request.product,
-                order_type=request.order_type,
-                limit_price=request.limit_price,
-                requested_by=principal.username,
-            )
-        except (ValueError, PermissionError) as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    @app.get("/sandbox/intents")
-    def sandbox_intents(
-        limit: int = 50,
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        if limit < 1 or limit > 200:
-            raise HTTPException(
-                status_code=422,
-                detail="limit must be between 1 and 200",
-            )
-        return sandbox_service.list_intents(limit)
 
-    @app.get("/sandbox/intents/{intent_id}")
-    def sandbox_intent(
-        intent_id: str,
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        return sandbox_service.get_intent(intent_id)
 
-    @app.get("/approvals/pending")
-    def pending_approvals(
-        principal: Principal = Depends(approver),
-    ) -> dict[str, Any]:
-        return sandbox_service.list_pending_approvals()
 
-    @app.post("/approvals/{approval_id}/decision")
-    def decide_approval(
-        approval_id: str,
-        request: ApprovalDecisionRequest,
-        principal: Principal = Depends(approver),
-    ) -> dict[str, Any]:
-        try:
-            return sandbox_service.decide(
-                approval_id,
-                approved=request.approved,
-                decided_by=principal.username,
-                reason=request.reason,
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-    @app.post("/sandbox/intents/{intent_id}/submit")
-    def submit_sandbox_intent(
-        intent_id: str,
-        request: SandboxActionRequest,
-        principal: Principal = Depends(researcher),
-    ) -> dict[str, Any]:
-        try:
-            return sandbox_service.submit(
-                intent_id,
-                actor=principal.username,
-            )
-        except (ValueError, PermissionError) as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-    @app.post("/sandbox/intents/submit-batch")
-    def submit_sandbox_intent_batch(
-        request: BatchSubmitRequest,
-        principal: Principal = Depends(researcher),
-    ) -> dict[str, Any]:
-        """Submit several APPROVED intents as a basket.
 
-        Each intent passes through the same gates as a single submission
-        (approved status, atomic claim, idempotency, analyzer/live checks);
-        failures are reported per intent and never halt honest reporting
-        of the others.
-        """
-        results: list[dict[str, Any]] = []
-        submitted = 0
-        for intent_id in request.intent_ids:
-            try:
-                outcome = sandbox_service.submit(
-                    intent_id,
-                    actor=principal.username,
-                )
-                submitted += 1
-                results.append(
-                    {
-                        "intent_id": intent_id,
-                        "status": outcome.get("status", "submitted"),
-                        "broker_order_id": outcome.get("broker_order_id"),
-                    }
-                )
-            except (ValueError, PermissionError) as exc:
-                results.append(
-                    {
-                        "intent_id": intent_id,
-                        "status": "rejected",
-                        "reason": str(exc),
-                    }
-                )
-        return {
-            "requested": len(request.intent_ids),
-            "submitted": submitted,
-            "results": results,
-        }
 
-    @app.post("/sandbox/intents/{intent_id}/reconcile")
-    def reconcile_sandbox_intent(
-        intent_id: str,
-        request: SandboxActionRequest,
-        principal: Principal = Depends(researcher),
-    ) -> dict[str, Any]:
-        try:
-            return sandbox_service.reconcile(
-                intent_id,
-                actor=principal.username,
-            )
-        except (ValueError, PermissionError) as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-    @app.post("/sandbox/intents/{intent_id}/cancel")
-    def cancel_sandbox_intent(
-        intent_id: str,
-        request: SandboxActionRequest,
-        principal: Principal = Depends(researcher),
-    ) -> dict[str, Any]:
-        try:
-            return sandbox_service.cancel(
-                intent_id,
-                actor=principal.username,
-            )
-        except (ValueError, PermissionError) as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-    @app.post("/backtests")
-    def run_backtest(
-        request: RunBacktestInput,
-        principal: Principal = Depends(researcher),
-    ) -> dict[str, Any]:
-        return execute_tool(
-            "run_backtest",
-            request.model_dump(mode="json"),
-        )
 
-    @app.get("/runs")
-    def runs(
-        limit: int = 50,
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        if limit < 1 or limit > 200:
-            raise HTTPException(
-                status_code=422,
-                detail="limit must be between 1 and 200",
-            )
-        return {
-            "runs": BacktestService(
-                active_config.database_path
-            ).list_runs(limit)
-        }
 
-    @app.post("/runs/compare")
-    def compare_runs(
-        request: RunComparisonRequest,
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        return evidence_service.compare_runs(request.run_ids)
 
-    @app.post("/experiments/robustness")
-    def run_robustness_experiment(
-        request: RobustnessExperimentRequest,
-        principal: Principal = Depends(researcher),
-    ) -> dict[str, Any]:
-        return robustness_service.run(
-            **request.model_dump(),
-            requested_by=principal.username,
-        )
 
-    @app.post("/experiments/robustness/submit")
-    def submit_robustness_experiment(
-        request: RobustnessExperimentRequest,
-        background_tasks: BackgroundTasks,
-        principal: Principal = Depends(researcher),
-    ) -> dict[str, Any]:
-        task = task_service.submit(
-            task_type="robustness_experiment",
-            payload={
-                **request.model_dump(),
-                "requested_by": principal.username,
-            },
-            requested_by=principal.username,
-        )
-        background_tasks.add_task(
-            task_service.run_due,
-            f"api:{principal.username}",
-            1,
-        )
-        return task
 
-    @app.get("/tasks")
-    def tasks(
-        limit: int = 100,
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        if limit < 1 or limit > 500:
-            raise HTTPException(
-                status_code=422,
-                detail="limit must be between 1 and 500",
-            )
-        return task_service.list(limit)
 
-    @app.get("/tasks/{task_id}")
-    def task_detail(
-        task_id: str,
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        return task_service.get(task_id)
 
-    @app.post("/tasks/run-due")
-    def run_due_tasks(
-        principal: Principal = Depends(approver),
-    ) -> dict[str, Any]:
-        return {
-            "tasks": task_service.run_due(
-                f"api:{principal.username}",
-                limit=5,
-            )
-        }
 
-    @app.get("/experiments/robustness")
-    def list_robustness_experiments(
-        limit: int = 50,
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        if limit < 1 or limit > 200:
-            raise HTTPException(
-                status_code=422,
-                detail="limit must be between 1 and 200",
-            )
-        return robustness_service.list(limit)
 
-    @app.get("/experiments/robustness/{experiment_id}")
-    def robustness_experiment(
-        experiment_id: str,
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        return robustness_service.get(experiment_id)
 
-    @app.post("/experiments/robustness/{experiment_id}/reports")
-    def create_robustness_report(
-        experiment_id: str,
-        principal: Principal = Depends(researcher),
-    ) -> dict[str, Any]:
-        return evidence_service.create_robustness_report(
-            experiment_id,
-            created_by=principal.username,
-        )
 
-    @app.get("/runs/{run_id}")
-    def run_detail(
-        run_id: str,
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        payload = RunIdInput(run_id=run_id).model_dump(mode="json")
-        return execute_tool("get_backtest_result", payload)
 
-    @app.get("/runs/{run_id}/performance")
-    def run_performance(
-        run_id: str,
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        payload = RunIdInput(run_id=run_id).model_dump(mode="json")
-        return execute_tool("get_performance", payload)
 
-    @app.get("/runs/{run_id}/risk")
-    def run_risk(
-        run_id: str,
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        payload = RunIdInput(run_id=run_id).model_dump(mode="json")
-        return execute_tool("get_risk_decisions", payload)
 
-    @app.get("/runs/{run_id}/orders")
-    def run_orders(
-        run_id: str,
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        payload = RunIdInput(run_id=run_id).model_dump(mode="json")
-        return execute_tool("get_order_timeline", payload)
 
-    @app.get("/runs/{run_id}/timeline")
-    def run_timeline(
-        run_id: str,
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        return evidence_service.run_timeline(run_id)
 
-    @app.post("/runs/{run_id}/reports")
-    def create_run_report(
-        run_id: str,
-        principal: Principal = Depends(researcher),
-    ) -> dict[str, Any]:
-        return evidence_service.create_run_report(
-            run_id,
-            created_by=principal.username,
-        )
 
-    @app.get("/reports")
-    def reports(
-        limit: int = 100,
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        if limit < 1 or limit > 500:
-            raise HTTPException(
-                status_code=422,
-                detail="limit must be between 1 and 500",
-            )
-        return evidence_service.list_reports(limit)
 
-    @app.get("/reports/{report_id}")
-    def report_detail(
-        report_id: str,
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        return evidence_service.get_report(report_id)
 
-    @app.post("/portfolios")
-    def create_portfolio(
-        request: CreatePortfolioRequest,
-        principal: Principal = Depends(researcher),
-    ) -> dict[str, Any]:
-        return portfolio_service.create(
-            **request.model_dump(),
-            created_by=principal.username,
-        )
 
-    @app.get("/portfolios")
-    def portfolios(
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        return portfolio_service.list()
 
-    @app.get("/portfolios/{portfolio_id}")
-    def portfolio_snapshot(
-        portfolio_id: str,
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        return portfolio_service.get(portfolio_id)
-
-    @app.post("/portfolios/{portfolio_id}/risk-check")
-    def portfolio_risk_check(
-        portfolio_id: str,
-        request: PortfolioRiskCheckRequest,
-        principal: Principal = Depends(researcher),
-    ) -> dict[str, Any]:
-        return portfolio_service.evaluate_and_reserve(
-            portfolio_id=portfolio_id,
-            **request.model_dump(),
-        )
-
-    @app.post("/portfolios/{portfolio_id}/fills")
-    def portfolio_fill(
-        portfolio_id: str,
-        request: PortfolioFillRequest,
-        principal: Principal = Depends(approver),
-    ) -> dict[str, Any]:
-        return portfolio_service.apply_fill(
-            portfolio_id=portfolio_id,
-            **request.model_dump(),
-        )
-
-    @app.post("/portfolio-risk/reservations/{reservation_id}/release")
-    def release_portfolio_reservation(
-        reservation_id: str,
-        principal: Principal = Depends(researcher),
-    ) -> dict[str, Any]:
-        return portfolio_service.release_reservation(reservation_id)
-
-    @app.post("/portfolios/{portfolio_id}/trading-control")
-    def set_portfolio_trading_control(
-        portfolio_id: str,
-        request: PortfolioControlRequest,
-        principal: Principal = Depends(approver),
-    ) -> dict[str, Any]:
-        return portfolio_service.set_trading_enabled(
-            portfolio_id=portfolio_id,
-            enabled=request.enabled,
-            reason=request.reason,
-            changed_by=principal.username,
-        )
 
     @app.get("/sessions/{session_id}/messages")
     def session_messages(
@@ -2565,69 +1000,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             "messages": conversation_service.history(session_id, limit),
         }
 
-    @app.get("/mcp/tools")
-    def mcp_tools(principal: Principal = Depends(viewer)) -> dict[str, Any]:
-        """List platform tools as MCP-compatible tool definitions."""
-        allowed = tool_registry.allowed_for_role(principal.role)
-        return {
-            "protocol": "mcp-compatible",
-            "server_name": "iimc-trading-platform",
-            "tools": [
-                {
-                    "name": tool["name"],
-                    "description": (
-                        f"{tool['description']} "
-                        f"Side effects: {tool['side_effects']}."
-                    ),
-                    "inputSchema": tool["input_schema"],
-                }
-                for tool in tool_registry.list_tools()
-                if tool["name"] in allowed
-            ],
-        }
 
-    @app.post("/mcp/call")
-    def mcp_call(
-        request: McpCallRequest,
-        principal: Principal = Depends(viewer),
-    ) -> dict[str, Any]:
-        """Execute a governed platform tool through an MCP-style envelope.
-
-        Uses the same audited execution path as chat: role checks, live
-        trading gates, and approval requirements are all preserved.
-        """
-        allowed = tool_registry.allowed_for_role(principal.role)
-        if request.name not in allowed:
-            raise HTTPException(
-                status_code=403,
-                detail=(
-                    f"Tool {request.name!r} is not available for role "
-                    f"{principal.role!r}."
-                ),
-            )
-        try:
-            result = execute_tool(request.name, request.arguments)
-        except HTTPException as exc:
-            detail = exc.detail
-            message = (
-                detail.get("message", str(detail))
-                if isinstance(detail, dict)
-                else str(detail)
-            )
-            return {
-                "content": [{"type": "text", "text": message}],
-                "isError": True,
-            }
-        return {
-            "content": [
-                {
-                    "type": "text",
-                    "text": json.dumps(result, default=str, indent=2),
-                }
-            ],
-            "isError": False,
-            "structuredContent": result,
-        }
 
     @app.post("/chat", response_model=ChatResponse)
     def chat(
@@ -2688,6 +1061,83 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 1,
             )
         return ChatResponse(**asdict(result))
+
+    # Route groups. Registered last, once every service object above
+    # exists — each register() names the ones its handlers need.
+    platform_routes.register(
+        app,
+        capability_coverage_service=capability_coverage_service,
+        dashboard_preference_service=dashboard_preference_service,
+        execute_tool=execute_tool,
+        execution_readiness_service=execution_readiness_service,
+        instrument_discovery_service=instrument_discovery_service,
+        openalgo_readiness_service=openalgo_readiness_service,
+        platform_dashboard_service=platform_dashboard_service,
+        research_service=research_service,
+        researcher=researcher,
+        viewer=viewer,
+    )
+    market_data_routes.register(
+        app,
+        active_config=active_config,
+        data_health_service=data_health_service,
+        execute_tool=execute_tool,
+        market_data_ingestion_service=market_data_ingestion_service,
+        market_news_service=market_news_service,
+        openalgo_history_import_service=openalgo_history_import_service,
+        researcher=researcher,
+        universe_backfill=universe_backfill,
+        viewer=viewer,
+    )
+    execution_routes.register(
+        app,
+        active_config=active_config,
+        approver=approver,
+        direct_risk_service=direct_risk_service,
+        execute_tool=execute_tool,
+        openalgo_snapshot_service=openalgo_snapshot_service,
+        portfolio_service=portfolio_service,
+        researcher=researcher,
+        sandbox_service=sandbox_service,
+        viewer=viewer,
+        watch_service=watch_service,
+    )
+    research_routes.register(
+        app,
+        active_config=active_config,
+        ai_evaluation_service=ai_evaluation_service,
+        approver=approver,
+        evidence_service=evidence_service,
+        execute_tool=execute_tool,
+        researcher=researcher,
+        retrieval_evaluation_service=retrieval_evaluation_service,
+        robustness_service=robustness_service,
+        task_service=task_service,
+        viewer=viewer,
+    )
+    operations_routes.register(
+        app,
+        active_config=active_config,
+        admin=admin,
+        alert_service=alert_service,
+        approver=approver,
+        backup_service=backup_service,
+        chat_service=chat_service,
+        job_service=job_service,
+        retention_service=retention_service,
+        storage_migration_service=storage_migration_service,
+        task_service=task_service,
+        tool_registry=tool_registry,
+        viewer=viewer,
+    )
+    knowledge_routes.register(
+        app,
+        active_config=active_config,
+        execute_tool=execute_tool,
+        researcher=researcher,
+        tool_registry=tool_registry,
+        viewer=viewer,
+    )
 
     app.state.telemetry = configure_telemetry(active_config, app)
     return app

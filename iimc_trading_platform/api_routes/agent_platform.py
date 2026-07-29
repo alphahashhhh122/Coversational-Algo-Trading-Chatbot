@@ -17,8 +17,8 @@ from typing import Any
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 
-from .agents.base import AgentTask as _AgentTask
-from .api_models import (
+from ..agents.base import AgentTask as _AgentTask
+from ..api_models import (
     AgentRunRequest,
     ArenaEnrollRequest,
     ArenaSeasonRequest,
@@ -28,8 +28,8 @@ from .api_models import (
     DigestRequest,
     SupervisorSweepRequest,
 )
-from .services import Principal
-from .tools.registry import _dataset_for_request as _resolve_dataset
+from ..services import Principal
+from ..tools.registry import _dataset_for_request as _resolve_dataset
 
 
 def register(
