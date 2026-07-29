@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>IIMC Trading Research Workspace</title>
-  <link rel="stylesheet" href="/static/styles.css?v=20260729a">
+  <link rel="stylesheet" href="/static/styles.css?v=20260729b">
 </head>
 <body>
   <div class="app-shell">
@@ -578,6 +578,10 @@
         <div class="settings-grid" id="settings-grid">
           <div class="empty-state">Loading configuration...</div>
         </div>
+        <details class="settings-details" id="settings-more" hidden>
+          <summary id="settings-more-summary">Technical details</summary>
+          <div class="settings-grid" id="settings-technical"></div>
+        </details>
         <details class="workspace-tools">
           <summary>Platform overview, capabilities, personas, and dashboard widgets</summary>
           <div class="workspace-tools-content">
@@ -669,6 +673,6 @@
     </form>
   </div>
   <div class="toast" id="toast" role="status"></div>
-  <script type="module" src="/static/app.js?v=20260729a"></script>
+  <script type="module" src="/static/app.js?v=20260729b"></script>
 </body>
 </html>

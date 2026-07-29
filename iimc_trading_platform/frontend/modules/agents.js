@@ -5,7 +5,7 @@
 // buttons. That is the point of the split: the coupling is countable now
 // instead of ambient.
 
-import { $, api, escapeHtml, showLogin, state, toast } from "./core.js";
+import { $, api, escapeHtml, friendlyError, plural, showLogin, state, toast } from "./core.js";
 
 const _agentPretty = (name) => name.replaceAll("_", " ").replace(/\b\w/g, (c) => c.toUpperCase());
 
@@ -24,7 +24,7 @@ function renderAgents(agents) {
     const last = a.last_run_at ? ` · last run ${escapeHtml(String(a.last_run_at).slice(0, 16).replace("T", " "))}` : "";
     return `<tr>
       <td><strong>${escapeHtml(_agentPretty(a.name))}</strong><br><small class="row-subname">v${escapeHtml(a.version)} · ${escapeHtml(a.category)}</small></td>
-      <td>${escapeHtml(a.description)}<br><small class="row-subname">${a.run_count} run(s)${last}</small></td>
+      <td>${escapeHtml(a.description)}<br><small class="row-subname">${plural(a.run_count, "run")}${last}</small></td>
       <td>${action}</td>
     </tr>`;
   }).join("");
@@ -38,7 +38,7 @@ async function loadAgents() {
     const payload = await api("/agents");
     renderAgents(payload.agents || []);
   } catch (error) {
-    box.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
+    box.innerHTML = `<div class="empty-state">${escapeHtml(friendlyError(error))}</div>`;
   }
 }
 
@@ -81,7 +81,7 @@ function renderLeaderboard(board) {
       return parts.join(" · ");
     }
     if (m.coverage !== undefined) {
-      return `coverage ${Math.round(m.coverage * 100)}% · ${m.citations} citation(s)`;
+      return `coverage ${Math.round(m.coverage * 100)}% · ${plural(m.citations, "citation")}`;
     }
     if (m.precision !== undefined) {
       return `precision ${Math.round(m.precision * 100)}% · data ${Math.round(m.data_coverage * 100)}%`;
@@ -125,7 +125,7 @@ async function loadLeaderboard() {
   try {
     renderLeaderboard(await api("/leaderboard"));
   } catch (error) {
-    box.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
+    box.innerHTML = `<div class="empty-state">${escapeHtml(friendlyError(error))}</div>`;
   }
 }
 
@@ -142,12 +142,12 @@ async function loadArenaSeasons() {
     }
     const current = select.value;
     select.innerHTML = seasons.map((s) =>
-      `<option value="${escapeHtml(s.season_id)}">${escapeHtml(s.name)} · ${escapeHtml(s.symbol)} · ${s.entries} entrant(s)</option>`
+      `<option value="${escapeHtml(s.season_id)}">${escapeHtml(s.name)} · ${escapeHtml(s.symbol)} · ${plural(s.entries, "entrant")}</option>`
     ).join("");
     if (current && seasons.some((s) => s.season_id === current)) select.value = current;
     await loadArenaStandings();
   } catch (error) {
-    select.innerHTML = `<option value="">${escapeHtml(error.message)}</option>`;
+    select.innerHTML = `<option value="">${escapeHtml(friendlyError(error))}</option>`;
   }
 }
 
@@ -178,7 +178,7 @@ async function loadArenaStandings() {
     }
     box.innerHTML = html;
   } catch (error) {
-    box.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
+    box.innerHTML = `<div class="empty-state">${escapeHtml(friendlyError(error))}</div>`;
   }
 }
 
@@ -193,7 +193,7 @@ async function tickArena() {
     toast(missing ? `Day advanced; ${missing} entry(ies) had no data` : "Day advanced");
     await loadArenaStandings();
   } catch (error) {
-    toast(error.message);
+    toast(friendlyError(error));
   } finally {
     if (button) button.disabled = false;
   }
@@ -219,7 +219,7 @@ async function loadSupervisorFindings() {
         <button class="secondary-button finding-ack" data-finding-id="${escapeHtml(f.finding_id)}">Acknowledge</button>
       </div>`).join("");
   } catch (error) {
-    box.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
+    box.innerHTML = `<div class="empty-state">${escapeHtml(friendlyError(error))}</div>`;
   }
 }
 
@@ -229,11 +229,11 @@ async function runSupervisorSweep() {
   try {
     const result = await api("/supervisor/sweep", { method: "POST", body: JSON.stringify({}) });
     const n = (result.findings || []).length;
-    toast(n ? `Sweep done — ${n} finding(s)` : `Sweep done — ${(result.ran || []).length} agent(s) re-run, nothing flagged`);
+    toast(n ? `Sweep done — ${plural(n, "finding")}` : `Sweep done — ${plural((result.ran || []).length, "agent")} re-run, nothing flagged`);
     await loadSupervisorFindings();
     await loadLeaderboard();
   } catch (error) {
-    toast(error.message);
+    toast(friendlyError(error));
   } finally {
     if (button) button.disabled = false;
   }
@@ -244,7 +244,7 @@ async function acknowledgeFinding(findingId) {
     await api(`/supervisor/findings/${encodeURIComponent(findingId)}/acknowledge`, { method: "POST", body: JSON.stringify({}) });
     await loadSupervisorFindings();
   } catch (error) {
-    toast(error.message);
+    toast(friendlyError(error));
   }
 }
 
@@ -253,7 +253,7 @@ function renderDigestSection(section) {
   const items = (section.items || []).map((item) => `
     <li>${escapeHtml(item.text)}${item.attribution ? ` <small class="row-subname">— ${escapeHtml(item.attribution)}</small>` : ""}</li>`).join("");
   const leaders = (section.leaderboard_top || []).map((entry) => `
-    <li>#${escapeHtml(String(entry.rank))} ${escapeHtml(entry.name)} · ${escapeHtml(String(entry.composite))} <small class="row-subname">— ${escapeHtml(entry.attribution || "")}</small></li>`).join("");
+    <li>#${escapeHtml(String(entry.rank))} ${escapeHtml(_agentPretty(entry.name))} · ${escapeHtml(String(entry.composite))} <small class="row-subname">— ${escapeHtml(entry.attribution || "")}</small></li>`).join("");
   const coverage = section.coverage && section.coverage.price_coverage_pct !== undefined
     ? `<p class="row-subname">Price coverage ${escapeHtml(String(section.coverage.price_coverage_pct))}% · fundamentals ${escapeHtml(String(section.coverage.fundamentals_coverage_pct))}%</p>`
     : "";
@@ -292,7 +292,7 @@ async function loadDigest() {
   try {
     renderDigest(await api("/supervisor/digest"));
   } catch (error) {
-    box.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
+    box.innerHTML = `<div class="empty-state">${escapeHtml(friendlyError(error))}</div>`;
   }
 }
 
@@ -308,7 +308,7 @@ async function generateDigest() {
     renderDigest(digest);
     toast(digest.headline || "Digest generated");
   } catch (error) {
-    toast(error.message);
+    toast(friendlyError(error));
   } finally {
     if (button) button.disabled = false;
   }
@@ -333,7 +333,7 @@ async function loadContests() {
       </tr>`).join("");
     box.innerHTML = `<div class="table-wrap"><table><thead><tr><th>Contest</th><th>Status</th><th>Closes</th><th>Dataset hash</th><th></th></tr></thead><tbody>${rows}</tbody></table></div><div id="contest-results-detail"></div>`;
   } catch (error) {
-    box.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
+    box.innerHTML = `<div class="empty-state">${escapeHtml(friendlyError(error))}</div>`;
   }
 }
 
@@ -387,7 +387,7 @@ function renderAgentResult(agentName, payload) {
     <div class="agent-result">
       <p><strong>${escapeHtml(_agentPretty(agentName))}</strong> finished:
         <span class="watch-status watch-${payload.status === "ok" ? "active" : "triggered"}">${escapeHtml(payload.status)}</span>
-        · ${(payload.evidence || []).length} evidence item(s)
+        · ${plural((payload.evidence || []).length, "evidence item")}
         · took ${escapeHtml(String(payload.cost?.seconds ?? "?"))}s
         · recorded as ${escapeHtml(payload.run_id)}</p>
       ${gaps ? `<p>Honest gaps:</p><ul>${gaps}</ul>` : ""}
@@ -429,7 +429,7 @@ async function runAgent(agentId, agentName, button) {
     await loadAgents();
     await loadLeaderboard();
   } catch (error) {
-    result.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
+    result.innerHTML = `<div class="empty-state">${escapeHtml(friendlyError(error))}</div>`;
   } finally {
     if (button) button.disabled = false;
   }

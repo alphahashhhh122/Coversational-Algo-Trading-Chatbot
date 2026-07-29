@@ -1,4 +1,4 @@
-import { $, api, escapeHtml, showLogin, state, toast } from "./modules/core.js";
+import { $, api, escapeHtml, friendlyError, plural, showLogin, state, toast } from "./modules/core.js";
 import {
   acknowledgeFinding,
   generateDigest,
@@ -92,7 +92,7 @@ async function persistDashboardPreferences() {
       }),
     });
   } catch (error) {
-    toast(`Dashboard preference saved locally only: ${error.message}`);
+    toast(`Dashboard preference saved locally only: ${friendlyError(error)}`);
   }
 }
 
@@ -125,7 +125,7 @@ function setAutoRefresh(enabled, persist = true) {
         state.operations = null;
         await loadOverview();
       } catch (error) {
-        toast(`Auto refresh paused: ${error.message}`);
+        toast(`Auto refresh paused: ${friendlyError(error)}`);
         setAutoRefresh(false);
       }
     }, 15000);
@@ -228,7 +228,7 @@ async function loadHealth() {
   } catch (error) {
     $("#api-dot").className = "status-dot offline";
     $("#api-label").textContent = "API unavailable";
-    toast(error.message);
+    toast(friendlyError(error));
   }
 }
 
@@ -284,7 +284,7 @@ async function submitLogin(event) {
     await restoreChatHistory();
     await loadOverview();
   } catch (error) {
-    $("#auth-error").textContent = error.message;
+    $("#auth-error").textContent = friendlyError(error);
   } finally {
     if (button) button.disabled = false;
   }
@@ -351,7 +351,7 @@ function renderMarketNewsPanel(message = "") {
   const articles = news.articles || [];
   const statusText = message || (
     configured
-      ? `${formatNumber(articles.length, 0)} headline(s)`
+      ? plural(articles.length, "headline")
       : "News provider not configured yet."
   );
   const status = $("#market-news-status");
@@ -450,13 +450,13 @@ function renderCommandCenter(documentCount) {
     capabilityStatus(
       "Market research",
       datasetCount ? "ready" : "needs data",
-      `${formatNumber(datasetCount, 0)} dataset(s), ${formatNumber(documentCount, 0)} searchable document(s).`,
+      `${plural(datasetCount, "dataset")}, ${plural(documentCount, "searchable document")}.`,
       datasetCount ? "ready" : "attention",
     ),
     capabilityStatus(
       "Backtesting",
       strategyCount ? "ready" : "needs strategies",
-      `${formatNumber(strategyCount, 0)} strategy engine(s) available. History is fetched automatically when needed.`,
+      `${plural(strategyCount, "strategy engine")} available. History is fetched automatically when needed.`,
       strategyCount ? "ready" : "attention",
     ),
     capabilityStatus(
@@ -474,7 +474,7 @@ function renderCommandCenter(documentCount) {
     capabilityStatus(
       "Strategy personas",
       personaCount ? "ready" : "needs profiles",
-      `${formatNumber(personaCount, 0)} persona profile(s) that shape strategy bias and risk rules.`,
+      `${plural(personaCount, "persona profile")} that shape strategy bias and risk rules.`,
       personaCount ? "ready" : "attention",
     ),
     capabilityStatus(
@@ -691,7 +691,7 @@ async function loadAccountView(type) {
     const payload = await api(`/openalgo/${encodeURIComponent(type)}`);
     box.innerHTML = renderAccountData(type, payload.data);
   } catch (error) {
-    box.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
+    box.innerHTML = `<div class="empty-state">${escapeHtml(friendlyError(error))}</div>`;
   }
 }
 
@@ -727,7 +727,7 @@ async function loadWatches() {
     const payload = await api("/watches");
     renderWatches(payload.watches || []);
   } catch (error) {
-    box.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
+    box.innerHTML = `<div class="empty-state">${escapeHtml(friendlyError(error))}</div>`;
   }
 }
 
@@ -743,7 +743,7 @@ async function checkWatches() {
     if ((result.errors || []).length) toast(result.errors[0]);
     await loadWatches();
   } catch (error) {
-    toast(error.message);
+    toast(friendlyError(error));
   } finally {
     if (button) button.disabled = false;
   }
@@ -754,7 +754,7 @@ async function removeWatch(watchId) {
     await api(`/watches/${encodeURIComponent(watchId)}`, { method: "DELETE" });
     await loadWatches();
   } catch (error) {
-    toast(error.message);
+    toast(friendlyError(error));
   }
 }
 
@@ -772,7 +772,7 @@ async function loadCoverage() {
         <td>${s.price_rows.toLocaleString("en-IN")} bars</td>
         <td>${escapeHtml((s.intervals || []).join(", ") || "—")}</td>
         <td>${escapeHtml(s.latest_bar || "—")}</td>
-        <td>${s.has_fundamentals ? `${s.statement_count} statement(s)` : "—"}</td>
+        <td>${s.has_fundamentals ? plural(s.statement_count, "statement") : "—"}</td>
       </tr>`).join("");
     box.innerHTML = `
       <div class="coverage-stats">
@@ -782,7 +782,7 @@ async function loadCoverage() {
       ${gaps ? `<ul class="coverage-gaps">${gaps}</ul>` : ""}
       ${covered.length ? `<div class="table-wrap"><table><thead><tr><th>Symbol</th><th>Bars</th><th>Intervals</th><th>Latest</th><th>Fundamentals</th></tr></thead><tbody>${rows}</tbody></table></div>` : ""}`;
   } catch (error) {
-    box.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
+    box.innerHTML = `<div class="empty-state">${escapeHtml(friendlyError(error))}</div>`;
   }
 }
 
@@ -795,10 +795,10 @@ async function runBackfill() {
     const failed = (result.results || []).filter((r) => r.status === "failed");
     toast(failed.length
       ? `${ok} imported, ${failed.length} failed (${failed[0].reason || ""})`.slice(0, 140)
-      : `${ok} symbol(s) imported · ${result.remaining} remaining`);
+      : `${plural(ok, "symbol")} imported · ${result.remaining} remaining`);
     await loadCoverage();
   } catch (error) {
-    toast(error.message);
+    toast(friendlyError(error));
   } finally {
     if (button) button.disabled = false;
   }
@@ -825,7 +825,7 @@ async function showContestResults(contestId) {
       </tr>`).join("");
     box.innerHTML = `<p class="leaderboard-unranked-head">Frozen standings (dataset ${escapeHtml((payload.dataset_hash || "n/a").slice(0, 12))}…):</p><div class="table-wrap"><table><thead><tr><th>#</th><th>Agent</th><th>Score</th><th>Traces to</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   } catch (error) {
-    box.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
+    box.innerHTML = `<div class="empty-state">${escapeHtml(friendlyError(error))}</div>`;
   }
 }
 
@@ -1147,6 +1147,18 @@ function syncCustomStrategyRules() {
   );
 }
 
+// Stored status keys, said in words. "draft_executable" is what the database
+// calls it; it is not what a person should have to read in a dropdown.
+// Generated identifiers like "reliance_ema_strategy" are how a spec is stored,
+// not what it should be called on screen.
+const prettyName = (name) =>
+  String(name || "").replaceAll("_", " ").replace(/\b\w/g, (c) => c.toUpperCase());
+
+const SPEC_STATUS_WORDS = {
+  draft_executable: "ready to backtest",
+  requires_review: "needs review before it can run",
+};
+
 function renderCustomStrategyControls() {
   const datasetSelect = $("#custom-strategy-dataset");
   const specSelect = $("#custom-strategy-spec-select");
@@ -1167,7 +1179,7 @@ function renderCustomStrategyControls() {
   specSelect.innerHTML = state.customStrategySpecs.length
     ? state.customStrategySpecs.map((spec) => `
       <option value="${escapeHtml(spec.spec_id)}">
-        ${escapeHtml(spec.name)} - ${escapeHtml(spec.status)}
+        ${escapeHtml(prettyName(spec.name))} — ${escapeHtml(SPEC_STATUS_WORDS[spec.status] || spec.status)}
       </option>
     `).join("")
     : `<option value="">No saved custom specs</option>`;
@@ -1213,7 +1225,7 @@ async function deleteCustomStrategySpec() {
     renderCustomStrategyControls();
     toast(`Deleted strategy spec ${specId}`);
   } catch (error) {
-    toast(error.message);
+    toast(friendlyError(error));
   } finally {
     if (button) button.disabled = false;
   }
@@ -1239,7 +1251,7 @@ async function submitCustomStrategySpec(event) {
     renderSelectedCustomStrategySpec();
     toast(`Custom strategy ${created.spec_id} stored`);
   } catch (error) {
-    toast(error.message);
+    toast(friendlyError(error));
   } finally {
     button.disabled = false;
   }
@@ -1260,7 +1272,7 @@ async function validateCustomStrategySpec() {
       : "These rules are ready to backtest.";
     status.className = `custom-strategy-status ${missing.length ? "attention" : "ready"}`;
   } catch (error) {
-    status.textContent = error.message;
+    status.textContent = friendlyError(error);
     status.className = "custom-strategy-status attention";
   } finally {
     button.disabled = false;
@@ -1302,13 +1314,13 @@ async function runSelectedCustomStrategySpec() {
       {
         ok: false,
         safe_failure: true,
-        message: error.message,
+        message: friendlyError(error),
         no_synthetic_fallback: true,
       },
       null,
       2,
     );
-    toast(error.message);
+    toast(friendlyError(error));
   } finally {
     button.disabled = false;
   }
@@ -1434,7 +1446,7 @@ async function submitExperiment(event) {
     toast(`Experiment task ${task.task_id} queued`);
     await waitForExperimentTask(task.task_id);
   } catch (error) {
-    toast(error.message);
+    toast(friendlyError(error));
   } finally {
     button.disabled = false;
   }
@@ -1508,11 +1520,11 @@ async function loadExperiment(experimentId) {
         );
         toast(`Report ${report.report_id} generated`);
       } catch (error) {
-        toast(error.message);
+        toast(friendlyError(error));
       }
     });
   } catch (error) {
-    toast(error.message);
+    toast(friendlyError(error));
   }
 }
 
@@ -1758,7 +1770,7 @@ async function submitChat(event) {
       try {
         await loadAccount();
       } catch (error) {
-        toast(`Account view refresh paused: ${error.message}`);
+        toast(`Account view refresh paused: ${friendlyError(error)}`);
       }
     }
     const tradeIntents = [
@@ -1773,7 +1785,7 @@ async function submitChat(event) {
     }
   } catch (error) {
     typing.remove();
-    appendMessage("assistant", error.message, "error");
+    appendMessage("assistant", friendlyError(error), "error");
   } finally {
     $("#send-button").disabled = false;
     input.focus();
@@ -1917,13 +1929,13 @@ async function submitBacktest(event) {
       {
         ok: false,
         safe_failure: true,
-        message: error.message,
+        message: friendlyError(error),
         no_synthetic_fallback: true,
       },
       null,
       2,
     );
-    toast(error.message);
+    toast(friendlyError(error));
   } finally {
     button.disabled = false;
     button.textContent = "Run backtest";
@@ -2039,7 +2051,7 @@ async function loadRun(runId) {
       event.currentTarget.remove();
     });
   } catch (error) {
-    toast(error.message);
+    toast(friendlyError(error));
   }
 }
 
@@ -2051,7 +2063,7 @@ async function generateReport(runId, button) {
     });
     toast(`Report ${report.report_id} generated`);
   } catch (error) {
-    toast(error.message);
+    toast(friendlyError(error));
   } finally {
     if (button) button.disabled = false;
   }
@@ -2081,7 +2093,7 @@ async function compareSelectedRuns() {
       </div>
     `;
   } catch (error) {
-    toast(error.message);
+    toast(friendlyError(error));
   } finally {
     button.disabled = false;
   }
@@ -2308,7 +2320,7 @@ function renderKnowledgeDocuments() {
     <div class="knowledge-doc-item">
       <div>
         <strong>${escapeHtml(doc.title)}</strong>
-        <p>${escapeHtml(doc.document_type)} · ${formatNumber(doc.chunk_count, 0)} chunk(s) · ${escapeHtml(String(doc.ingested_at).slice(0, 16).replace("T", " "))}</p>
+        <p>${escapeHtml(doc.document_type)} · ${plural(doc.chunk_count, "chunk")} · ${escapeHtml(String(doc.ingested_at).slice(0, 16).replace("T", " "))}</p>
       </div>
       <button class="secondary-button analyze-doc-button" data-title="${escapeHtml(doc.title)}">Analyze in chat</button>
     </div>
@@ -2343,11 +2355,11 @@ async function submitFundamentalsImport(event) {
         statements,
       }),
     });
-    status.textContent = `Imported ${payload.imported_periods} period(s) for ${payload.symbol}. Ask the chat: "analyze ${payload.symbol} fundamentally".`;
+    status.textContent = `Imported ${plural(payload.imported_periods, "period")} for ${payload.symbol}. Ask the chat: "analyze ${payload.symbol} fundamentally".`;
     toast(`Statements imported for ${payload.symbol}`);
   } catch (error) {
-    status.textContent = error.message;
-    toast(error.message);
+    status.textContent = friendlyError(error);
+    toast(friendlyError(error));
   } finally {
     button.disabled = false;
   }
@@ -2381,7 +2393,7 @@ async function submitKnowledgeUpload(event) {
         document_type: documentType,
       }),
     });
-    toast(`Indexed "${title}" (${payload.chunk_count} chunk(s))`);
+    toast(`Indexed "${title}" (${plural(payload.chunk_count, "chunk")})`);
     $("#knowledge-upload-text").value = "";
     fileInput.value = "";
     const documents = await api("/knowledge/documents");
@@ -2389,7 +2401,7 @@ async function submitKnowledgeUpload(event) {
     renderKnowledgeDocuments();
     $("#metric-documents").textContent = formatNumber(state.knowledgeDocuments.length, 0);
   } catch (error) {
-    toast(error.message);
+    toast(friendlyError(error));
   } finally {
     button.disabled = false;
   }
@@ -2445,7 +2457,7 @@ async function toggleDatasetChart(article, button) {
     attachCandleInteractions(canvas, slot.querySelector(".chart-tooltip"));
     button.textContent = "Hide chart";
   } catch (error) {
-    toast(error.message);
+    toast(friendlyError(error));
   } finally {
     button.disabled = false;
   }
@@ -2511,11 +2523,11 @@ async function submitNlStrategyCompile(event) {
     $("#nl-strategy-spec-json").value = JSON.stringify(spec, null, 2);
     $("#save-nl-strategy").disabled = missing.length > 0;
     $("#nl-strategy-validation").textContent = missing.length
-      ? `${missing.length} blocking issue(s) must be resolved before saving.`
+      ? `${plural(missing.length, "blocking issue")} must be resolved before saving.`
       : "Validation passed. Review the spec and save when ready.";
     $("#nl-strategy-validation").className = `nl-strategy-validation ${missing.length ? "attention" : "ready"}`;
   } catch (error) {
-    toast(error.message);
+    toast(friendlyError(error));
   } finally {
     button.disabled = false;
     button.textContent = "Compile for review";
@@ -2550,7 +2562,7 @@ async function revalidateNlStrategy() {
       : "Validation passed. Save when ready.";
     $("#nl-strategy-validation").className = `nl-strategy-validation ${missing.length ? "attention" : "ready"}`;
   } catch (error) {
-    $("#nl-strategy-validation").textContent = error.message;
+    $("#nl-strategy-validation").textContent = friendlyError(error);
     $("#nl-strategy-validation").className = "nl-strategy-validation attention";
     $("#save-nl-strategy").disabled = true;
   } finally {
@@ -2593,11 +2605,24 @@ async function saveNlStrategy() {
     $("#nl-strategy-review").classList.add("hidden");
     $("#nl-strategy-text").value = "";
   } catch (error) {
-    toast(error.message);
+    toast(friendlyError(error));
   } finally {
     button.disabled = false;
   }
 }
+
+// What a person running this platform actually needs to see, said in their
+// words. The other twenty-odd keys are real and stay available — they just
+// belong behind a disclosure, not in front of someone checking whether it is
+// safe to trade.
+const SETTINGS_HIGHLIGHTS = [
+  ["allow_live_trading", "Live trading", (v) => (v ? "ENABLED" : "Disabled")],
+  ["openalgo_api_key_configured", "Broker connected", (v) => (v ? "Yes" : "Not yet")],
+  ["groq_api_key_configured", "Assistant configured", (v) => (v ? "Yes" : "Not yet")],
+  ["market_news_provider_configured", "Market news", (v) => (v ? "Connected" : "Not connected")],
+  ["require_paper_approval", "Paper orders need approval", (v) => (v ? "Yes" : "No")],
+  ["auth_required", "Login required", (v) => (v ? "Yes" : "No — local use only")],
+];
 
 async function loadSettings() {
   try {
@@ -2609,26 +2634,52 @@ async function loadSettings() {
       ? "Live trading is ENABLED by configuration. Paper orders still require explicit approval."
       : "Live trading is disabled. Paper orders use OpenAlgo analyzer mode and require explicit approval.";
     safetyNotice.className = `notice ${live ? "attention" : ""}`;
+
+    // Paths are omitted: they say where files live on this machine, which is
+    // neither useful nor anyone else's business.
     const sensitiveKeys = new Set([
       "database_path", "artifacts_dir", "strategy_plugin_dir", "openalgo_root",
     ]);
-    const entries = Object.entries(config).filter(([key]) => !sensitiveKeys.has(key));
-    grid.innerHTML = entries.map(([key, value]) => {
-      const display = typeof value === "object" ? JSON.stringify(value) : String(value);
-      const tone = key === "allow_live_trading"
-        ? (value ? "attention" : "ready")
-        : (typeof value === "boolean"
-          ? (value ? "ready" : "")
-          : "");
-      return `
+    const shown = new Set(SETTINGS_HIGHLIGHTS.map(([key]) => key));
+
+    const card = (label, display, tone) => `
         <div class="settings-item ${tone}">
-          <span>${escapeHtml(key.replaceAll("_", " "))}</span>
+          <span>${escapeHtml(label)}</span>
           <strong>${escapeHtml(display)}</strong>
-        </div>
-      `;
-    }).join("") || `<div class="empty-state">No configuration loaded.</div>`;
+        </div>`;
+
+    const highlights = SETTINGS_HIGHLIGHTS
+      .filter(([key]) => key in config)
+      .map(([key, label, format]) => {
+        const value = config[key];
+        const tone = key === "allow_live_trading"
+          ? (value ? "attention" : "ready")
+          : (typeof value === "boolean" ? (value ? "ready" : "") : "");
+        return card(label, format(value), tone);
+      }).join("");
+
+    const rest = Object.entries(config)
+      .filter(([key]) => !sensitiveKeys.has(key) && !shown.has(key))
+      .map(([key, value]) => card(
+        key.replaceAll("_", " "),
+        typeof value === "object" ? JSON.stringify(value) : String(value),
+        typeof value === "boolean" && value ? "ready" : "",
+      )).join("");
+
+    grid.innerHTML = highlights || `<div class="empty-state">No configuration loaded.</div>`;
+
+    const more = $("#settings-more");
+    const technical = $("#settings-technical");
+    const restCount = Object.entries(config)
+      .filter(([key]) => !sensitiveKeys.has(key) && !shown.has(key)).length;
+    if (more && technical) {
+      technical.innerHTML = rest;
+      more.hidden = restCount === 0;
+      $("#settings-more-summary").textContent =
+        `Technical details (${plural(restCount, "setting")})`;
+    }
   } catch (error) {
-    $("#settings-grid").innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
+    $("#settings-grid").innerHTML = `<div class="empty-state">${escapeHtml(friendlyError(error))}</div>`;
   }
 }
 
@@ -2738,7 +2789,7 @@ function wireEvents() {
         await loadAccount();
         loadLiveTrades().catch(() => {});
       } catch (error) {
-        toast(error.message);
+        toast(friendlyError(error));
       } finally {
         button.disabled = false;
       }
@@ -2841,7 +2892,7 @@ function wireEvents() {
         await action();
         toast("Refreshed");
       } catch (error) {
-        toast(error.message);
+        toast(friendlyError(error));
       } finally {
         button.disabled = false;
       }
@@ -2860,7 +2911,7 @@ async function start() {
   try {
     await loadOverview();
   } catch (error) {
-    toast(error.message);
+    toast(friendlyError(error));
   }
 }
 

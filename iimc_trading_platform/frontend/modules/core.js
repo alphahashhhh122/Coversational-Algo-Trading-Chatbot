@@ -106,4 +106,46 @@ function showLogin() {
   $("#auth-overlay").classList.remove("hidden");
 }
 
-export { state, $, api, escapeHtml, toast, showLogin };
+// Backend errors are written for whoever has to debug them. On screen they
+// need to say what broke and what to do next — "OpenAlgo is unavailable at the
+// configured base URL" tells a trader nothing they can act on.
+//
+// Anything unrecognised passes through unchanged rather than being replaced by
+// a vague apology: a specific message we did not anticipate is still more use
+// than "something went wrong".
+const ERROR_TRANSLATIONS = [
+  [/unavailable at the configured base URL|OpenAlgo is unavailable/i,
+   "Your broker connection isn't running. Start OpenAlgo, then try again."],
+  [/rejected the configured API key|authentication|401|403/i,
+   "Your broker rejected the saved key. Log in to OpenAlgo again to refresh it."],
+  [/not configured|no api key|credentials are not configured/i,
+   "That needs your broker connected first — add it in Settings."],
+  [/no stored (market )?data|dataset .* not found|no candles/i,
+   "There's no stored price history for that yet. Ask for it in chat, or use “Fetch more history” on the Data tab."],
+  [/rate limit|429/i,
+   "Too many requests at once. Wait a moment and try again."],
+  [/timed out|timeout/i,
+   "That took too long to respond. It may still be running — try again in a moment."],
+  [/HTTP 5\d\d|internal server error/i,
+   "Something went wrong on the platform's side. The details are in the server log."],
+  [/failed to fetch|networkerror|load failed/i,
+   "Couldn't reach the platform. Check that it's still running."],
+];
+
+function friendlyError(error) {
+  const raw = String(error?.message ?? error ?? "").trim();
+  if (!raw) return "Something went wrong, and no reason was given.";
+  for (const [pattern, plain] of ERROR_TRANSLATIONS) {
+    if (pattern.test(raw)) return plain;
+  }
+  return raw;
+}
+
+// "1 entrant(s)" is the sort of thing that tells a reader the screen was not
+// finished. Pluralise properly; it costs one function.
+function plural(count, singular, pluralForm) {
+  const n = Number(count) || 0;
+  return `${n} ${n === 1 ? singular : (pluralForm || singular + "s")}`;
+}
+
+export { friendlyError, plural, state, $, api, escapeHtml, toast, showLogin };
