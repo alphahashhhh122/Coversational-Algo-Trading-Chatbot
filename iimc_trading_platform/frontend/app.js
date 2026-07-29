@@ -1907,12 +1907,19 @@ async function submitBacktest(event) {
   }
 }
 
+// Which days went into Sharpe. "Traded days only" is the weaker basis and
+// flatters an infrequent trader, so it says so instead of showing a raw key.
+const RISK_BASIS_WORDS = {
+  daily_realized_returns: "Every day in the test window",
+  traded_days_only: "Only days with trades — flatters rare trading",
+};
+
 function renderPerformanceMetricCards(summary = {}) {
   const metrics = [
     ["Total trades", formatNumber(summary.total_trades, 0), "Closed simulated fills"],
     ["Win rate", `${formatNumber(summary.win_rate_pct, 2)}%`, "Winning trades / total trades"],
     ["Profit factor", formatNumber(summary.profit_factor, 4), "Gross profit / gross loss"],
-    ["Sharpe", formatNumber(summary.sharpe_ratio, 4), summary.risk_metric_basis || "Daily realized returns"],
+    ["Sharpe", formatNumber(summary.sharpe_ratio, 4), RISK_BASIS_WORDS[summary.risk_metric_basis] || RISK_BASIS_WORDS.daily_realized_returns],
     ["Sortino", formatNumber(summary.sortino_ratio, 4), "Downside-adjusted return"],
     ["Recovery", formatNumber(summary.recovery_factor, 4), "Net P&L / max drawdown"],
     ["Expectancy", formatNumber(summary.expectancy, 2), "Average P&L per closed trade"],

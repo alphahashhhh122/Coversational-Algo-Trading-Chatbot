@@ -181,7 +181,13 @@ def _weights(
         return {s: round(share, 6) for s in symbols}
     # Inverse volatility: calmer names carry more. An explicit, inspectable
     # rule rather than an opaque optimiser.
-    inverse = {s: (1 / v if v else 0.0) for s, v in volatility.items()}
+    #
+    # Driven by ``symbols``, not by the volatility map. Iterating the map meant
+    # any requested symbol missing from it disappeared from the result — the
+    # weights still summed to 1, so a two-name portfolio came back looking
+    # complete when three were asked for. A symbol whose volatility cannot be
+    # measured gets a zero weight instead: still excluded, but visibly so.
+    inverse = {s: (1 / v if (v := volatility.get(s, 0.0)) else 0.0) for s in symbols}
     total = sum(inverse.values())
     if not total:
         share = 1 / len(symbols)

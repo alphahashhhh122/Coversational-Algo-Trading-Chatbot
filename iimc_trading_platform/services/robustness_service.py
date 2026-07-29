@@ -11,7 +11,11 @@ from ..domain import ExecutionMode
 from ..infrastructure import initialize_database
 from ..strategies import build_strategy_registry
 from .backtest_service import BacktestService
-from .simulation_service import ResearchLedger, screen_signals
+from .simulation_service import (
+    ResearchLedger,
+    candle_dates as _candle_dates,
+    screen_signals,
+)
 
 ROBUSTNESS_POLICY_VERSION = "1.1.0"
 
@@ -84,6 +88,7 @@ class RobustnessService:
                     starting_equity=starting_equity,
                     fee_bps=fee_bps,
                     slippage_bps=slippage_bps,
+                    session_dates=_candle_dates(train),
                 )
                 test_metrics = screen_signals(
                     strategy.generate(test, parameters),
@@ -91,6 +96,7 @@ class RobustnessService:
                     starting_equity=starting_equity,
                     fee_bps=fee_bps,
                     slippage_bps=slippage_bps,
+                    session_dates=_candle_dates(test),
                 )
                 trial = {
                     "candidate_index": index,

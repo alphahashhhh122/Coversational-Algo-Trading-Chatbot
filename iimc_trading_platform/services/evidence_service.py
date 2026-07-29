@@ -11,6 +11,11 @@ from .backtest_service import BacktestService
 from .robustness_service import RobustnessService
 
 
+def _ratio(value: Any) -> str:
+    """A risk ratio, or an honest note that the sample could not support one."""
+    return f"{value:.4f}" if isinstance(value, (int, float)) else "not computable"
+
+
 def utc_now() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
@@ -252,8 +257,11 @@ class EvidenceService:
             f"- Total fees: {summary.get('total_fees', 0):.2f}",
             f"- Win rate: {summary.get('win_rate_pct', 0):.2f}%",
             f"- Profit factor: {summary.get('profit_factor', 0):.4f}",
-            f"- Sharpe ratio: {summary.get('sharpe_ratio', 0):.4f}",
-            f"- Sortino ratio: {summary.get('sortino_ratio', 0):.4f}",
+            # Sharpe and Sortino are None when there was no deviation to divide
+            # by. Printing 0.0000 there would read as "no risk-adjusted edge"
+            # when the truth is that the sample cannot support the ratio.
+            f"- Sharpe ratio: {_ratio(summary.get('sharpe_ratio'))}",
+            f"- Sortino ratio: {_ratio(summary.get('sortino_ratio'))}",
             f"- Recovery factor: {summary.get('recovery_factor', 0):.4f}",
             "",
             "## Workflow Evidence",

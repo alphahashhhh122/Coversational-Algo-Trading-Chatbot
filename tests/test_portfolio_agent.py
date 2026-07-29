@@ -9,6 +9,8 @@ from pathlib import Path
 from iimc_trading_platform.infrastructure.database import initialize_database
 from iimc_trading_platform.services.arena_service import ArenaService
 from iimc_trading_platform.services.portfolio_agent_service import (
+    _pearson,
+    _weights,
     PortfolioAgentService,
 )
 
@@ -200,6 +202,45 @@ class BasketArenaTest(unittest.TestCase):
     def test_season_requires_a_symbol(self) -> None:
         with self.assertRaises(ValueError):
             self.svc.create_season(name="Nothing")
+
+
+class WeightingTest(unittest.TestCase):
+    def test_inverse_volatility_favours_the_calmer_name(self) -> None:
+        weights = _weights(["CALM", "WILD"], {"CALM": 0.01, "WILD": 0.04},
+                           "inverse_volatility")
+        self.assertGreater(weights["CALM"], weights["WILD"])
+        self.assertAlmostEqual(sum(weights.values()), 1.0, places=6)
+
+    def test_no_requested_symbol_is_silently_dropped(self) -> None:
+        """Weights that sum to 1 over the wrong set look complete but aren't."""
+        weights = _weights(["A", "B", "C"], {"A": 0.01, "B": 0.02},
+                           "inverse_volatility")
+        self.assertEqual(set(weights), {"A", "B", "C"})
+        self.assertEqual(weights["C"], 0.0)
+
+    def test_equal_weight_splits_evenly(self) -> None:
+        weights = _weights(["A", "B", "C"], {}, "equal_weight")
+        self.assertAlmostEqual(sum(weights.values()), 1.0, places=5)
+        self.assertEqual(len(set(weights.values())), 1)
+
+    def test_unmeasurable_volatility_falls_back_to_equal_weight(self) -> None:
+        weights = _weights(["A", "B"], {"A": 0.0, "B": 0.0},
+                           "inverse_volatility")
+        self.assertEqual(weights, {"A": 0.5, "B": 0.5})
+
+
+class CorrelationTest(unittest.TestCase):
+    def test_matches_the_standard_library(self) -> None:
+        import statistics
+
+        a, b = [1.0, 2.0, 3.0, 4.0, 5.0], [2.0, 1.0, 4.0, 3.0, 5.0]
+        self.assertAlmostEqual(_pearson(a, b), statistics.correlation(a, b), places=9)
+
+    def test_a_constant_series_has_no_correlation_to_report(self) -> None:
+        self.assertIsNone(_pearson([1.0, 1.0, 1.0], [1.0, 2.0, 3.0]))
+
+    def test_one_observation_is_not_enough(self) -> None:
+        self.assertIsNone(_pearson([1.0], [2.0]))
 
 
 if __name__ == "__main__":

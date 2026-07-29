@@ -166,6 +166,25 @@ back to an `agent_runs` row:
 reason each agent is inconclusive. The **Agents** tab renders both, with each
 row showing the run id (and dataset id) it traces to.
 
+#### What "Sharpe" counts here
+Sharpe and Sortino are measured over **every day in the test window**, with
+days the strategy didn't trade contributing zero-return observations.
+
+This is worth stating because getting it wrong is easy and invisible. Sharpe
+is a mean-over-deviation ratio annualised by √252, which assumes consecutive
+daily observations; feeding it only the days a strategy happened to trade
+measures something else entirely and flatters exactly the strategies that
+trade least. A configuration trading five days in a hundred scored 32.7 under
+that mistake where the honest figure was 3.3 — and a Sharpe above about 3 is
+already rare enough to disbelieve.
+
+Callers pass the candle timestamps as `session_dates`. Without them the older
+basis still works but is labelled `traded_days_only` in the result rather than
+passed off as daily returns. Where the sample cannot support a ratio at all —
+no trades, a single observation, no losing day for Sortino — the value is
+`None`, not `0.0`: a zero reads as "no risk-adjusted edge" when the truth is
+"not computable".
+
 ### The Arena (`arena_service.py`)
 Season-based competition on **real market data** through an internal simulated
 ledger (`BacktestService.simulate_only` — the same fill/fee/slippage machinery

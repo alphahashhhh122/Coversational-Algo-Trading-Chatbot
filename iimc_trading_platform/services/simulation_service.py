@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Iterable
 
 
 @dataclass(frozen=True)
@@ -92,7 +92,14 @@ class ResearchLedger:
             quantity=quantity,
         )
 
-    def metrics(self) -> dict[str, Any]:
+    def metrics(
+        self, *, session_dates: Iterable[Any] | None = None
+    ) -> dict[str, Any]:
+        """``session_dates`` is every date the strategy was live.
+
+        Passing it is what makes Sharpe and Sortino mean what they say — see
+        :func:`daily_risk_statistics`.
+        """
         return {
             **trade_statistics(
                 self.closed_trade_pnls,
@@ -102,6 +109,7 @@ class ResearchLedger:
             **daily_risk_statistics(
                 self.closed_trade_records,
                 starting_equity=self.starting_equity,
+                session_dates=session_dates,
             ),
         }
 
@@ -113,6 +121,7 @@ def screen_signals(
     starting_equity: float,
     fee_bps: float,
     slippage_bps: float,
+    session_dates: Iterable[Any] | None = None,
 ) -> dict[str, Any]:
     ledger = ResearchLedger(starting_equity)
     for signal in signals:
@@ -142,7 +151,7 @@ def screen_signals(
             6,
         ),
         "total_fees": round(ledger.total_fees, 6),
-        **ledger.metrics(),
+        **ledger.metrics(session_dates=session_dates),
     }
 
 
@@ -207,32 +216,82 @@ def trade_statistics(
     }
 
 
+def _date_key(timestamp: Any) -> str:
+    return (
+        timestamp.date().isoformat()
+        if hasattr(timestamp, "date")
+        else str(timestamp)[:10]
+    )
+
+
+def candle_dates(candles: Any) -> list[Any]:
+    """Every timestamp in a candle series, for use as ``session_dates``.
+
+    Intraday candles collapse to one entry per day inside
+    :func:`daily_risk_statistics`; passing them all is harmless and saves every
+    caller from knowing that.
+    """
+    stamps = []
+    for candle in candles or []:
+        stamp = (
+            candle.get("timestamp")
+            if isinstance(candle, dict)
+            else getattr(candle, "timestamp", None)
+        )
+        if stamp is not None:
+            stamps.append(stamp)
+    return stamps
+
+
 def daily_risk_statistics(
     trade_records: list[tuple[Any, float]],
     *,
     starting_equity: float,
+    session_dates: Iterable[Any] | None = None,
 ) -> dict[str, Any]:
+    """Sharpe and Sortino from daily returns.
+
+    ``session_dates`` is every date the strategy was live — normally the
+    timestamps of the candles it ran over. **Days without a trade must be part
+    of the series**, as zero-return days.
+
+    Leaving them out was not a rounding issue. Sharpe is a mean-over-deviation
+    ratio annualised by sqrt(252), which assumes the observations are
+    consecutive days. Counting only the days a strategy happened to trade
+    measures a different, much flatterered thing: a strategy that traded five
+    days out of a hundred scored 32.7 where the truth was 3.3, because the
+    ninety-five flat days never entered either the mean or the deviation. The
+    less a strategy traded, the better it looked — and this number feeds the
+    leaderboard.
+
+    Without ``session_dates`` the old basis is still used, but it is named
+    ``traded_days_only`` in the result rather than passed off as daily returns.
+    """
+
     daily_pnl: dict[str, float] = defaultdict(float)
     for timestamp, pnl in trade_records:
         if timestamp is None:
             continue
-        date_key = (
-            timestamp.date().isoformat()
-            if hasattr(timestamp, "date")
-            else str(timestamp)[:10]
-        )
-        daily_pnl[date_key] += pnl
-    returns = [
-        pnl / starting_equity
-        for _, pnl in sorted(daily_pnl.items())
+        daily_pnl[_date_key(timestamp)] += pnl
+
+    if session_dates is not None:
+        calendar = sorted({_date_key(value) for value in session_dates})
+        basis = "daily_realized_returns"
+    else:
+        calendar = sorted(daily_pnl)
+        basis = "traded_days_only"
+
+    returns = (
+        [daily_pnl.get(day, 0.0) / starting_equity for day in calendar]
         if starting_equity
-    ]
+        else []
+    )
     if not returns:
         return {
             "daily_observations": 0,
-            "sharpe_ratio": 0.0,
-            "sortino_ratio": 0.0,
-            "risk_metric_basis": "daily_realized_returns",
+            "sharpe_ratio": None,
+            "sortino_ratio": None,
+            "risk_metric_basis": basis,
         }
     mean = sum(returns) / len(returns)
     variance = sum(
@@ -244,19 +303,20 @@ def daily_risk_statistics(
         sum(value**2 for value in downside) / len(downside)
     )
     annualizer = math.sqrt(252)
+    # A ratio with a zero denominator has no value, and 0.0 is a value — it
+    # reads as "no risk-adjusted edge" when the truth is "not computable from
+    # this sample". Both consumers already treat None as unknown.
     return {
         "daily_observations": len(returns),
-        "sharpe_ratio": round(
-            (mean / standard_deviation) * annualizer
+        "sharpe_ratio": (
+            round((mean / standard_deviation) * annualizer, 6)
             if standard_deviation
-            else 0.0,
-            6,
+            else None
         ),
-        "sortino_ratio": round(
-            (mean / downside_deviation) * annualizer
+        "sortino_ratio": (
+            round((mean / downside_deviation) * annualizer, 6)
             if downside_deviation
-            else 0.0,
-            6,
+            else None
         ),
-        "risk_metric_basis": "daily_realized_returns",
+        "risk_metric_basis": basis,
     }

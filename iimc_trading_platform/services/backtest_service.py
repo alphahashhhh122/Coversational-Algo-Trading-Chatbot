@@ -19,6 +19,7 @@ from .order_service import OrderService
 from .risk_service import RiskService
 from .simulation_service import (
     ResearchLedger,
+    candle_dates as _candle_dates,
     daily_risk_statistics,
     max_drawdown,
     trade_statistics,
@@ -231,6 +232,7 @@ class BacktestService:
                 dataset_id=dataset_id,
                 parameters=validated_parameters,
                 candle_count=len(candles),
+                session_dates=_candle_dates(candles),
                 freshness_assessment_id=freshness["assessment_id"],
                 manifest_id=manifest["manifest_id"],
                 manifest_sha256=manifest["manifest_sha256"],
@@ -295,7 +297,9 @@ class BacktestService:
             max_drawdown=drawdown,
         )
         risk = daily_risk_statistics(
-            ledger.closed_trade_records, starting_equity=starting_equity
+            ledger.closed_trade_records,
+            starting_equity=starting_equity,
+            session_dates=_candle_dates(candles),
         )
         benchmark_pct = _buy_and_hold_pct(
             candles,
@@ -932,6 +936,7 @@ class BacktestService:
         dataset_id: str,
         parameters: dict[str, Any],
         candle_count: int,
+        session_dates: list[Any],
         freshness_assessment_id: str,
         manifest_id: str,
         manifest_sha256: str,
@@ -1013,7 +1018,7 @@ class BacktestService:
             else 0.0
         )
         total_fees = ledger.total_fees
-        trade_metrics = ledger.metrics()
+        trade_metrics = ledger.metrics(session_dates=session_dates)
         metrics = {
             "strategy_name": strategy_name,
             "strategy_version": strategy_version,
