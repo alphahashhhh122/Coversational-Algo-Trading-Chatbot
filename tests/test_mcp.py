@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tempfile
+import json
 import unittest
 from pathlib import Path
 
@@ -158,6 +159,34 @@ class McpStdioServerTest(unittest.TestCase):
 
         self.assertIn("error", response)
         self.assertEqual(response["error"]["code"], -32601)
+
+    def test_a_malformed_line_is_answered_not_dropped(self) -> None:
+        """JSON-RPC 2.0 s5.1: a parse error gets -32700.
+
+        Skipping the line left the client waiting for a reply that was never
+        coming, which reads as a hung server rather than a bad request.
+        """
+        import subprocess
+        import sys
+
+        proc = subprocess.run(
+            [sys.executable, "-m", "iimc_trading_platform.mcp_server"],
+            input=(
+                "not json at all\n"
+                '{"jsonrpc":"2.0","id":9,"method":"tools/list"}\n'
+            ),
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+        replies = [
+            json.loads(line) for line in proc.stdout.splitlines() if line.strip()
+        ]
+        self.assertEqual(len(replies), 2, "the bad line must still get a reply")
+        self.assertEqual(replies[0]["error"]["code"], -32700)
+        self.assertIsNone(replies[0]["id"])
+        # The good request after it is still served.
+        self.assertEqual(replies[1]["id"], 9)
 
 
 if __name__ == "__main__":

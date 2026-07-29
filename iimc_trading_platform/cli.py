@@ -161,6 +161,10 @@ def main() -> None:
     dataset_parser = subparsers.add_parser("dataset", help="Show dataset detail.")
     dataset_parser.add_argument("dataset_id")
 
+    subparsers.add_parser(
+        "rescore-leaderboard",
+        help="Re-score every recorded agent run under the current rule.",
+    )
     subparsers.add_parser("show-config", help="Print active config.")
 
     args = parser.parse_args()
@@ -362,6 +366,16 @@ def main() -> None:
             config.database_path,
             config.artifacts_dir,
         ).list()
+        print(json.dumps(result, indent=2, default=str))
+    elif args.command == "rescore-leaderboard":
+        initialize_database(config.database_path)
+        from .services.agent_evaluation_service import (
+            AgentEvaluationService,
+        )
+
+        result = AgentEvaluationService(
+            config.database_path
+        ).rescore_history()
         print(json.dumps(result, indent=2, default=str))
     elif args.command == "storage-plan":
         initialize_database(config.database_path)

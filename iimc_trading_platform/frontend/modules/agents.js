@@ -88,12 +88,25 @@ function renderLeaderboard(board) {
     }
     return "";
   };
+  // A score produced by an older rule is not comparable with the rest, and
+  // nothing on screen would otherwise say so. A row with no version at all is
+  // the oldest case of all — it predates versioning — so a missing value must
+  // count as stale rather than slipping through as "not older".
+  const staleRule = (e) =>
+    !!e.current_scoring_version
+    && (e.scoring_version == null || e.scoring_version < e.current_scoring_version);
+  const ruleLabel = (e) =>
+    e.scoring_version == null ? "an unversioned rule" : `rule v${e.scoring_version}`;
   let html = "";
   if (ranked.length) {
-    const rows = ranked.map((e) => `<tr>
+    const rows = ranked.map((e) => `<tr${staleRule(e) ? ' class="stale-rule"' : ""}>
         <td>${e.rank}</td>
         <td><strong>${escapeHtml(_agentPretty(e.name))}</strong><br><small class="row-subname">${escapeHtml(e.category)}</small></td>
-        <td><strong>${escapeHtml(String(e.composite))}</strong></td>
+        <td><strong>${escapeHtml(String(e.composite))}</strong>${
+          staleRule(e)
+            ? `<br><small class="row-subname">scored under ${escapeHtml(ruleLabel(e))} — re-run to compare</small>`
+            : ""
+        }</td>
         <td>${escapeHtml(metricText(e.metrics || {}))}</td>
         <td><small class="row-subname">run ${escapeHtml(e.run_id)}${e.eval_dataset_id ? `<br>${escapeHtml(e.eval_dataset_id)}` : ""}</small></td>
       </tr>`).join("");

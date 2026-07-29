@@ -242,12 +242,20 @@ class StrategyOptimizerService:
 
         # Optimise on the train window only.
         train_scored: list[dict[str, Any]] = []
+        # One candidate failing is not fatal — but every candidate failing for
+        # the same reason (no candles, an unknown strategy, a bad parameter) is
+        # the answer to "why did this find nothing", and discarding it left the
+        # user with "there wasn't a usable configuration" and nowhere to go.
+        failures: list[str] = []
         for parameters in grid:
             try:
                 run = self.backtest_service.simulate_only(
                     strategy_name=strategy_name, candles=train, parameters=parameters
                 )
-            except Exception:  # noqa: BLE001 - a bad candidate is skipped, not fatal
+            except Exception as exc:  # noqa: BLE001 - recorded, then skipped
+                reason = f"{type(exc).__name__}: {str(exc)[:120]}"
+                if reason not in failures:
+                    failures.append(reason)
                 continue
             train_scored.append(
                 {
@@ -269,6 +277,12 @@ class StrategyOptimizerService:
                 "strategy": strategy_name,
                 "dataset_id": dataset_id,
                 "status": "no_candidate",
+                "candidates_tried": len(grid),
+                "candidates_failed": len(grid) - len(train_scored),
+                # The distinct reasons, so a repeated failure reads as one
+                # cause rather than a wall of identical lines.
+                "gaps": failures
+                or ["every configuration ran, but none produced a trade"],
                 "no_synthetic_fallback": True,
             }
 

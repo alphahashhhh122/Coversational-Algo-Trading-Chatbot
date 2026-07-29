@@ -7,6 +7,7 @@ from pathlib import Path
 
 from iimc_trading_platform.infrastructure.database import initialize_database
 from iimc_trading_platform.services.agent_evaluation_service import (
+    SCORING_VERSION,
     AgentEvaluationService,
 )
 
@@ -28,10 +29,12 @@ class StrategyScoringTest(unittest.TestCase):
     def test_overfit_scores_below_holds_up_at_equal_return(self) -> None:
         holds = self._score({
             "out_of_sample_return_pct": 10.0, "out_of_sample_trades": 12,
+            "out_of_sample_excess_return_pct": 10.0,
             "verdict": "holds_up",
         })
         overfit = self._score({
             "out_of_sample_return_pct": 10.0, "out_of_sample_trades": 12,
+            "out_of_sample_excess_return_pct": 10.0,
             "verdict": "overfit",
         })
         self.assertGreater(holds["composite"], overfit["composite"])
@@ -48,6 +51,7 @@ class StrategyScoringTest(unittest.TestCase):
     def test_losing_strategy_scores_negative(self) -> None:
         card = self._score({
             "out_of_sample_return_pct": -5.0, "out_of_sample_trades": 20,
+            "out_of_sample_excess_return_pct": -5.0,
             "verdict": "poor",
         })
         self.assertEqual(card["status"], "scored")
@@ -215,6 +219,145 @@ class LeaderboardTest(unittest.TestCase):
         self.assertEqual([e["name"] for e in board["ranked"]], ["alpha"])
 
 
+class PreBenchmarkRunTest(unittest.TestCase):
+    """Runs recorded before benchmark-relative scoring cannot be ranked.
+
+    This is the exact findings shape found in the live database: no
+    ``out_of_sample_benchmark_pct`` key at all, as opposed to a current run
+    that carries the key with a None value because the benchmark could not be
+    computed. Falling back to raw return would let a pre-benchmark number
+    compete on the same leaderboard as benchmark-relative ones.
+    """
+
+    def setUp(self) -> None:
+        self.svc = AgentEvaluationService(Path("unused.duckdb"))
+
+    def _score(self, findings: dict) -> dict:
+        return self.svc.score_run({"status": "ok", "findings": findings}, "strategy")
+
+    def test_a_run_with_no_benchmark_key_is_inconclusive(self) -> None:
+        card = self._score({
+            "out_of_sample_return_pct": 5.0,
+            "out_of_sample_trades": 20,
+            "verdict": "holds_up",
+        })
+        self.assertEqual(card["status"], "inconclusive")
+        self.assertIsNone(card["composite"])
+        self.assertIn("re-run", card["reason"])
+
+    def test_an_uncomputable_benchmark_is_also_unrankable(self) -> None:
+        """Same answer whether the benchmark is missing or uncomputable.
+
+        Either way there is no excess return, and a raw return cannot be sorted
+        against excess returns without changing what the column means.
+        """
+        card = self._score({
+            "out_of_sample_return_pct": 5.0,
+            "out_of_sample_trades": 20,
+            "verdict": "holds_up",
+            "out_of_sample_benchmark_pct": None,
+            "out_of_sample_excess_return_pct": None,
+        })
+        self.assertEqual(card["status"], "inconclusive")
+        self.assertIsNone(card["composite"])
+
+
+class RescoreHistoryTest(unittest.TestCase):
+    def setUp(self) -> None:
+        fd, path = tempfile.mkstemp(suffix=".duckdb")
+        os.close(fd)
+        os.unlink(path)
+        self.path = Path(path)
+        initialize_database(self.path)
+        self.svc = AgentEvaluationService(self.path)
+        from datetime import datetime, timezone
+        import json as _json
+
+        from iimc_trading_platform.db import connect
+
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        con = connect(self.path)
+        try:
+            for agent_id, name in (("alpha@1.0", "alpha"), ("beta@1.0", "beta")):
+                con.execute(
+                    "INSERT INTO agents VALUES (?, ?, '1.0', 'strategy', '', "
+                    "'[]', '{}', 'test', 'active', ?)", [agent_id, name, now])
+            # An old run, on its own agent: no benchmark recorded.
+            con.execute(
+                "INSERT INTO agent_runs VALUES ('arun_old', 'beta@1.0', '1.0', "
+                "'{}', 'ok', ?, '[]', '[]', '{}', ?, ?)",
+                [_json.dumps({
+                    "out_of_sample_return_pct": 5.0,
+                    "out_of_sample_trades": 20,
+                    "verdict": "holds_up",
+                }), now, now])
+            # A current run, fully instrumented.
+            con.execute(
+                "INSERT INTO agent_runs VALUES ('arun_new', 'alpha@1.0', '1.0', "
+                "'{}', 'ok', ?, '[]', '[]', '{}', ?, ?)",
+                [_json.dumps({
+                    "out_of_sample_return_pct": 5.0,
+                    "out_of_sample_trades": 20,
+                    "verdict": "holds_up",
+                    "out_of_sample_benchmark_pct": 2.0,
+                    "out_of_sample_excess_return_pct": 3.0,
+                    "out_of_sample_sharpe": 1.2,
+                }), now, now])
+        finally:
+            con.close()
+
+    def tearDown(self) -> None:
+        for suffix in ("", ".wal"):
+            try:
+                os.unlink(str(self.path) + suffix)
+            except OSError:
+                pass
+
+    def test_every_run_is_rescored_under_the_current_rule(self) -> None:
+        out = self.svc.rescore_history()
+        self.assertEqual(out["scoring_version"], SCORING_VERSION)
+        self.assertEqual(out["runs_rescored"], 2)
+        self.assertEqual(out["now_ranked"], 1)
+        self.assertEqual(out["now_inconclusive"], 1)
+
+    def test_the_old_run_is_named_not_quietly_ranked(self) -> None:
+        self.svc.rescore_history()
+        board = self.svc.leaderboard()
+        self.assertEqual([e["run_id"] for e in board["ranked"]], ["arun_new"])
+        self.assertTrue(
+            any("re-run" in (e["reason"] or "") for e in board["unranked"])
+        )
+
+    def test_rescoring_twice_does_not_duplicate_scores(self) -> None:
+        self.svc.rescore_history()
+        self.svc.rescore_history()
+        from iimc_trading_platform.db import connect
+
+        con = connect(self.path)
+        try:
+            self.assertEqual(
+                con.execute("SELECT COUNT(*) FROM agent_scores").fetchone()[0], 2
+            )
+        finally:
+            con.close()
+
+    def test_ranked_rows_carry_the_version_that_produced_them(self) -> None:
+        self.svc.rescore_history()
+        entry = self.svc.leaderboard()["ranked"][0]
+        self.assertEqual(entry["scoring_version"], SCORING_VERSION)
+        self.assertEqual(entry["current_scoring_version"], SCORING_VERSION)
+
+    def test_an_empty_database_rescores_nothing_without_complaint(self) -> None:
+        from iimc_trading_platform.db import connect
+
+        con = connect(self.path)
+        try:
+            con.execute("DELETE FROM agent_runs")
+        finally:
+            con.close()
+        self.assertEqual(self.svc.rescore_history()["runs_rescored"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()
 
@@ -230,6 +373,9 @@ class RiskAdjustedScoringTest(unittest.TestCase):
             "out_of_sample_return_pct": 5.0,
             "out_of_sample_trades": 20,
             "verdict": "holds_up",
+            # Ranking requires a benchmark; these cases isolate the risk
+            # penalties, so the excess matches the raw return.
+            "out_of_sample_excess_return_pct": 5.0,
         }
         base.update(findings)
         return self.svc.score_run({"status": "ok", "findings": base}, "strategy")
@@ -268,10 +414,16 @@ class RiskAdjustedScoringTest(unittest.TestCase):
         )
         self.assertGreater(good["composite"], bad["composite"])
 
-    def test_falls_back_to_raw_return_and_says_so(self) -> None:
-        card = self._score()  # no excess supplied
-        self.assertEqual(card["status"], "scored")
-        self.assertIn("no benchmark available", card["reason"])
+    def test_no_benchmark_means_no_rank(self) -> None:
+        """Raw return and excess return are different quantities.
+
+        Ranking one beside the other sorts a +5% raw result against a +5%
+        *excess over holding* result as if they were the same claim.
+        """
+        card = self._score(out_of_sample_excess_return_pct=None)
+        self.assertEqual(card["status"], "inconclusive")
+        self.assertIsNone(card["composite"])
+        self.assertIn("no benchmark", card["reason"])
 
     def test_windows_consistency_scales_the_score(self) -> None:
         lucky = self._score(
@@ -284,4 +436,4 @@ class RiskAdjustedScoringTest(unittest.TestCase):
 
     def test_scoring_version_is_recorded(self) -> None:
         card = self._score(out_of_sample_excess_return_pct=1.0)
-        self.assertEqual(card["metrics"]["scoring_version"], 2)
+        self.assertEqual(card["metrics"]["scoring_version"], SCORING_VERSION)

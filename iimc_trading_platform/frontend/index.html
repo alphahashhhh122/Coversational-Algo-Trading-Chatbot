@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>IIMC Trading Research Workspace</title>
-  <link rel="stylesheet" href="/static/styles.css?v=20260728g">
+  <link rel="stylesheet" href="/static/styles.css?v=20260729a">
 </head>
 <body>
   <div class="app-shell">
@@ -17,31 +17,31 @@
         </div>
       </div>
       <nav class="primary-nav" aria-label="Workspace sections">
-        <button class="nav-item active" data-view="workspace">
+        <button class="nav-item active" data-view="workspace" title="Chat" aria-current="page">
           <span aria-hidden="true">◆</span> Chat
         </button>
-        <button class="nav-item" data-view="runs">
+        <button class="nav-item" data-view="runs" title="Backtests">
           <span aria-hidden="true">▥</span> Backtests
         </button>
-        <button class="nav-item" data-view="strategies">
+        <button class="nav-item" data-view="strategies" title="Strategies">
           <span aria-hidden="true">ƒ</span> Strategies
         </button>
-        <button class="nav-item" data-view="agents">
+        <button class="nav-item" data-view="agents" title="Agents">
           <span aria-hidden="true">✦</span> Agents
         </button>
-        <button class="nav-item" data-view="leaderboard">
+        <button class="nav-item" data-view="leaderboard" title="Leaderboard">
           <span aria-hidden="true">▲</span> Leaderboard
         </button>
-        <button class="nav-item" data-view="arena">
+        <button class="nav-item" data-view="arena" title="Arena">
           <span aria-hidden="true">◎</span> Arena
         </button>
-        <button class="nav-item" data-view="data">
+        <button class="nav-item" data-view="data" title="Data">
           <span aria-hidden="true">◫</span> Data
         </button>
-        <button class="nav-item" data-view="monitor">
+        <button class="nav-item" data-view="monitor" title="Account">
           <span aria-hidden="true">◉</span> Account
         </button>
-        <button class="nav-item" data-view="settings">
+        <button class="nav-item" data-view="settings" title="Settings">
           <span aria-hidden="true">⚙</span> Settings
         </button>
       </nav>
@@ -67,6 +67,8 @@
           <button class="secondary-button hidden" id="logout-button">Log out</button>
         </div>
       </header>
+
+      <p id="view-announcer" class="sr-only" role="status" aria-live="polite"></p>
 
       <section class="status-strip" aria-label="System status">
         <div><span>Data</span><strong id="database-status">Checking</strong></div>
@@ -667,6 +669,6 @@
     </form>
   </div>
   <div class="toast" id="toast" role="status"></div>
-  <script type="module" src="/static/app.js?v=20260728f"></script>
+  <script type="module" src="/static/app.js?v=20260729a"></script>
 </body>
 </html>

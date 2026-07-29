@@ -46,7 +46,13 @@ _MIN_OOS_TRADES = 3
 
 # Bumped whenever the scoring rule changes, and stored with every score, so a
 # leaderboard never silently mixes numbers produced by different rules.
-SCORING_VERSION = 2
+#
+#   1 — raw out-of-sample return, weighted by verdict.
+#   2 — excess over buy-and-hold, with additive drawdown/Sharpe penalties.
+#   3 — Sharpe measured over every day in the window rather than only the days
+#       a strategy traded. The old basis overstated infrequent traders by an
+#       order of magnitude, so a v2 composite is not comparable to a v3 one.
+SCORING_VERSION = 3
 
 # Risk penalties, applied additively (see _score_strategy).
 _DRAWDOWN_WEIGHT = 0.5
@@ -116,6 +122,83 @@ class AgentEvaluationService:
             con.close()
         return score_id
 
+    def rescore_history(self) -> dict[str, Any]:
+        """Re-score every recorded run under the current rule.
+
+        Scores accumulate over months while the scoring rule changes underneath
+        them, and a leaderboard that mixes rules is quietly meaningless — a
+        composite from one rule ranked directly against a composite from
+        another. This recomputes every stored score from the evidence already
+        in ``agent_runs`` (``findings_json``, ``evidence_json``, ``status``),
+        which is exactly what :meth:`score_run` consumes, so nothing is
+        invented and the original runs are untouched.
+
+        What it deliberately cannot do is make an old run comparable. A run
+        that never captured a benchmark or a Sharpe has no such number to
+        recover; re-scoring returns it as ``inconclusive`` naming what is
+        missing. Only re-running the agent produces a rankable score, and
+        saying so is more useful than a confident figure derived from half the
+        evidence.
+        """
+
+        con = connect(self.db_path)
+        try:
+            runs = con.execute(
+                """
+                SELECT r.run_id, r.agent_id, r.version, r.status,
+                       r.findings_json, r.evidence_json, a.category
+                FROM agent_runs r
+                JOIN agents a ON a.agent_id = r.agent_id
+                ORDER BY r.started_at
+                """
+            ).fetchall()
+        finally:
+            con.close()
+
+        rescored: list[dict[str, Any]] = []
+        for run_id, agent_id, version, status, findings, evidence, category in runs:
+            card = self.score_run(
+                {
+                    "status": status,
+                    "findings": json.loads(findings) if findings else {},
+                    "evidence": json.loads(evidence) if evidence else [],
+                },
+                category,
+            )
+            con = connect(self.db_path)
+            try:
+                # One score per run under the current rule: replace rather than
+                # append, so the leaderboard's "latest score" cannot pick up a
+                # stale rule's row.
+                con.execute(
+                    "DELETE FROM agent_scores WHERE run_id = ?", [run_id]
+                )
+            finally:
+                con.close()
+            self.record_score(
+                agent_id=agent_id,
+                version=version,
+                run_id=run_id,
+                scorecard=card,
+            )
+            rescored.append(
+                {
+                    "run_id": run_id,
+                    "agent_id": agent_id,
+                    "status": card["status"],
+                    "composite": card.get("composite"),
+                    "reason": card.get("reason"),
+                }
+            )
+        ranked = [r for r in rescored if r["composite"] is not None]
+        return {
+            "scoring_version": SCORING_VERSION,
+            "runs_rescored": len(rescored),
+            "now_ranked": len(ranked),
+            "now_inconclusive": len(rescored) - len(ranked),
+            "results": rescored,
+        }
+
     # -- leaderboard ----------------------------------------------------------
 
     def leaderboard(self, *, category: str | None = None) -> dict[str, Any]:
@@ -155,6 +238,13 @@ class AgentEvaluationService:
                     "reason": card.get("reason"),
                     "metrics": card.get("metrics", {}),
                     "composite": r[6],
+                    # Which rule produced this number. A row scored under an
+                    # older rule is not comparable with the rest, and the
+                    # reader has no way to know that unless we say it.
+                    "scoring_version": card.get("metrics", {}).get(
+                        "scoring_version"
+                    ),
+                    "current_scoring_version": SCORING_VERSION,
                     "scored_at": r[7].isoformat() if isinstance(r[7], datetime) else str(r[7]),
                 }
             )
@@ -225,12 +315,27 @@ def _score_strategy(findings: dict[str, Any]) -> dict[str, Any]:
             "composite": None,
         }
 
+    # Without a benchmark there is no rankable score. Falling back to raw
+    # return used to look like graceful degradation, but it puts two different
+    # quantities in the same column: +5% raw against +5% *excess* over holding
+    # are not the same claim, and the leaderboard sorts them as though they
+    # were. Runs recorded before benchmark-relative scoring existed land here
+    # too, which is the honest answer for them — re-running is what makes them
+    # comparable, and saying so beats a confident number built on half the
+    # evidence.
+    if excess is None:
+        return {
+            "status": "inconclusive",
+            "reason": (
+                "no benchmark to measure against, so this cannot be ranked "
+                "beside benchmark-relative scores — re-run this agent to rank it"
+            ),
+            "metrics": metrics,
+            "composite": None,
+        }
+
+    composite = float(excess) * _VERDICT_WEIGHT.get(verdict, 0.5)
     base_source = "excess return over buy-and-hold"
-    base = excess
-    if base is None:
-        base = oos
-        base_source = "raw return (no benchmark available)"
-    composite = float(base) * _VERDICT_WEIGHT.get(verdict, 0.5)
 
     # Additive penalties keep the ordering monotonic.
     penalty = 0.0
@@ -278,6 +383,7 @@ def _score_research(
         "sections_covered": covered,
         "citations": len(resolvable),
         "gaps_reported": len(findings.get("gaps") or []),
+        "scoring_version": SCORING_VERSION,
     }
     if not covered and not resolvable:
         return {
@@ -307,6 +413,7 @@ def _score_monitor(findings: dict[str, Any]) -> dict[str, Any]:
         "checked": checked,
         "fired": len(fired),
         "unavailable": len(errors),
+        "scoring_version": SCORING_VERSION,
     }
     if checked == 0:
         return {

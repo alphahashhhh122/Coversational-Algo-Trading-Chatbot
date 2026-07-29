@@ -146,6 +146,15 @@ class ATLClient:
             payload["members"] = members
         return self._post("/committee", payload)
 
+    def rescore(self) -> dict[str, Any]:
+        """Re-score every recorded run under the current rule.
+
+        Recomputes from evidence the runs already hold; nothing is re-executed.
+        Runs whose evidence predates the current rule come back inconclusive
+        rather than ranked on partial data.
+        """
+        return self._post("/leaderboard/rescore", {})
+
     # -- supervisor & digest ---------------------------------------------------
 
     def findings(self, *, include_acknowledged: bool = False) -> list[dict[str, Any]]:

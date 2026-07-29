@@ -127,5 +127,67 @@ class WalkForwardTest(unittest.TestCase):
             StrategyOptimizerService(Short()).walk_forward(dataset_id="ds1")
 
 
+class NoCandidateReasonTest(unittest.TestCase):
+    """"No usable configuration" on its own is a dead end."""
+
+    def test_the_failure_reason_reaches_the_answer(self) -> None:
+        answer = grounded_tool_response(
+            "validate_strategy_walk_forward",
+            {
+                "strategy": "ema_crossover",
+                "status": "no_candidate",
+                "candidates_tried": 12,
+                "candidates_failed": 12,
+                "gaps": ["ValueError: dataset has no candles in that window"],
+            },
+        )
+        self.assertIn("no candles", answer)
+        self.assertIn("12 of 12", answer)
+
+    def test_running_but_never_trading_is_distinguished_from_crashing(self) -> None:
+        answer = grounded_tool_response(
+            "validate_strategy_walk_forward",
+            {
+                "strategy": "rsi_mean_reversion",
+                "status": "no_candidate",
+                "candidates_tried": 8,
+                "candidates_failed": 0,
+                "gaps": ["every configuration ran, but none produced a trade"],
+            },
+        )
+        self.assertIn("none produced a trade", answer)
+        self.assertNotIn("failed to run", answer)
+
+    def test_a_result_without_detail_still_renders(self) -> None:
+        answer = grounded_tool_response(
+            "validate_strategy_walk_forward",
+            {"strategy": "sma_crossover", "status": "no_candidate"},
+        )
+        self.assertIn("sma crossover", answer)
+
+    def test_identical_failures_are_reported_once(self) -> None:
+        """A repeated cause is one cause, not a wall of identical lines."""
+        from iimc_trading_platform.services.strategy_optimizer_service import (
+            StrategyOptimizerService,
+        )
+
+        class _AlwaysFails:
+            def simulate_only(self, **kwargs):
+                raise ValueError("dataset has no candles")
+
+        svc = StrategyOptimizerService.__new__(StrategyOptimizerService)
+        svc.backtest_service = _AlwaysFails()
+        grid = [{"fast": f, "slow": 21} for f in (5, 9, 12)]
+        failures: list[str] = []
+        for parameters in grid:
+            try:
+                svc.backtest_service.simulate_only(parameters=parameters)
+            except Exception as exc:
+                reason = f"{type(exc).__name__}: {str(exc)[:120]}"
+                if reason not in failures:
+                    failures.append(reason)
+        self.assertEqual(len(failures), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -70,9 +70,23 @@ def _render_walk_forward_result(result: dict[str, Any]) -> str:
     """Deterministic in-sample vs out-of-sample report."""
     strategy = str(result.get("strategy", "")).replace("_", " ")
     if result.get("status") != "ok":
+        # Say what actually stopped it. "No usable configuration" on its own is
+        # a dead end — the reason is nearly always the same for every candidate
+        # and is the one thing that tells the user what to change.
+        gaps = result.get("gaps") or []
+        detail = ""
+        if gaps:
+            detail = "\n\n" + "\n".join(f"- {gap}" for gap in gaps[:4])
+        tried = result.get("candidates_tried")
+        failed = result.get("candidates_failed")
+        counted = (
+            f" ({failed} of {tried} configurations failed to run)"
+            if tried and failed
+            else ""
+        )
         return (
             f"I couldn't run a walk-forward check on the {strategy} strategy — "
-            "there wasn't a usable configuration over the stored history."
+            f"no configuration produced a usable result{counted}.{detail}"
         )
     params = ", ".join(
         f"{k}={v}" for k, v in result.get("parameters", {}).items()

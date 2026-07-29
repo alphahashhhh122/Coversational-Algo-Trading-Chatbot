@@ -147,14 +147,37 @@ function setView(view) {
     arena: ["Arena", "Agents competing on real data through a simulated ledger."],
     settings: ["Settings", "Configuration and overview."],
   };
+  const section = $(`#view-${view}`);
+  // A view with no label used to throw on labels[view][0] and take navigation
+  // down with it. Falling back keeps an unlabelled view usable.
+  const [title, subtitle] = labels[view] || [view, ""];
+  if (!section) return;
+
   document.querySelectorAll(".view").forEach((node) => node.classList.remove("active"));
-  document.querySelectorAll(".nav-item").forEach((node) => node.classList.remove("active"));
-  $(`#view-${view}`).classList.add("active");
+  document.querySelectorAll(".nav-item").forEach((node) => {
+    node.classList.remove("active");
+    // The CSS .active class is invisible to assistive tech; aria-current is
+    // what actually says "this is the page you are on".
+    node.removeAttribute("aria-current");
+  });
+  section.classList.add("active");
   document.querySelectorAll(`.nav-item[data-view="${view}"]`).forEach((node) => {
     node.classList.add("active");
+    node.setAttribute("aria-current", "page");
   });
-  $("#view-title").textContent = labels[view][0];
-  $("#view-subtitle").textContent = labels[view][1];
+  $("#view-title").textContent = title;
+  $("#view-subtitle").textContent = subtitle;
+
+  // Announce the change, and move focus into the view. Without this a keyboard
+  // user stays in the sidebar with no signal that anything happened, and has to
+  // tab through the whole nav again to reach the content they just opened.
+  const announcer = $("#view-announcer");
+  if (announcer) announcer.textContent = `${title} view`;
+  const heading = $("#view-title");
+  if (heading) {
+    heading.setAttribute("tabindex", "-1");
+    heading.focus({ preventScroll: true });
+  }
 }
 
 async function loadHealth() {

@@ -163,6 +163,19 @@ def register(
         principal: Principal = Depends(viewer),
     ) -> dict[str, Any]:
         return agent_evaluation.leaderboard(category=category)
+
+    @app.post("/leaderboard/rescore")
+    def rescore_leaderboard_endpoint(
+        principal: Principal = Depends(researcher),
+    ) -> dict[str, Any]:
+        """Re-score every recorded run under the current rule.
+
+        Reads only what the runs already recorded — nothing is re-executed and
+        no number is invented. Runs whose evidence predates the current rule
+        come back inconclusive, naming what they lack.
+        """
+        return agent_evaluation.rescore_history()
+
     @app.post("/agents/authored")
     def register_authored_agent_endpoint(
         request: AuthoredAgentRequest,

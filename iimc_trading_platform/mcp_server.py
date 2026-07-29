@@ -241,7 +241,25 @@ def main() -> None:
             continue
         try:
             request = json.loads(line)
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as exc:
+            # JSON-RPC 2.0 §5.1: a parse error gets -32700, not silence.
+            # Dropping the line left the client waiting for a reply that was
+            # never coming, which looks like a hung server rather than a bad
+            # request.
+            sys.stdout.write(
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": None,
+                        "error": {
+                            "code": -32700,
+                            "message": f"Parse error: {exc.msg}",
+                        },
+                    }
+                )
+                + "\n"
+            )
+            sys.stdout.flush()
             continue
         response = handle_request(registry, request)
         if response is not None:

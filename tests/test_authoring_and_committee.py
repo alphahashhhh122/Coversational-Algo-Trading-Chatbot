@@ -6,6 +6,9 @@ import unittest
 from pathlib import Path
 
 from iimc_trading_platform.agents.base import AgentTask
+from iimc_trading_platform.services.agent_evaluation_service import (
+    SCORING_VERSION,
+)
 from iimc_trading_platform.infrastructure.database import initialize_database
 from iimc_trading_platform.services.authored_agent_service import (
     AuthoredAgentService,
@@ -47,6 +50,11 @@ class _Optimizer:
             "out_of_sample_return_pct": self.out_ret,
             "out_of_sample_trades": self.trades,
             "out_of_sample_drawdown": -120.0,
+            # The real walk_forward_spec returns these (see
+            # strategy_optimizer_service.py:196), and a strategy cannot be
+            # ranked without a benchmark, so the stub has to carry them too.
+            "out_of_sample_benchmark_pct": 1.0,
+            "out_of_sample_excess_return_pct": self.out_ret - 1.0,
             "verdict": "holds_up",
         }
 
@@ -136,6 +144,30 @@ class AuthoredAgentTest(unittest.TestCase):
         self.assertEqual(card["status"], "scored")
         # Scored off the OOS number (4.0), not the flattering in-sample 6.0.
         self.assertEqual(card["metrics"]["out_of_sample_return_pct"], 4.0)
+        # And on excess over the benchmark, like every other strategy agent —
+        # an authored agent gets no easier ride.
+        self.assertEqual(card["metrics"]["out_of_sample_excess_return_pct"], 3.0)
+        self.assertEqual(card["metrics"]["scoring_version"], SCORING_VERSION)
+
+    def test_an_authored_agent_without_a_benchmark_is_not_ranked(self) -> None:
+        """The benchmark requirement applies to authored agents too."""
+        from iimc_trading_platform.services.agent_evaluation_service import (
+            AgentEvaluationService,
+        )
+
+        card = AgentEvaluationService(self.path).score_run(
+            {
+                "status": "ok",
+                "findings": {
+                    "out_of_sample_return_pct": 4.0,
+                    "out_of_sample_trades": 20,
+                    "verdict": "holds_up",
+                },
+            },
+            "strategy",
+        )
+        self.assertEqual(card["status"], "inconclusive")
+        self.assertIsNone(card["composite"])
 
 
 class CommitteeTest(unittest.TestCase):

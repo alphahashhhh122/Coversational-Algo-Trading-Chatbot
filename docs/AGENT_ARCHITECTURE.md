@@ -166,6 +166,27 @@ back to an `agent_runs` row:
 reason each agent is inconclusive. The **Agents** tab renders both, with each
 row showing the run id (and dataset id) it traces to.
 
+#### Scoring versions, and why a leaderboard can lie without one
+Every scorecard records the `scoring_version` that produced it, and the rule
+has changed three times: v1 ranked raw out-of-sample return, v2 switched to
+excess over buy-and-hold with risk penalties, v3 fixed the Sharpe basis. A
+composite from one rule ranked directly against a composite from another is
+meaningless, and nothing on screen said so — five stored scores predated
+versioning entirely.
+
+`POST /leaderboard/rescore` (also `rescore-leaderboard` on the CLI, and
+`client.rescore()`) recomputes every stored score from the evidence already in
+`agent_runs`. Nothing is re-executed and no number is invented. What it cannot
+do is make an old run comparable: a run that never captured a benchmark has no
+benchmark to recover, so it comes back **inconclusive** naming what it lacks
+rather than being ranked on partial data. Re-running the agent is what makes it
+rankable. Rows scored under an older rule are flagged in the Leaderboard view.
+
+**No benchmark, no rank.** Falling back to raw return used to look like graceful
+degradation, but it puts two different quantities in one column: +5% raw and
++5% *excess over holding* are not the same claim, and the table sorts them as
+though they were.
+
 #### What "Sharpe" counts here
 Sharpe and Sortino are measured over **every day in the test window**, with
 days the strategy didn't trade contributing zero-return observations.
