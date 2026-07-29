@@ -34,14 +34,23 @@ class JobService:
         payload: dict[str, Any] | None = None,
         max_retries: int = 3,
         enabled: bool = True,
+        con: Any = None,
     ) -> str:
+        """Register or update one scheduled job.
+
+        ``con`` lets a caller registering several jobs share one connection.
+        Opening a DuckDB connection costs ~0.17s, so the nine default jobs were
+        spending about 1.5s of every application startup — and every test that
+        builds an app — on nine connections to write nine rows.
+        """
         if job_type not in self.handlers:
             raise ValueError(f"Unknown job type: {job_type}")
         if schedule_seconds < 10:
             raise ValueError("Job schedule must be at least 10 seconds")
         now = utc_now()
         job_id = f"job_{uuid.uuid4().hex[:12]}"
-        con = connect(self.db_path)
+        owned = con is None
+        con = con or connect(self.db_path)
         try:
             con.execute(
                 """
@@ -76,7 +85,10 @@ class JobService:
                 [name],
             ).fetchone()[0]
         finally:
-            con.close()
+            # Only close what this call opened; a shared connection belongs to
+            # the caller.
+            if owned:
+                con.close()
         return stored
 
     def list_jobs(self) -> dict[str, Any]:

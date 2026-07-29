@@ -396,100 +396,121 @@ def register_default_jobs(
     include_openalgo: bool,
     include_market_news: bool = False,
 ) -> list[str]:
-    job_ids = [
-        service.register(
-            name="dataset_freshness_sweep",
-            job_type="freshness_sweep",
-            schedule_seconds=900,
-        ),
-        service.register(
-            name="governed_knowledge_sync",
-            job_type="knowledge_sync",
-            schedule_seconds=3600,
-        ),
-        service.register(
-            name="daily_backup_restore_verification",
-            job_type="backup_restore_verification",
-            schedule_seconds=86400,
-        ),
-        service.register(
-            name="daily_governed_retrieval_evaluation",
-            job_type="governed_retrieval_evaluation",
-            schedule_seconds=86400,
-        ),
-        service.register(
-            name="daily_retention_preview",
-            job_type="retention_preview",
-            schedule_seconds=86400,
-        ),
-        service.register(
-            name="operational_alert_evaluation",
-            job_type="alert_evaluation",
-            schedule_seconds=60,
-        ),
-        # Autonomous agent sweep: re-run key agents and report drift.
-        service.register(
-            name="agent_supervisor_sweep",
-            job_type="agent_supervisor_sweep",
-            schedule_seconds=21600,  # every 6 hours
-        ),
-        service.register(
-            name="arena_daily_tick",
-            job_type="arena_daily_tick",
-            schedule_seconds=86400,
-        ),
-        # One brief a day: what changed, what's stale, what degraded.
-        service.register(
-            name="daily_digest",
-            job_type="daily_digest",
-            schedule_seconds=86400,
-        ),
-    ]
-    if include_openalgo:
-        # Backfill needs broker credentials, so it is scheduled only alongside
-        # the other broker-dependent jobs — registering it unconditionally
-        # would reference a handler that does not exist.
-        job_ids.append(
+    # One connection for the whole batch. Opening a DuckDB connection
+    # costs about 0.17s, so registering these nine jobs separately spent
+    # ~1.5s of every startup — and of every test that builds an app — to
+    # write nine rows.
+    con = connect(service.db_path)
+    try:
+        job_ids = [
             service.register(
-                name="universe_backfill",
-                job_type="universe_backfill",
+                con=con,
+                name="dataset_freshness_sweep",
+                job_type="freshness_sweep",
+                schedule_seconds=900,
+            ),
+            service.register(
+                con=con,
+                name="governed_knowledge_sync",
+                job_type="knowledge_sync",
                 schedule_seconds=3600,
-            )
-        )
-        job_ids.append(
+            ),
             service.register(
-                name="openalgo_account_snapshot",
-                job_type="openalgo_snapshot",
-                schedule_seconds=30,
-                payload={
-                    "types": [
-                        "funds",
-                        "positionbook",
-                        "orderbook",
-                        "tradebook",
-                    ]
-                },
-                max_retries=5,
-            )
-        )
-        job_ids.append(
+                con=con,
+                name="daily_backup_restore_verification",
+                job_type="backup_restore_verification",
+                schedule_seconds=86400,
+            ),
             service.register(
-                name="price_alert_evaluation",
-                job_type="price_alert_evaluation",
+                con=con,
+                name="daily_governed_retrieval_evaluation",
+                job_type="governed_retrieval_evaluation",
+                schedule_seconds=86400,
+            ),
+            service.register(
+                con=con,
+                name="daily_retention_preview",
+                job_type="retention_preview",
+                schedule_seconds=86400,
+            ),
+            service.register(
+                con=con,
+                name="operational_alert_evaluation",
+                job_type="alert_evaluation",
                 schedule_seconds=60,
-                max_retries=5,
-            )
-        )
-    if include_market_news:
-        job_ids.append(
+            ),
+            # Autonomous agent sweep: re-run key agents and report drift.
             service.register(
-                name="market_news_refresh",
-                job_type="market_news_refresh",
-                schedule_seconds=1800,
-                max_retries=3,
+                con=con,
+                name="agent_supervisor_sweep",
+                job_type="agent_supervisor_sweep",
+                schedule_seconds=21600,  # every 6 hours
+            ),
+            service.register(
+                con=con,
+                name="arena_daily_tick",
+                job_type="arena_daily_tick",
+                schedule_seconds=86400,
+            ),
+            # One brief a day: what changed, what's stale, what degraded.
+            service.register(
+                con=con,
+                name="daily_digest",
+                job_type="daily_digest",
+                schedule_seconds=86400,
+            ),
+        ]
+        if include_openalgo:
+            # Backfill needs broker credentials, so it is scheduled only alongside
+            # the other broker-dependent jobs — registering it unconditionally
+            # would reference a handler that does not exist.
+            job_ids.append(
+                service.register(
+                    con=con,
+                    name="universe_backfill",
+                    job_type="universe_backfill",
+                    schedule_seconds=3600,
+                )
             )
-        )
-    return job_ids
+            job_ids.append(
+                service.register(
+                    con=con,
+                    name="openalgo_account_snapshot",
+                    job_type="openalgo_snapshot",
+                    schedule_seconds=30,
+                    payload={
+                        "types": [
+                            "funds",
+                            "positionbook",
+                            "orderbook",
+                            "tradebook",
+                        ]
+                    },
+                    max_retries=5,
+                )
+            )
+            job_ids.append(
+                service.register(
+                    con=con,
+                    name="price_alert_evaluation",
+                    job_type="price_alert_evaluation",
+                    schedule_seconds=60,
+                    max_retries=5,
+                )
+            )
+        if include_market_news:
+            job_ids.append(
+                service.register(
+                    con=con,
+                    name="market_news_refresh",
+                    job_type="market_news_refresh",
+                    schedule_seconds=1800,
+                    max_retries=3,
+                )
+            )
+        return job_ids
+    finally:
+        con.close()
 
 
 def operational_summary(config: AppConfig) -> dict[str, Any]:

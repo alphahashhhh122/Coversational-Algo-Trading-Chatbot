@@ -21,9 +21,26 @@ Without any credentials the platform runs fully: deterministic chat routing, edu
 ## Tests
 
 ```powershell
-python -m pytest tests/ -q            # full suite, 249 tests, ~15 min
+python -m pytest tests/ -q            # full suite, 612 tests, 17-30 min
 python -m pytest tests/test_orchestration_contracts.py -q   # fast routing contracts
 ```
+
+**Run it serially, with nothing else touching Python.** DuckDB is single-writer,
+so two pytest processes collide over the shared database and produce failures
+that look real and are not. If a run comes back red, check for a stray pytest
+process before believing it.
+
+Why it takes that long, measured rather than guessed: building the FastAPI app
+costs ~6.7s, and about 38 of those builds happen across the suite. Most of the
+rest is real work — backtests over real candles, LangGraph loops, DuckDB
+writes. `tests/_harness.py` already amortises the app across a test *class*;
+the files that still build per test do so because they need a different config
+or a patched broker at construction time, which a shared app cannot provide.
+
+An earlier plan set an 8-minute target. On the measurements above that is not
+reachable without either faking the work the slow tests exist to do, or
+redesigning the app factory for lazy service construction. Recording the real
+number is more useful than restating a target nothing meets.
 
 ## Useful checks
 
